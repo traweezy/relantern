@@ -1,0 +1,260 @@
+name: relantern
+
+x-app-environment: &app-environment
+  APP_ENV: local
+  APP_VERSION: 0.0.0-dev
+  CLOCK_MODE: ${CLOCK_MODE:-system}
+  DATABASE_HOST: postgres:5432
+  DATABASE_NAME: relantern
+  DATABASE_PASSWORD_FILE: /run/secrets/database_password
+  DATABASE_SSLMODE: disable
+  DATABASE_USER: relantern
+  GIT_SHA: ${GIT_SHA:-unknown}
+  LOG_LEVEL: info
+  SHUTDOWN_TIMEOUT: 15s
+  TEST_NOW: ${TEST_NOW:-}
+
+x-go-secrets: &go-secrets
+  - database_password
+
+services:
+  postgres:
+    image: pgvector/pgvector:0.8.6-pg18-trixie@sha256:78bf48b801e792f99e3ac62b5036fd3876e9be48afda16c1e331af1c75ceb2ff
+    environment:
+      POSTGRES_DB: relantern
+      POSTGRES_PASSWORD_FILE: /run/secrets/database_password
+      POSTGRES_USER: relantern
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U relantern -d relantern"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    ports:
+      - "127.0.0.1:${POSTGRES_PUBLISHED_PORT:-5432}:5432"
+    restart: unless-stopped
+    secrets:
+      - database_password
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    networks: [private]
+
+  minio:
+    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_PASSWORD_FILE: /run/secrets/minio_secret_key
+      MINIO_ROOT_USER_FILE: /run/secrets/minio_access_key
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9000/minio/health/live"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+    restart: unless-stopped
+    secrets:
+      - minio_access_key
+      - minio_secret_key
+    volumes:
+      - minio-data:/data
+    networks: [private]
+
+  minio-init:
+    image: quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - >-
+        export MC_HOST_relantern="http://$$(cat /run/secrets/minio_access_key):$$(cat /run/secrets/minio_secret_key)@minio:9000";
+        mc mb --ignore-existing relantern/relantern-local;
+        mc anonymous set none relantern/relantern-local
+    restart: "no"
+    secrets:
+      - minio_access_key
+      - minio_secret_key
+    networks: [private]
+
+  fake-source:
+    build:
+      context: .
+      dockerfile: deploy/docker/fake.Dockerfile
+      args:
+        TARGET: fake-source
+      target: production
+    environment:
+      <<: *app-environment
+      HTTP_PORT: "8090"
+    healthcheck:
+      test: ["CMD", "/app/provider", "healthcheck"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+    ports:
+      - "127.0.0.1:8090:8090"
+    restart: unless-stopped
+    networks: [private]
+
+  fake-openai:
+    build:
+      context: .
+      dockerfile: deploy/docker/fake.Dockerfile
+      args:
+        TARGET: fake-openai
+      target: production
+    environment:
+      <<: *app-environment
+      HTTP_PORT: "8091"
+    healthcheck:
+      test: ["CMD", "/app/provider", "healthcheck"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+    ports:
+      - "127.0.0.1:8091:8091"
+    restart: unless-stopped
+    networks: [private]
+
+  fake-delivery:
+    build:
+      context: .
+      dockerfile: deploy/docker/fake.Dockerfile
+      args:
+        TARGET: fake-delivery
+      target: production
+    environment:
+      <<: *app-environment
+      HTTP_PORT: "8092"
+    healthcheck:
+      test: ["CMD", "/app/provider", "healthcheck"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+    ports:
+      - "127.0.0.1:${FAKE_DELIVERY_PUBLISHED_PORT:-8092}:8092"
+    restart: unless-stopped
+    networks: [private]
+
+  migrate:
+    build:
+      context: .
+      dockerfile: deploy/docker/migrate.Dockerfile
+      target: production
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment: *app-environment
+    restart: "no"
+    secrets: *go-secrets
+    networks: [private]
+
+  seed:
+    build:
+      context: .
+      dockerfile: deploy/docker/migrate.Dockerfile
+      target: production
+    entrypoint: ["/app/seed"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment: *app-environment
+    restart: "no"
+    secrets: *go-secrets
+    networks: [private]
+
+  api:
+    build:
+      context: .
+      dockerfile: deploy/docker/api.Dockerfile
+      target: production
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      <<: *app-environment
+      HTTP_PORT: "8080"
+    healthcheck:
+      test: ["CMD", "/app/api", "healthcheck"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+    ports:
+      - "127.0.0.1:8080:8080"
+    restart: unless-stopped
+    secrets: *go-secrets
+    networks: [private]
+
+  worker:
+    build:
+      context: .
+      dockerfile: deploy/docker/worker.Dockerfile
+      target: production
+    depends_on:
+      fake-delivery:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      <<: *app-environment
+      FAKE_DELIVERY_URL: http://fake-delivery:8092/capture
+      HTTP_PORT: "8081"
+      PROVIDER_REQUEST_TIMEOUT: 5s
+      SCHEDULER_RECONCILE_INTERVAL: 1m
+    healthcheck:
+      test: ["CMD", "/app/worker", "healthcheck"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+    secrets: *go-secrets
+    networks: [private]
+
+  web:
+    build:
+      context: .
+      dockerfile: deploy/docker/web.Dockerfile
+      target: production
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      API_BASE_URL: http://api:8080
+      NEXT_TELEMETRY_DISABLED: "1"
+      NODE_ENV: production
+      PORT: "3000"
+    healthcheck:
+      test: ["CMD", "/nodejs/bin/node", "-e", "fetch('http://127.0.0.1:3000/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+    ports:
+      - "127.0.0.1:3000:3000"
+    restart: unless-stopped
+    networks: [private]
+
+  otel-lgtm:
+    image: grafana/otel-lgtm:0.32.0@sha256:d6b20e35890ef2f91d13944805939acdaf1e5d3ffbf9f9aed08586312826c815
+    profiles: [observability]
+    ports:
+      - "127.0.0.1:3001:3000"
+      - "127.0.0.1:4317:4317"
+      - "127.0.0.1:4318:4318"
+    networks: [private]
+
+secrets:
+  database_password:
+    file: .local/secrets/database_password
+  minio_access_key:
+    file: .local/secrets/minio_access_key
+  minio_secret_key:
+    file: .local/secrets/minio_secret_key
+
+volumes:
+  minio-data:
+  postgres-data:
+
+networks:
+  private:
+    driver: bridge

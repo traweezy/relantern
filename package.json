@@ -1,0 +1,28 @@
+{
+  "name": "relantern",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Evidence-first personal developer intelligence.",
+  "license": "UNLICENSED",
+  "packageManager": "pnpm@11.24.0",
+  "engines": {
+    "node": "24.20.0",
+    "pnpm": "11.24.0"
+  },
+  "scripts": {
+    "build": "pnpm --filter @relantern/web build",
+    "dev": "pnpm --filter @relantern/web dev",
+    "format": "biome format --write .",
+    "format:check": "biome format .",
+    "generate": "pnpm --filter @relantern/api-client generate",
+    "lint": "biome check .",
+    "test": "pnpm --recursive --if-present test",
+    "typecheck": "pnpm --recursive --if-present typecheck"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.10",
+    "openapi-typescript": "7.13.0",
+    "typescript": "5.9.3",
+    "vitest": "4.1.11"
+  }
+}

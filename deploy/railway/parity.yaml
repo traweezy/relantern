@@ -1,0 +1,27 @@
+version: 1
+services:
+  api:
+    dockerfile: deploy/docker/api.Dockerfile
+    target: production
+    healthcheck: /healthz
+    internal_port: 8080
+  worker:
+    dockerfile: deploy/docker/worker.Dockerfile
+    target: production
+    healthcheck: /healthz
+    internal_port: 8081
+  web:
+    dockerfile: deploy/docker/web.Dockerfile
+    target: production
+    healthcheck: /healthz
+    internal_port: 3000
+  migrate:
+    dockerfile: deploy/docker/migrate.Dockerfile
+    target: production
+    command: up
+database:
+  image: pgvector/pgvector:0.8.6-pg18-trixie@sha256:78bf48b801e792f99e3ac62b5036fd3876e9be48afda16c1e331af1c75ceb2ff
+clock:
+  production_mode: system
+public_services:
+  - web

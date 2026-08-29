@@ -1,0 +1,12 @@
+.git
+.github
+.local
+.next
+.pnpm-store
+Default
+coverage
+node_modules
+playwright-report
+test-results
+*.log
+*.tsbuildinfo

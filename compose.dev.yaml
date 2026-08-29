@@ -1,0 +1,58 @@
+services:
+  api:
+    build:
+      target: development
+    develop:
+      watch:
+        - action: sync+restart
+          path: ./cmd/api
+          target: /workspace/cmd/api
+        - action: sync+restart
+          path: ./internal
+          target: /workspace/internal
+        - action: rebuild
+          path: ./go.mod
+        - action: rebuild
+          path: ./go.sum
+
+  worker:
+    build:
+      target: development
+    environment:
+      SCHEDULER_RECONCILE_INTERVAL: 5s
+    develop:
+      watch:
+        - action: sync+restart
+          path: ./cmd/worker
+          target: /workspace/cmd/worker
+        - action: sync+restart
+          path: ./internal
+          target: /workspace/internal
+        - action: rebuild
+          path: ./go.mod
+        - action: rebuild
+          path: ./go.sum
+
+  web:
+    build:
+      target: development
+    environment:
+      NODE_ENV: development
+    develop:
+      watch:
+        - action: sync
+          path: ./apps/web/src
+          target: /workspace/apps/web/src
+        - action: sync
+          path: ./apps/web/public
+          target: /workspace/apps/web/public
+        - action: rebuild
+          path: ./apps/web/package.json
+        - action: rebuild
+          path: ./apps/web/next.config.ts
+        - action: rebuild
+          path: ./apps/web/tsconfig.json
+        - action: rebuild
+          path: ./packages/api-client/src/generated
+        - action: rebuild
+          path: ./pnpm-lock.yaml
