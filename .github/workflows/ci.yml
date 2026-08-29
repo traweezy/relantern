@@ -2,79 +2,286 @@ name: CI
 
 on:
   pull_request:
-    branches: [master, staging]
+    branches: [staging, master]
   push:
-    branches: [staging]
+    branches: [staging, master]
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
-  GO_VERSION: 1.27.0
-  NODE_VERSION: 24.20.0
-  PNPM_VERSION: 11.24.0
+  CI: "true"
+  APP_ENV: test
+  ALLOW_LIVE_EXTERNAL_APIS: "false"
+  ALLOW_LIVE_DELIVERY: "false"
 
 jobs:
   policy:
+    name: policy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up repository toolchains
+        uses: ./.github/actions/setup
+        with:
+          ci-tools: lint
+      - name: Check formatting, lint, and workflow syntax
+        run: |
+          make lint
+          make workflow-lint
+      - name: Enforce repository and supply-chain policy
+        run: bash scripts/policy-check.sh
+      - name: Audit JavaScript dependencies
+        run: pnpm audit --audit-level high
+
+  frontend-setup:
+    name: frontend / setup
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Node workspace
+        uses: ./.github/actions/setup
+        with:
+          go: "false"
+      - name: Verify registry signatures and peer dependencies
+        run: |
+          pnpm audit signatures
+          pnpm peers check
+      - name: Reject dependency setup drift
+        run: git diff --exit-code -- package.json pnpm-lock.yaml pnpm-workspace.yaml apps/web/package.json packages
+
+  frontend-lint:
+    name: frontend / lint
+    needs: frontend-setup
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - name: Check out repository
+      - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Enforce repository policy
-        run: bash scripts/policy-check.sh
-
-  frontend:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Install pnpm
-        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
         with:
-          version: ${{ env.PNPM_VERSION }}
-          run_install: false
-      - name: Install Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+          persist-credentials: false
+      - name: Set up Node workspace
+        uses: ./.github/actions/setup
         with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: pnpm
-      - name: Install workspace dependencies
-        run: pnpm install --frozen-lockfile
-      - name: Check formatting and lint
+          go: "false"
+      - name: Run Biome
         run: pnpm lint
-      - name: Typecheck
+
+  frontend-typecheck:
+    name: frontend / typecheck
+    needs: frontend-setup
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Node workspace
+        uses: ./.github/actions/setup
+        with:
+          go: "false"
+      - name: Run strict type checks
         run: pnpm typecheck
-      - name: Test
+
+  frontend-test:
+    name: frontend / unit tests
+    needs: frontend-setup
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Node workspace
+        uses: ./.github/actions/setup
+        with:
+          go: "false"
+      - name: Run unit tests
         run: pnpm test
+
+  frontend-build:
+    name: frontend / production build
+    needs: frontend-setup
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Node workspace
+        uses: ./.github/actions/setup
+        with:
+          go: "false"
       - name: Build production web application
         run: pnpm build
 
-  go:
+  frontend:
+    name: frontend
+    if: ${{ always() }}
+    needs:
+      - frontend-setup
+      - frontend-lint
+      - frontend-typecheck
+      - frontend-test
+      - frontend-build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require every frontend job
+        env:
+          SETUP_RESULT: ${{ needs.frontend-setup.result }}
+          LINT_RESULT: ${{ needs.frontend-lint.result }}
+          TYPECHECK_RESULT: ${{ needs.frontend-typecheck.result }}
+          TEST_RESULT: ${{ needs.frontend-test.result }}
+          BUILD_RESULT: ${{ needs.frontend-build.result }}
+        run: |
+          for result in \
+            "${SETUP_RESULT}" \
+            "${LINT_RESULT}" \
+            "${TYPECHECK_RESULT}" \
+            "${TEST_RESULT}" \
+            "${BUILD_RESULT}"; do
+            [[ "${result}" == "success" ]] || exit 1
+          done
+
+  go-setup:
+    name: go / setup
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Go workspace
+        uses: ./.github/actions/setup
+        with:
+          node: "false"
+      - name: Verify module content
+        run: |
+          go mod verify
+          go list -deps ./... >/dev/null
+      - name: Reject dependency setup drift
+        run: git diff --exit-code -- go.mod go.sum
+
+  go-build:
+    name: go / build
+    needs: go-setup
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Go workspace
+        uses: ./.github/actions/setup
+        with:
+          node: "false"
+      - name: Build production commands
+        run: go build -trimpath ./cmd/...
+
+  go-analysis:
+    name: go / static analysis
+    needs: go-setup
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Go workspace
+        uses: ./.github/actions/setup
+        with:
+          node: "false"
+      - name: Verify formatting
+        run: test -z "$(gofmt -l .)"
+      - name: Run Go vet
+        run: go vet ./...
+
+  go-test:
+    name: go / race tests
+    needs: go-setup
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
-      - name: Check out repository
+      - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Install Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: ${{ env.GO_VERSION }}
-          cache-dependency-path: go.sum
-      - name: Verify formatting
-        run: test -z "$(gofmt -l .)"
-      - name: Vet
-        run: go vet ./...
+          persist-credentials: false
+      - name: Set up Go workspace
+        uses: ./.github/actions/setup
+        with:
+          node: "false"
       - name: Test with race detection
-        run: go test -race ./...
+        run: go test -race -shuffle=on -count=1 ./...
+
+  go-vulnerability:
+    name: go / vulnerability analysis
+    needs: go-setup
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Go workspace
+        uses: ./.github/actions/setup
+        with:
+          node: "false"
+      - name: Run govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...
+
+  go:
+    name: go
+    if: ${{ always() }}
+    needs:
+      - go-setup
+      - go-build
+      - go-analysis
+      - go-test
+      - go-vulnerability
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require every Go job
+        env:
+          SETUP_RESULT: ${{ needs.go-setup.result }}
+          BUILD_RESULT: ${{ needs.go-build.result }}
+          ANALYSIS_RESULT: ${{ needs.go-analysis.result }}
+          TEST_RESULT: ${{ needs.go-test.result }}
+          VULNERABILITY_RESULT: ${{ needs.go-vulnerability.result }}
+        run: |
+          for result in \
+            "${SETUP_RESULT}" \
+            "${BUILD_RESULT}" \
+            "${ANALYSIS_RESULT}" \
+            "${TEST_RESULT}" \
+            "${VULNERABILITY_RESULT}"; do
+            [[ "${result}" == "success" ]] || exit 1
+          done
 
   db-integration:
+    name: db-integration
+    needs: go-setup
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     services:
@@ -92,16 +299,16 @@ jobs:
           --health-timeout 3s
           --health-retries 30
     env:
-      APP_ENV: test
       DATABASE_URL: postgres://relantern:relantern_ci_only@127.0.0.1:5432/relantern?sslmode=disable
     steps:
-      - name: Check out repository
+      - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Install Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: ${{ env.GO_VERSION }}
-          cache-dependency-path: go.sum
+          persist-credentials: false
+      - name: Set up Go workspace
+        uses: ./.github/actions/setup
+        with:
+          node: "false"
       - name: Apply migrations and seed
         run: |
           go run ./cmd/migrate up
@@ -110,56 +317,54 @@ jobs:
         run: go test ./internal/database/... ./internal/scheduler/...
 
   contract-drift:
+    name: contract-drift
+    needs: [frontend-setup, go-setup]
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
-      - name: Check out repository
+      - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Install Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: ${{ env.GO_VERSION }}
-          cache-dependency-path: go.sum
-      - name: Install pnpm
-        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
-        with:
-          version: ${{ env.PNPM_VERSION }}
-          run_install: false
-      - name: Install Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: pnpm
-      - name: Install and generate
-        run: |
-          pnpm install --frozen-lockfile
-          make generate
+          persist-credentials: false
+      - name: Set up repository toolchains
+        uses: ./.github/actions/setup
+      - name: Generate contracts
+        run: make generate
       - name: Require clean generated tree
         run: git diff --exit-code -- contracts/openapi.yaml internal/database/sqlcdb packages/api-client/src/generated/schema.ts
 
   source-fixtures:
+    name: source-fixtures
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - name: Check out repository
+      - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Verify disabled PR 0 registry
         run: make sources-verify
 
   security:
-    if: github.event_name == 'pull_request'
+    name: security
+    needs: go-setup
     runs-on: ubuntu-24.04
     timeout-minutes: 15
-    permissions:
-      contents: read
-      pull-requests: write
     steps:
-      - name: Check out repository
+      - name: Check out source history
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Review dependency changes
-        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up Go workspace
+        uses: ./.github/actions/setup
+        with:
+          node: "false"
+      - name: Scan Git history for secrets
+        run: go run github.com/zricethezav/gitleaks/v8@v8.30.1 git --redact --no-banner
 
-  container-build:
+  container-build-service:
+    name: container / ${{ matrix.service }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     strategy:
@@ -167,8 +372,10 @@ jobs:
       matrix:
         service: [api, migrate, web, worker]
     steps:
-      - name: Check out repository
+      - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Configure Buildx
         uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
       - name: Build exact production stage
@@ -179,41 +386,40 @@ jobs:
           push: false
           target: production
 
-  e2e:
-    needs: [frontend, go]
+  container-build:
+    name: container-build
+    if: ${{ always() }}
+    needs: container-build-service
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 5
     steps:
-      - name: Check out repository
+      - name: Require every container build
+        env:
+          BUILD_RESULT: ${{ needs.container-build-service.result }}
+        run: test "${BUILD_RESULT}" = "success"
+
+  e2e:
+    name: e2e
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Record PR 0 boundary
+        with:
+          persist-credentials: false
+      - name: Record PR 0 browser-test boundary
         run: test -f docs/demo-route-contract.md
 
   demo:
-    needs: [frontend]
+    name: demo
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 5
     steps:
-      - name: Check out repository
+      - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Verify anonymous demo isolation contract
         run: |
-          rg -q 'noindex,nofollow' docs/demo-route-contract.md
-          ! rg -n '@relantern/api-client|/api/v1|/api/auth' apps/web/src/app/demo
-
-  codeql:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    permissions:
-      actions: read
-      contents: read
-      security-events: write
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Initialize CodeQL
-        uses: github/codeql-action/init@486fec2a3ea2626afcd8c7e9208b4f515078dd7e # codeql-bundle-v2.26.4
-        with:
-          languages: actions,go,javascript-typescript
-      - name: Analyze
-        uses: github/codeql-action/analyze@486fec2a3ea2626afcd8c7e9208b4f515078dd7e # codeql-bundle-v2.26.4
+          grep -Eq 'noindex,nofollow' docs/demo-route-contract.md
+          ! grep -REn '@relantern/api-client|/api/v1|/api/auth' apps/web/src/app/demo

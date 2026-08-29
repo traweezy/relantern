@@ -107,10 +107,19 @@ PostgreSQL `18.6` and vector extension `0.8.6`.
 | `actions/upload-artifact` | 7.0.1 | `043fb46d1a93c77aae656e7c1c64a875d1fc6a0a` |
 | `actions/download-artifact` | 8.0.1 | `3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c` |
 | `actions/dependency-review-action` | 5.0.0 | `a1d282b36b6f3519aa1f3fc636f609c47dddb294` |
-| `github/codeql-action` | bundle 2.26.4 | `486fec2a3ea2626afcd8c7e9208b4f515078dd7e` |
+| `github/codeql-action` | 4.37.9 / bundle 2.26.4 | `cdf488f595d80d6e07e03d4674febd5ab45fa938` |
 | `docker/setup-buildx-action` | 4.3.0 | `37fe631027851001ddb9b187196cc803df7f5f0e` |
 | `docker/build-push-action` | 7.3.0 | `53b7df96c91f9c12dcc8a07bcb9ccacbed38856a` |
 | `pnpm/action-setup` | 6.0.10 | `0977fd99725f1db4007ccb2928dbb4e90d06cc86` |
+
+## CI validation tools
+
+| Tool | Version | Integrity policy |
+|---|---:|---|
+| ripgrep | 15.2.0 | Linux x86_64 archive pinned to SHA-256 `33e15bcf1624b25cdd2a55813a47a2f95dbe126268203e76aa6a585d1e7b149c` |
+| actionlint | 1.7.12 | Go module version pinned in the workflow lint target |
+| gitleaks | 8.30.1 | Go module version pinned in the security job |
+| govulncheck | 1.7.0 | Go module version pinned in the Go vulnerability job |
 
 ## Compatibility holds and exceptions
 

@@ -21,14 +21,32 @@ if rg -n 'NEXT_PUBLIC_(?!APP_VERSION|BUILD_SHA)' --pcre2 \
   exit 1
 fi
 
-if rg -n '^\s*uses:\s*[^#[:space:]]+@(v[0-9]+|main|master|latest)\s*(#.*)?$' .github/workflows; then
+if rg -n '^\s*uses:\s*[^#[:space:]]+@(v[0-9]+|main|master|latest)\s*(#.*)?$' \
+  --glob '*.{yaml,yml}' .github; then
   printf 'Floating GitHub Action reference detected.\n' >&2
   exit 1
 fi
 
-unpinned_actions="$(rg '^\s*uses:' .github/workflows | rg -v '@[0-9a-f]{40}(\s|$)' || true)"
+unpinned_actions="$(rg '^\s*uses:' --glob '*.{yaml,yml}' .github \
+  | rg -v '^.*uses:\s*\./' \
+  | rg -v '@[0-9a-f]{40}(\s|$)' || true)"
 if [[ -n "${unpinned_actions}" ]]; then
   printf 'Every GitHub Action must use a full commit SHA:\n%s\n' "${unpinned_actions}" >&2
+  exit 1
+fi
+
+unlabeled_actions="$(rg '^\s*uses:' --glob '*.{yaml,yml}' .github \
+  | rg -v '^.*uses:\s*\./' \
+  | rg -v '# v[0-9]' || true)"
+if [[ -n "${unlabeled_actions}" ]]; then
+  printf 'Every external action pin needs a release comment:\n%s\n' "${unlabeled_actions}" >&2
+  exit 1
+fi
+
+checkout_count="$(rg '^\s*uses:\s*actions/checkout@' --glob '*.{yaml,yml}' .github | wc -l)"
+nonpersistent_count="$(rg '^\s*persist-credentials:\s*false$' --glob '*.{yaml,yml}' .github | wc -l)"
+if [[ "${checkout_count}" -ne "${nonpersistent_count}" ]]; then
+  printf 'Every checkout must explicitly disable persisted credentials.\n' >&2
   exit 1
 fi
 

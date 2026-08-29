@@ -6,7 +6,7 @@ COMPOSE_DEV := docker compose -f compose.yaml -f compose.dev.yaml
 GO := bash scripts/go-tool.sh
 PNPM := bash scripts/pnpm-tool.sh
 
-.PHONY: help doctor secrets bootstrap dev dev-live ps logs stop watch test test-unit test-integration test-e2e lint typecheck format generate generate-check migrate migration seed sources-verify fixtures-record eval scheduler-tick digest-preview digest-run test-scheduler test-dst time-travel time-travel-clean observability config-check demo demo-audit prepush prodlike prodlike-smoke sbom clean reset
+.PHONY: help doctor secrets bootstrap dev dev-live ps logs stop watch test test-unit test-integration test-e2e lint workflow-lint typecheck format generate generate-check migrate migration seed sources-verify fixtures-record eval scheduler-tick digest-preview digest-run test-scheduler test-dst time-travel time-travel-clean observability config-check demo demo-audit prepush prodlike prodlike-smoke sbom clean reset
 
 help:
 	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z0-9_-]+:.*## / {printf "%-22s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -66,6 +66,9 @@ lint: ## Run Biome, gofmt verification, and Go vet
 	bash scripts/gofmt-check.sh
 	$(GO) vet ./...
 
+workflow-lint: ## Validate GitHub Actions with pinned actionlint
+	@if actionlint -version >/dev/null 2>&1; then actionlint; else $(GO) run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12; fi
+
 format: ## Format supported source files
 	$(PNPM) format
 	$(GO) fmt ./...
@@ -93,7 +96,7 @@ seed: secrets ## Apply the idempotent local owner and schedule seed
 
 sources-verify: ## Verify that live ingestion remains disabled in PR 0
 	@test -f sources/registry.yaml
-	@rg -q '^enabled: false$$' sources/registry.yaml
+	@grep -Eq '^enabled: false$$' sources/registry.yaml
 
 fixtures-record: ## Refuse live fixture recording until ingestion is approved
 	@printf 'Fixture recording is intentionally unavailable in PR 0.\n' >&2
@@ -141,7 +144,7 @@ demo-audit: ## Validate the demo's current static isolation contract
 	$(PNPM) --filter @relantern/web build
 	@rg -q 'noindex,nofollow' docs/demo-route-contract.md
 
-prepush: lint typecheck test generate-check config-check ## Run required local fast release gates
+prepush: lint workflow-lint typecheck test generate-check config-check ## Run required local fast release gates
 	bash scripts/policy-check.sh
 	$(GO) test -race ./...
 	$(PNPM) build

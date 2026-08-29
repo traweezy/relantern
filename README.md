@@ -40,6 +40,12 @@ make prodlike-smoke
 make stop
 ```
 
+`make workflow-lint` validates all GitHub workflow and local composite-action
+files with the pinned actionlint release. CI warms the pnpm and Go caches in
+setup gates, then runs the independent frontend and Go checks in parallel. See
+[ADR-011](docs/adr/011-parallel-github-actions.md) for the graph and plan-aware
+security gates.
+
 `make reset` is destructive and requires confirmation. It targets only the
 validated Relantern Compose project and its volumes.
 
