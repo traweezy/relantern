@@ -11,10 +11,10 @@ The implementation authority is
 
 ## Current phase
 
-The reproducible foundation, database/API skeleton, parallel CI graph, and
-reviewed source-registry contract are implemented. Live ingestion and provider
-access remain intentionally disabled until the SSRF-safe fetcher in PR 4 is
-implemented and approved.
+The reproducible foundation, database/API skeleton, parallel CI graph, reviewed
+source registry, and bounded PR 4 fetch/storage boundary are implemented. Live
+source ingestion and provider access remain intentionally disabled pending an
+explicit owner rollout after parsing and scheduling are implemented.
 
 ## Safe local workflow
 
@@ -52,6 +52,11 @@ source endpoints and the deterministic fixture catalog. The forward-migration
 release command mirrors built-ins into PostgreSQL as paused entries; no poll is
 scheduled while the registry network fuse is off. See
 [ADR-012](docs/adr/012-reviewed-source-registry.md).
+
+`make test-integration` validates additive migrations, checkpoint persistence,
+the safe worker path, and staged content-addressed object operations against
+the loopback-only PostgreSQL and MinIO services. No publisher endpoint is
+contacted. See [ADR-013](docs/adr/013-bounded-fetch-and-raw-storage.md).
 
 `make reset` is destructive and requires confirmation. It targets only the
 validated Relantern Compose project and its volumes.
