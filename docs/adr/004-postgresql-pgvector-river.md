@@ -12,10 +12,13 @@ transactional jobs, and replay without unnecessary infrastructure.
 
 Use PostgreSQL 18.6, pgvector 0.8.6, pgx/v5, sqlc, and River OSS. Application
 tables own schedule definitions and occurrences; River wakes reconciliation and
-executes typed jobs.
+executes typed jobs. The one-shot migration service applies River's bundled,
+versioned migrations in a dedicated `river` schema after application Goose
+migrations establish that schema.
 
 ## Consequences
 
 Business state, outbox events, and jobs can commit atomically. Redis, Kafka,
 Temporal, Elasticsearch, and a separate vector database require measured
-triggers before adoption.
+triggers before adoption. The concrete queue, retry, and schedule execution
+contract is recorded in ADR-015.

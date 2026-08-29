@@ -63,6 +63,60 @@ func TestDailyEightAMProducesOneLocalDateOccurrenceAcrossTenYears(t *testing.T) 
 	}
 }
 
+func TestDSTGapAndFoldRulesHoldAcrossTenYears(t *testing.T) {
+	t.Parallel()
+
+	location, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Fatalf("LoadLocation() error = %v", err)
+	}
+	fallBackDefinition := mustDefinition(t, scheduler.LocalTime{Hour: 1, Minute: 30})
+	springForwardDefinition := mustDefinition(t, scheduler.LocalTime{Hour: 2, Minute: 30})
+
+	for year := 2026; year < 2036; year++ {
+		fallBackDate := firstSunday(year, time.November)
+		fallBackAfter := time.Date(
+			fallBackDate.Year(),
+			fallBackDate.Month(),
+			fallBackDate.Day(),
+			0,
+			0,
+			0,
+			0,
+			location,
+		).Add(-time.Second)
+		fallBack, nextErr := scheduler.NextOccurrence(fallBackAfter, fallBackDefinition)
+		if nextErr != nil {
+			t.Fatalf("year %d fall back: NextOccurrence() error = %v", year, nextErr)
+		}
+		fallBackLocal := fallBack.In(location)
+		_, fallBackOffset := fallBackLocal.Zone()
+		if fallBackLocal.Hour() != 1 || fallBackLocal.Minute() != 30 || fallBackOffset != -4*60*60 {
+			t.Fatalf("year %d: fall-back occurrence = %s offset %d", year, fallBackLocal, fallBackOffset)
+		}
+
+		springForwardDate := secondSunday(year, time.March)
+		springForwardAfter := time.Date(
+			springForwardDate.Year(),
+			springForwardDate.Month(),
+			springForwardDate.Day(),
+			0,
+			0,
+			0,
+			0,
+			location,
+		).Add(-time.Second)
+		springForward, nextErr := scheduler.NextOccurrence(springForwardAfter, springForwardDefinition)
+		if nextErr != nil {
+			t.Fatalf("year %d spring forward: NextOccurrence() error = %v", year, nextErr)
+		}
+		springForwardLocal := springForward.In(location)
+		if springForwardLocal.Hour() != 3 || springForwardLocal.Minute() != 0 {
+			t.Fatalf("year %d: spring-forward occurrence = %s", year, springForwardLocal)
+		}
+	}
+}
+
 func mustDefinition(t *testing.T, localTime scheduler.LocalTime) scheduler.Definition {
 	t.Helper()
 	definition, err := scheduler.NewDefinition(
