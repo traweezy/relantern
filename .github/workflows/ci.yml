@@ -250,6 +250,46 @@ jobs:
       - name: Run govulncheck
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...
 
+  storage-integration:
+    name: storage-integration
+    needs: go-setup
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      S3_TEST_ACCESS_KEY: relantern_ci
+      S3_TEST_BUCKET: relantern-ci
+      S3_TEST_ENDPOINT: http://127.0.0.1:9000
+      S3_TEST_SECRET_KEY: relantern_ci_only
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Go workspace
+        uses: ./.github/actions/setup
+        with:
+          node: "false"
+      - name: Start private object storage
+        run: >-
+          docker run --detach --name relantern-minio-ci
+          --publish 127.0.0.1:9000:9000
+          --env MINIO_ROOT_USER="${S3_TEST_ACCESS_KEY}"
+          --env MINIO_ROOT_PASSWORD="${S3_TEST_SECRET_KEY}"
+          quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
+          server /data
+      - name: Wait for private object storage
+        run: |
+          for _ in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:9000/minio/health/live >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs relantern-minio-ci
+          exit 1
+      - name: Verify staged and immutable object operations
+        run: go test ./internal/storage/s3store -count=1
+
   go:
     name: go
     if: ${{ always() }}
@@ -259,6 +299,7 @@ jobs:
       - go-analysis
       - go-test
       - go-vulnerability
+      - storage-integration
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -269,13 +310,15 @@ jobs:
           ANALYSIS_RESULT: ${{ needs.go-analysis.result }}
           TEST_RESULT: ${{ needs.go-test.result }}
           VULNERABILITY_RESULT: ${{ needs.go-vulnerability.result }}
+          STORAGE_RESULT: ${{ needs.storage-integration.result }}
         run: |
           for result in \
             "${SETUP_RESULT}" \
             "${BUILD_RESULT}" \
             "${ANALYSIS_RESULT}" \
             "${TEST_RESULT}" \
-            "${VULNERABILITY_RESULT}"; do
+            "${VULNERABILITY_RESULT}" \
+            "${STORAGE_RESULT}"; do
             [[ "${result}" == "success" ]] || exit 1
           done
 
@@ -313,8 +356,8 @@ jobs:
         run: |
           go run ./cmd/migrate up
           go run ./cmd/seed
-      - name: Verify database extensions
-        run: go test ./internal/database/... ./internal/scheduler/... ./internal/sources/...
+      - name: Verify database adapters
+        run: go test ./internal/database/... ./internal/fetcher/pgstore/... ./internal/scheduler/... ./internal/sources/...
 
   contract-drift:
     name: contract-drift

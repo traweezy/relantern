@@ -33,8 +33,8 @@ dev: secrets ## Start the safe hot-reload stack
 watch: ## Attach Compose Watch to an already-running development stack
 	$(COMPOSE_DEV) watch --no-up
 
-dev-live: ## Refuse live providers until the post-PR-0 implementation phase
-	@printf 'Live providers are intentionally unavailable in PR 0.\n' >&2
+dev-live: ## Refuse live providers until an explicit owner rollout
+	@printf 'Live providers are disabled pending a separately reviewed owner rollout.\n' >&2
 	@exit 1
 
 ps: ## Show service state and health
@@ -52,11 +52,22 @@ test-unit: ## Run Go and TypeScript unit tests
 	$(GO) test ./...
 	$(PNPM) test
 
-test-integration: secrets ## Run migration and scheduler integration smoke checks
-	$(COMPOSE_BASE) up -d --wait postgres fake-delivery
+test-integration: secrets ## Run database, object-storage, and worker integration checks
+	$(COMPOSE_BASE) up -d --wait postgres minio fake-delivery
+	$(COMPOSE_BASE) run --rm minio-init
 	$(COMPOSE_BASE) run --rm migrate up
 	$(COMPOSE_BASE) run --rm seed
-	$(COMPOSE_BASE) run --rm worker once
+	$(COMPOSE_BASE) run --rm --build worker once
+	@IFS= read -r relantern_database_secret < .local/secrets/database_password; \
+		DATABASE_URL="postgres://relantern:$${relantern_database_secret}@127.0.0.1:5432/relantern?sslmode=disable" \
+		$(GO) test ./internal/fetcher/pgstore ./internal/sources/pgstore -count=1
+	@IFS= read -r relantern_s3_access < .local/secrets/minio_access_key; \
+		IFS= read -r relantern_s3_secret < .local/secrets/minio_secret_key; \
+		S3_TEST_ENDPOINT=http://127.0.0.1:9000 \
+		S3_TEST_BUCKET=relantern-local \
+		S3_TEST_ACCESS_KEY="$${relantern_s3_access}" \
+		S3_TEST_SECRET_KEY="$${relantern_s3_secret}" \
+		$(GO) test ./internal/storage/s3store -count=1
 
 test-e2e: ## Run the PR 0 production-build smoke in lieu of product flows
 	$(PNPM) --filter @relantern/web build
@@ -97,8 +108,8 @@ seed: secrets ## Apply the idempotent local owner and schedule seed
 sources-verify: ## Strictly validate the reviewed registry and connector fixtures
 	$(GO) run ./cmd/sourcectl verify --registry sources/registry.yaml --fixtures sources/fixtures.yaml
 
-fixtures-record: ## Refuse live fixture recording until ingestion is approved
-	@printf 'Live fixture recording is unavailable until the PR 4 fetcher is approved.\n' >&2
+fixtures-record: ## Refuse live fixture recording until separately authorized
+	@printf 'Live fixture recording remains disabled and requires explicit review.\n' >&2
 	@exit 1
 
 eval: ## Run deterministic zero-network evaluation fixtures

@@ -24,8 +24,8 @@ Relantern's smaller stack:
 - Use `frontend / setup` and `go / setup` as dependency-integrity gates that
   populate the official setup-action caches before parallel fan-out.
 - Run frontend lint, typecheck, unit tests, and production build in parallel.
-- Run Go build, static analysis, race tests, and vulnerability analysis in
-  parallel.
+- Run Go build, static analysis, race tests, vulnerability analysis, and the
+  disposable MinIO storage integration in parallel.
 - Preserve stable aggregate checks named `frontend` and `go`, plus the exact
   policy, database, contract, source, security, container, browser, and demo
   names required by the build specification.
@@ -62,11 +62,13 @@ flowchart LR
   GS --> GA[static analysis]
   GS --> GT[race tests]
   GS --> GV[vulnerability analysis]
+  GS --> SI[storage integration]
   GS --> S[source-fixtures]
   GB --> G[go]
   GA --> G
   GT --> G
   GV --> G
+  SI --> G
 
   P[policy]
   E[e2e boundary]
@@ -75,9 +77,10 @@ flowchart LR
 ```
 
 The policy, browser-boundary, demo, and container checks start immediately
-alongside both setup gates. Database, security, and source-fixture jobs depend
-only on `go / setup`; contract drift depends on both setup gates so it restores
-warm Go and pnpm caches.
+alongside both setup gates. Database, storage, security, and source-fixture
+jobs depend only on `go / setup`; contract drift depends on both setup gates so
+it restores warm Go and pnpm caches. Storage joins the stable `go` aggregate so
+an S3 regression cannot be hidden by otherwise green unit checks.
 
 ## Consequences
 
