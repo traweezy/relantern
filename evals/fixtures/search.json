@@ -1,0 +1,64 @@
+{
+  "schemaVersion": 1,
+  "requiredMeanReciprocalRank": 0.9,
+  "requiredRecallAt5": 1,
+  "cases": [
+    {
+      "name": "exact package lookup",
+      "relevantIds": ["postgresql"],
+      "keyword": [{ "id": "postgresql", "rank": 1 }, { "id": "mysql", "rank": 2 }],
+      "semantic": [{ "id": "postgresql", "rank": 2 }, { "id": "database-theory", "rank": 1 }]
+    },
+    {
+      "name": "semantic availability concept",
+      "relevantIds": ["postgresql-ha"],
+      "keyword": [{ "id": "resilience-patterns", "rank": 1 }],
+      "semantic": [{ "id": "postgresql-ha", "rank": 1 }, { "id": "resilience-patterns", "rank": 2 }]
+    },
+    {
+      "name": "runtime diagnostics",
+      "relevantIds": ["node-diagnostics"],
+      "keyword": [
+        { "id": "node-diagnostics", "rank": 1 },
+        { "id": "browser-diagnostics", "rank": 2 }
+      ],
+      "semantic": [{ "id": "node-diagnostics", "rank": 1 }, { "id": "go-tracing", "rank": 2 }]
+    },
+    {
+      "name": "security remediation",
+      "relevantIds": ["security-advisory"],
+      "keyword": [
+        { "id": "security-advisory", "rank": 2 },
+        { "id": "security-overview", "rank": 1 }
+      ],
+      "semantic": [
+        { "id": "security-advisory", "rank": 1 },
+        { "id": "security-overview", "rank": 3 }
+      ]
+    },
+    {
+      "name": "typescript migration",
+      "relevantIds": ["typescript-migration"],
+      "keyword": [
+        { "id": "typescript-migration", "rank": 1 },
+        { "id": "javascript-release", "rank": 2 }
+      ],
+      "semantic": [
+        { "id": "typescript-migration", "rank": 2 },
+        { "id": "compiler-theory", "rank": 1 }
+      ]
+    },
+    {
+      "name": "container supply chain",
+      "relevantIds": ["container-signing"],
+      "keyword": [
+        { "id": "container-signing", "rank": 1 },
+        { "id": "container-runtime", "rank": 2 }
+      ],
+      "semantic": [
+        { "id": "container-signing", "rank": 1 },
+        { "id": "artifact-storage", "rank": 2 }
+      ]
+    }
+  ]
+}
