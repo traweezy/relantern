@@ -16,14 +16,26 @@ func Run(arguments []string, logger *slog.Logger, kind Kind, defaultPort uint16)
 	if len(arguments) > 0 && arguments[0] == "healthcheck" {
 		return Healthcheck(defaultPort)
 	}
-	if _, err := config.LoadCommon(); err != nil {
+	common, err := config.LoadCommon()
+	if err != nil {
 		return fmt.Errorf("load common configuration: %w", err)
 	}
 	httpConfig, err := config.LoadHTTP(defaultPort)
 	if err != nil {
 		return fmt.Errorf("load HTTP configuration: %w", err)
 	}
-	handler, err := New(kind, logger)
+	providerOptions := Options{}
+	if kind == KindSource {
+		oauthConfig, loadError := config.LoadLocalOAuthStub(common.Environment)
+		if loadError != nil {
+			return fmt.Errorf("load local OAuth stub configuration: %w", loadError)
+		}
+		providerOptions.LocalOAuth = &LocalOAuthOptions{
+			ClientSecret:      oauthConfig.ClientSecret,
+			OwnerGitHubUserID: oauthConfig.OwnerGitHubUserID,
+		}
+	}
+	handler, err := NewWithOptions(kind, logger, providerOptions)
 	if err != nil {
 		return err
 	}
