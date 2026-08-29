@@ -1,0 +1,14 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "baseBranches": ["staging"],
+  "dependencyDashboard": true,
+  "extends": ["config:best-practices"],
+  "minimumReleaseAge": "7 days",
+  "rangeStrategy": "pin",
+  "schedule": ["before 6am on monday"],
+  "separateMajorMinor": true,
+  "vulnerabilityAlerts": {
+    "enabled": true,
+    "labels": ["security"]
+  }
+}
