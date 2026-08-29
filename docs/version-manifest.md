@@ -74,6 +74,7 @@ and [Better Auth 1.7 changelog](https://better-auth.com/changelog).
 | `github.com/robfig/cron/v3` | 3.0.1 | Audited |
 | `github.com/mmcdole/gofeed` | 1.4.2 | Audited |
 | `codeberg.org/readeck/go-readability/v2` | 2.1.2 | Audited |
+| `github.com/minio/minio-go/v7` | 7.3.0 | Pinned Apache-2.0 S3-compatible streaming client; released 2026-08-15 |
 | `github.com/openai/openai-go/v3` | 3.54.0 | Audited; wait for release-age gate before use |
 | `go.opentelemetry.io/otel` | 1.46.0 | Audited; wait for release-age gate before use |
 | `github.com/sqlc-dev/sqlc` | 1.31.1 | Audited for database PR |

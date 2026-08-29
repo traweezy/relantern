@@ -1,6 +1,6 @@
 version: 1
 # Runtime network fuse. Records are reviewed, but fetching stays unavailable
-# until the PR 4 SSRF-safe client and checkpoint implementation are approved.
+# until the owner explicitly approves a staged ingestion rollout.
 enabled: false
 contact: https://github.com/traweezy
 

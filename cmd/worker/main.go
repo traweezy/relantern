@@ -7,12 +7,14 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 	_ "time/tzdata"
 
 	"github.com/traweezy/relantern/internal/config"
 	"github.com/traweezy/relantern/internal/database"
 	"github.com/traweezy/relantern/internal/scheduler"
 	"github.com/traweezy/relantern/internal/service"
+	"github.com/traweezy/relantern/internal/storage/s3store"
 	"github.com/traweezy/relantern/internal/worker"
 )
 
@@ -44,6 +46,10 @@ func run(arguments []string, logger *slog.Logger) error {
 	if err != nil {
 		return fmt.Errorf("load worker configuration: %w", err)
 	}
+	objectStorageConfig, err := config.LoadObjectStorage(common.Environment)
+	if err != nil {
+		return fmt.Errorf("load object-storage configuration: %w", err)
+	}
 	httpConfig, err := config.LoadHTTP(8081)
 	if err != nil {
 		return fmt.Errorf("load HTTP configuration: %w", err)
@@ -56,6 +62,21 @@ func run(arguments []string, logger *slog.Logger) error {
 		return err
 	}
 	defer pool.Close()
+	rawStore, err := s3store.New(s3store.Config{
+		Endpoint:  objectStorageConfig.Endpoint,
+		Bucket:    objectStorageConfig.Bucket,
+		Region:    objectStorageConfig.Region,
+		AccessKey: objectStorageConfig.AccessKey,
+		SecretKey: objectStorageConfig.SecretKey,
+	})
+	if err != nil {
+		return fmt.Errorf("create raw object store: %w", err)
+	}
+	storageContext, cancelStorageCheck := context.WithTimeout(rootContext, 5*time.Second)
+	defer cancelStorageCheck()
+	if err := rawStore.Check(storageContext); err != nil {
+		return fmt.Errorf("check raw object store: %w", err)
+	}
 
 	reconciler := scheduler.NewReconciler(pool, common.Clock, "relantern:schedule-reconciler:v1")
 	processor := worker.NewProcessor(pool, workerConfig.DeliveryURL, workerConfig.RequestTimeout)

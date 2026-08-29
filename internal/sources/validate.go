@@ -153,7 +153,7 @@ func validateRegistry(registry Registry, catalog FixtureCatalog, now time.Time) 
 		validationErrors = append(validationErrors, fmt.Errorf("registry version must be %d", RegistryVersion))
 	}
 	if registry.Enabled {
-		validationErrors = append(validationErrors, errors.New("live source fetching must remain disabled until PR 4"))
+		validationErrors = append(validationErrors, errors.New("live source fetching requires a separately reviewed owner rollout"))
 	}
 	if err := validateHTTPSURL(registry.Contact); err != nil {
 		validationErrors = append(validationErrors, fmt.Errorf("registry contact: %w", err))

@@ -19,6 +19,11 @@ x-app-environment: &app-environment
 x-go-secrets: &go-secrets
   - database_password
 
+x-worker-secrets: &worker-secrets
+  - database_password
+  - minio_access_key
+  - minio_secret_key
+
 services:
   postgres:
     image: pgvector/pgvector:0.8.6-pg18-trixie@sha256:78bf48b801e792f99e3ac62b5036fd3876e9be48afda16c1e331af1c75ceb2ff
@@ -196,12 +201,19 @@ services:
     depends_on:
       fake-delivery:
         condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
       migrate:
         condition: service_completed_successfully
     environment:
       <<: *app-environment
       FAKE_DELIVERY_URL: http://fake-delivery:8092/capture
       HTTP_PORT: "8081"
+      OBJECT_STORAGE_ACCESS_KEY_FILE: /run/secrets/minio_access_key
+      OBJECT_STORAGE_BUCKET: relantern-local
+      OBJECT_STORAGE_ENDPOINT: http://minio:9000
+      OBJECT_STORAGE_REGION: us-east-1
+      OBJECT_STORAGE_SECRET_KEY_FILE: /run/secrets/minio_secret_key
       PROVIDER_REQUEST_TIMEOUT: 5s
       SCHEDULER_RECONCILE_INTERVAL: 1m
     healthcheck:
@@ -210,7 +222,7 @@ services:
       timeout: 3s
       retries: 30
     restart: unless-stopped
-    secrets: *go-secrets
+    secrets: *worker-secrets
     networks: [private]
 
   web:

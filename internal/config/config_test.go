@@ -44,3 +44,28 @@ func TestLoadSourcesUsesExplicitPaths(t *testing.T) {
 		t.Fatalf("FixturesPath = %q", settings.FixturesPath)
 	}
 }
+
+func TestLoadObjectStorageAllowsExplicitLocalHTTPOrigin(t *testing.T) {
+	t.Setenv("OBJECT_STORAGE_ENDPOINT", "http://minio:9000")
+	t.Setenv("OBJECT_STORAGE_BUCKET", "relantern-test")
+	t.Setenv("OBJECT_STORAGE_ACCESS_KEY", "fixture-access")
+	t.Setenv("OBJECT_STORAGE_SECRET_KEY", "fixture-secret")
+
+	settings, err := config.LoadObjectStorage(config.EnvironmentTest)
+	if err != nil {
+		t.Fatalf("LoadObjectStorage() error = %v", err)
+	}
+	if settings.Endpoint != "http://minio:9000" || settings.Bucket != "relantern-test" {
+		t.Fatalf("LoadObjectStorage() = %+v", settings)
+	}
+}
+
+func TestLoadObjectStorageRequiresHTTPSOutsideLocalAndTest(t *testing.T) {
+	t.Setenv("OBJECT_STORAGE_ENDPOINT", "http://storage.internal:9000")
+	t.Setenv("OBJECT_STORAGE_ACCESS_KEY", "fixture-access")
+	t.Setenv("OBJECT_STORAGE_SECRET_KEY", "fixture-secret")
+
+	if _, err := config.LoadObjectStorage(config.EnvironmentProduction); err == nil {
+		t.Fatal("LoadObjectStorage() accepted production HTTP")
+	}
+}

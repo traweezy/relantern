@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -50,6 +51,16 @@ type Sources struct {
 	RegistryPath string
 	FixturesPath string
 }
+
+type ObjectStorage struct {
+	Endpoint  string
+	Bucket    string
+	Region    string
+	AccessKey string
+	SecretKey string
+}
+
+var bucketPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$`)
 
 func LoadCommon() (Common, error) {
 	environment := Environment(valueOrDefault("APP_ENV", string(EnvironmentLocal)))
@@ -153,6 +164,39 @@ func LoadSources() Sources {
 		RegistryPath: valueOrDefault("SOURCE_REGISTRY_PATH", "sources/registry.yaml"),
 		FixturesPath: valueOrDefault("SOURCE_FIXTURES_PATH", "sources/fixtures.yaml"),
 	}
+}
+
+func LoadObjectStorage(environment Environment) (ObjectStorage, error) {
+	endpoint := valueOrDefault("OBJECT_STORAGE_ENDPOINT", "http://minio:9000")
+	parsedEndpoint, err := url.Parse(endpoint)
+	if err != nil || parsedEndpoint.Host == "" || parsedEndpoint.User != nil || parsedEndpoint.RawQuery != "" || parsedEndpoint.Fragment != "" || parsedEndpoint.Path != "" && parsedEndpoint.Path != "/" {
+		return ObjectStorage{}, errors.New("OBJECT_STORAGE_ENDPOINT must be an absolute HTTP(S) origin")
+	}
+	if parsedEndpoint.Scheme != "https" && !(parsedEndpoint.Scheme == "http" && (environment == EnvironmentLocal || environment == EnvironmentTest)) {
+		return ObjectStorage{}, errors.New("OBJECT_STORAGE_ENDPOINT must use HTTPS outside local and test")
+	}
+	bucket := valueOrDefault("OBJECT_STORAGE_BUCKET", "relantern-local")
+	if !bucketPattern.MatchString(bucket) || strings.Contains(bucket, "..") {
+		return ObjectStorage{}, errors.New("OBJECT_STORAGE_BUCKET must be a valid DNS-style bucket name")
+	}
+	accessKey, err := secretValue("OBJECT_STORAGE_ACCESS_KEY", "OBJECT_STORAGE_ACCESS_KEY_FILE")
+	if err != nil {
+		return ObjectStorage{}, err
+	}
+	secretKey, err := secretValue("OBJECT_STORAGE_SECRET_KEY", "OBJECT_STORAGE_SECRET_KEY_FILE")
+	if err != nil {
+		return ObjectStorage{}, err
+	}
+	if accessKey == "" || secretKey == "" {
+		return ObjectStorage{}, errors.New("object-storage access and secret keys are required")
+	}
+	return ObjectStorage{
+		Endpoint:  strings.TrimSuffix(endpoint, "/"),
+		Bucket:    bucket,
+		Region:    valueOrDefault("OBJECT_STORAGE_REGION", "us-east-1"),
+		AccessKey: accessKey,
+		SecretKey: secretKey,
+	}, nil
 }
 
 func validateEnvironment(environment Environment) error {

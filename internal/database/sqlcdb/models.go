@@ -27,6 +27,19 @@ type AppOutboxEvent struct {
 	CreatedAt     pgtype.Timestamptz `json:"created_at"`
 }
 
+type AppRawDocument struct {
+	ID                pgtype.UUID        `json:"id"`
+	SourceID          string             `json:"source_id"`
+	CanonicalUrl      string             `json:"canonical_url"`
+	ObjectKey         pgtype.Text        `json:"object_key"`
+	RawSha256         []byte             `json:"raw_sha256"`
+	FirstSeenAt       pgtype.Timestamptz `json:"first_seen_at"`
+	FirstFetchedAt    pgtype.Timestamptz `json:"first_fetched_at"`
+	SourcePublishedAt pgtype.Timestamptz `json:"source_published_at"`
+	ContentPolicy     string             `json:"content_policy"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+}
+
 type AppScheduleDefinition struct {
 	ID            pgtype.UUID        `json:"id"`
 	UserID        pgtype.UUID        `json:"user_id"`
@@ -77,6 +90,15 @@ type AppSource struct {
 	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
 }
 
+type AppSourceCheckpoint struct {
+	EndpointID    pgtype.UUID        `json:"endpoint_id"`
+	Cursor        pgtype.Text        `json:"cursor"`
+	Etag          pgtype.Text        `json:"etag"`
+	LastModified  pgtype.Text        `json:"last_modified"`
+	ProviderState []byte             `json:"provider_state"`
+	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
+}
+
 type AppSourceEndpoint struct {
 	ID                   pgtype.UUID        `json:"id"`
 	RegistryID           string             `json:"registry_id"`
@@ -96,6 +118,36 @@ type AppSourceEndpoint struct {
 	HealthState          string             `json:"health_state"`
 	CreatedAt            pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt            pgtype.Timestamptz `json:"updated_at"`
+}
+
+type AppSourceFetch struct {
+	ID              int64              `json:"id"`
+	EndpointID      pgtype.UUID        `json:"endpoint_id"`
+	AttemptedAt     pgtype.Timestamptz `json:"attempted_at"`
+	CompletedAt     pgtype.Timestamptz `json:"completed_at"`
+	Outcome         string             `json:"outcome"`
+	StatusCode      pgtype.Int4        `json:"status_code"`
+	FinalUrl        pgtype.Text        `json:"final_url"`
+	ContentType     pgtype.Text        `json:"content_type"`
+	CompressedBytes int64              `json:"compressed_bytes"`
+	Bytes           int64              `json:"bytes"`
+	DurationMs      int32              `json:"duration_ms"`
+	ErrorCode       pgtype.Text        `json:"error_code"`
+	RetryAfter      pgtype.Timestamptz `json:"retry_after"`
+	Etag            pgtype.Text        `json:"etag"`
+	LastModified    pgtype.Text        `json:"last_modified"`
+	RawSha256       []byte             `json:"raw_sha256"`
+	ObjectKey       pgtype.Text        `json:"object_key"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+}
+
+type AppSourceRuntimeOverride struct {
+	SourceID       string             `json:"source_id"`
+	PollingEnabled bool               `json:"polling_enabled"`
+	PollInterval   pgtype.Interval    `json:"poll_interval"`
+	Reason         string             `json:"reason"`
+	UpdatedBy      pgtype.UUID        `json:"updated_by"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
 }
 
 type AppUser struct {

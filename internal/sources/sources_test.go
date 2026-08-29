@@ -61,7 +61,7 @@ func TestValidationRejectsEnabledNetworkFuse(t *testing.T) {
 	registry.Enabled = true
 
 	err := sources.Validate(registry, catalog, time.Date(2026, time.August, 29, 12, 0, 0, 0, time.UTC))
-	assertErrorContains(t, err, "live source fetching must remain disabled")
+	assertErrorContains(t, err, "live source fetching requires a separately reviewed owner rollout")
 }
 
 func TestValidationRejectsStaleReview(t *testing.T) {
