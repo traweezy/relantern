@@ -7,7 +7,7 @@ rules also remain binding.
 
 ## Repository invariants
 
-- Use Go 1.27 and Node 24 LTS production toolchains exactly as recorded in
+- Use Go 1.27 and Node 26 production toolchains exactly as recorded in
   `docs/version-manifest.md`.
 - Use the single root pnpm workspace and lockfile. Do not use npm, Yarn, or Bun
   for installation.

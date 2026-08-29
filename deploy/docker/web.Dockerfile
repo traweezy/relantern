@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.20
-FROM node:24.20.0-bookworm-slim@sha256:ba849c60be29959425b8734d57b8b4b7d56f98edd9504c9af091d5281095a71e AS dependencies
+FROM node:26.8.1-bookworm-slim@sha256:367679cf9792759492a486e4aa4b421764d71a9546a6dae8aab81a99eb797b3e AS dependencies
 ENV PNPM_HOME=/pnpm
 ENV PATH=/pnpm:$PATH
 RUN npm install --global pnpm@11.24.0
@@ -21,7 +21,7 @@ COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
 CMD ["pnpm", "--filter", "@relantern/web", "dev"]
 
-FROM gcr.io/distroless/nodejs24-debian13:nonroot@sha256:774b7d020b24214835769e24c3544835526cd0288f0b094eae48e8b2c2429a79 AS production
+FROM gcr.io/distroless/nodejs26-debian13:nonroot@sha256:10ec8cb93ef461563da50d4eb8dfac7d048783826825bf5b07510c2f34c14315 AS production
 WORKDIR /app
 ENV HOSTNAME=0.0.0.0
 ENV NODE_ENV=production

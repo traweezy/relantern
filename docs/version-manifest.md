@@ -13,7 +13,7 @@ Container manifest digests and GitHub Action commit SHAs are recorded below.
 | Component | Selected | Release evidence | Decision |
 |---|---:|---|---|
 | Go | 1.27.0 | [Go release history](https://go.dev/doc/devel/release) | Stable release from 2026-08-19 |
-| Node.js | 24.20.0 | [Node 24 archive](https://nodejs.org/en/download/archive/v24) | Active LTS; Node 26 remains Current |
+| Node.js | 26.8.1 | [Node 26.8.1 release](https://nodejs.org/en/blog/release/v26.8.1) | Owner-directed Current-line and release-age exception; exact production pin |
 | pnpm | 11.24.0 | [npm registry](https://www.npmjs.com/package/pnpm/v/11.24.0) | Stable `latest`; 12.0.0 remains on `next-12` |
 | PostgreSQL | 18.6 | [18.6 release notes](https://www.postgresql.org/docs/release/18.6/) | Current security-patched 18.x |
 | pgvector | 0.8.6 | [pgvector changelog](https://github.com/pgvector/pgvector/blob/v0.8.6/CHANGELOG.md) | Current stable and PostgreSQL 18 compatible |
@@ -36,11 +36,13 @@ Container manifest digests and GitHub Action commit SHAs are recorded below.
 | TanStack Form | 1.33.5 | Audited; Form 2 remains pre-release |
 | Zustand | 5.0.15 | Audited; add only for ephemeral client state |
 | Motion | 13.1.1 | Audited; add only for measured interaction value |
-| Better Auth | 1.7.2 | Audited; add in the authentication PR after release-age gate |
+| Better Auth | 1.7.1 | Pinned for owner OAuth; newest 1.7.x satisfying the seven-day release-age gate |
+| node-postgres (`pg`) | 8.23.0 | Pinned PostgreSQL adapter peer for Better Auth |
 | Vitest | 4.1.11 | Pinned |
 | Playwright | 1.62.1 | Audited; add with browser journey scope |
 | openapi-typescript | 7.13.0 | Pinned for generated platform-neutral schemas |
 | openapi-fetch | 0.17.0 | Pinned in the shared API client |
+| OpenAI JavaScript SDK | 7.5.0 | Pinned for raw-body webhook verification; released 2026-08-17 and satisfies the seven-day gate |
 
 Primary release sources include the [Next.js August 2026 security
 release](https://nextjs.org/blog), [React versions](https://react.dev/versions),
@@ -60,6 +62,10 @@ and [Better Auth 1.7 changelog](https://better-auth.com/changelog).
 | Biome 2.5.10 | `sha512-WRKXARA3kTuiV5sxqTpobJ/I0MVd4vk3pOL6wnp5az4LntFIhWTj1RWZq3DI9PCEN3lXcqy7p5aqUHzvq8AXyQ==` |
 | Next.js 16.3.3 | `sha512-tuRTx1nQ/yVw83cwJBo9F+njGUgMn3UHQycreWHB8XsStvvAh1AthbI8/4IpKnFaF58F+iSiHejYOlMQ/eq83g==` |
 | React 19.2.8 | `sha512-PWaYA1L/q9u2u7xYQi+Y3L3Yfnie7XyLeaJICV1MGD6LprsBxcAqGjYyr0eY3p+QdsA+x/Irkt4Qif8D63+Sbw==` |
+| OpenAI JavaScript SDK 7.5.0 | `sha512-ZbDBz8FSB8Mv8fFYIUvzTFMdV5vl93/octp1MdtK2lfYepSpfv/ewmeugpKz/cwGtFSx+YuUM4NwpZ2P55YiPA==` |
+| Better Auth 1.7.1 | `sha512-g8WlTQijxXWJjPVZfFu1+EJg9cwwHrKDmIkcYMzx8CzYA+tDxl6NI7qQbKkbgw5UtHILsT5VH+RMzFzwnVJqAg==` |
+| node-postgres 8.23.0 | `sha512-Ip2EQCngowJLGOfCwkFhPXU7/ljlhn6Rxlmy4XYfL2Y+vyRM59+8uR2xqRWKdYmbXmxCFOAmKxBuSUCdF34qLg==` |
+| `@types/pg` 8.23.1 | `sha512-fKVHpikPdg4GKks3JuLEhvwSyvwzF23hnabPy6DD8ljVbC7+6J5dQzdv4arV6jqq57djnMgs1HKBxX4P8aBI3A==` |
 
 ## Go release set
 
@@ -70,12 +76,15 @@ and [Better Auth 1.7 changelog](https://better-auth.com/changelog).
 | `github.com/jackc/pgx/v5` | 5.10.0 | 2026-06-03 |
 | `github.com/pressly/goose/v3` | 3.27.3 | 2026-07-22 |
 | `gopkg.in/yaml.v3` | 3.0.1 | Stable strict registry/fixture decoder |
-| `github.com/riverqueue/river` | 0.45.0 | Audited; wait for release-age gate before use |
+| `github.com/riverqueue/river` | 0.44.1 | 2026-08-21; newest stable release satisfying the seven-day age gate; MPL-2.0 |
 | `github.com/robfig/cron/v3` | 3.0.1 | Audited |
-| `github.com/mmcdole/gofeed` | 1.4.2 | Audited |
-| `codeberg.org/readeck/go-readability/v2` | 2.1.2 | Audited |
+| `github.com/mmcdole/gofeed` | 1.4.2 | 2026-08-20 |
+| `codeberg.org/readeck/go-readability/v2` | 2.1.2 | 2026-06-18 |
+| `golang.org/x/net` | 0.58.0 | 2026-08-12 |
+| `golang.org/x/text` | 0.41.0 | 2026-08-11 |
 | `github.com/minio/minio-go/v7` | 7.3.0 | Pinned Apache-2.0 S3-compatible streaming client; released 2026-08-15 |
-| `github.com/openai/openai-go/v3` | 3.54.0 | Audited; wait for release-age gate before use |
+| `github.com/pgvector/pgvector-go` | 0.4.1 | 2026-07-30; pinned sqlc pgx vector codec |
+| `github.com/openai/openai-go/v3` | 3.52.0 | 2026-08-17; newest stable release satisfying the seven-day age gate |
 | `go.opentelemetry.io/otel` | 1.46.0 | Audited; wait for release-age gate before use |
 | `github.com/sqlc-dev/sqlc` | 1.31.1 | Audited for database PR |
 
@@ -88,9 +97,9 @@ are the reviewed integration paths.
 | Image | Immutable manifest digest |
 |---|---|
 | `golang:1.27.0-bookworm` | `sha256:ded31c68586d2e49e760acc2e65a884b23d032e9bbbed0ae0c55abd3fcaf4452` |
-| `node:24.20.0-bookworm-slim` | `sha256:ba849c60be29959425b8734d57b8b4b7d56f98edd9504c9af091d5281095a71e` |
+| `node:26.8.1-bookworm-slim` | `sha256:367679cf9792759492a486e4aa4b421764d71a9546a6dae8aab81a99eb797b3e` |
 | `gcr.io/distroless/static-debian13:nonroot` | `sha256:1c2c046bc09ed40fad370b599a0b1ae7987f55b01e247cf27a7c27cd97e5bbc7` |
-| `gcr.io/distroless/nodejs24-debian13:nonroot` | `sha256:774b7d020b24214835769e24c3544835526cd0288f0b094eae48e8b2c2429a79` |
+| `gcr.io/distroless/nodejs26-debian13:nonroot` | `sha256:10ec8cb93ef461563da50d4eb8dfac7d048783826825bf5b07510c2f34c14315` |
 | `pgvector/pgvector:0.8.6-pg18-trixie` | `sha256:78bf48b801e792f99e3ac62b5036fd3876e9be48afda16c1e331af1c75ceb2ff` |
 | `minio/minio:RELEASE.2025-09-07T16-13-09Z` | `sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e` |
 | `minio/mc:RELEASE.2025-08-13T08-35-41Z` | `sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727` |
@@ -132,5 +141,18 @@ PostgreSQL `18.6` and vector extension `0.8.6`.
 - TypeScript 7.0.2 is held because stable `openapi-typescript` 7.13.0 declares
   TypeScript 5.x compatibility. TypeScript 5.9.3 keeps the peer graph clean;
   the hold is revisited when the generator publishes stable TypeScript 7 support.
-- Node 26 is Current rather than LTS and is excluded from production.
+- Node 26.8.1 is the owner-selected production line under an explicit
+  Current-line and release-age exception; every runtime and build input is
+  pinned exactly.
+- River 0.45.0 and 0.46.0 were released on 2026-08-25 and 2026-08-29,
+  respectively, so 0.44.1 is the newest stable release eligible under the
+  seven-day dependency-age policy.
+- openai-go 3.53.0 and 3.54.0 were released on 2026-08-26 and 2026-08-27,
+  respectively, so 3.52.0 is the newest stable release eligible under the
+  seven-day dependency-age policy.
+- OpenAI JavaScript SDK releases newer than 7.5.0 had not satisfied the
+  seven-day dependency-age policy at audit time.
+- Better Auth 1.7.2 was released on 2026-08-26 and had not satisfied the
+  seven-day dependency-age policy. Version 1.7.1 is the newest eligible stable
+  release for PR 11.
 - PostgreSQL 19 remains beta and is excluded from production.
