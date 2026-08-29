@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 	"testing"
@@ -20,11 +21,20 @@ type fakeObjectClient struct {
 	putSize      int64
 	copyError    error
 	removeError  error
+	openError    error
 	payload      []byte
+	readPayload  []byte
 	putKey       string
 	copySource   string
 	copyTarget   string
 	removed      []string
+}
+
+func (client *fakeObjectClient) OpenObject(context.Context, string, string) (io.ReadCloser, error) {
+	if client.openError != nil {
+		return nil, client.openError
+	}
+	return io.NopCloser(bytes.NewReader(client.readPayload)), nil
 }
 
 func (client *fakeObjectClient) BucketExists(context.Context, string) (bool, error) {
@@ -100,21 +110,54 @@ func TestStoreStageHashesStreamAndRejectsMismatchedUpload(t *testing.T) {
 	}
 }
 
+func TestStoreReadsOnlyValidatedBoundedObjects(t *testing.T) {
+	digest := sha256.Sum256([]byte("fixture"))
+	key := "normalized/source/" + fmt.Sprintf("%x", digest) + ".txt"
+	client := &fakeObjectClient{readPayload: []byte("fixture")}
+	store := &Store{client: client, bucket: "fixture"}
+	payload, err := store.Read(context.Background(), key, 7)
+	if err != nil || string(payload) != "fixture" {
+		t.Fatalf("Read() = %q, %v", payload, err)
+	}
+	if _, err := store.Read(context.Background(), key, 6); err == nil {
+		t.Fatal("Read() accepted an object larger than its limit")
+	}
+	if _, err := store.Read(context.Background(), "private/secret", 7); err == nil {
+		t.Fatal("Read() accepted an unapproved object key")
+	}
+	if _, err := store.Read(context.Background(), key, 0); err == nil {
+		t.Fatal("Read() accepted an invalid limit")
+	}
+	store.client = &fakeObjectClient{openError: errors.New("unavailable")}
+	if _, err := store.Read(context.Background(), key, 7); err == nil {
+		t.Fatal("Read() ignored an object-open error")
+	}
+}
+
 func TestStoreCommitAndAbortConstrainPrefixes(t *testing.T) {
-	staged := storage.StagedObject{TemporaryKey: temporaryKeyPrefix + "fixture", ContentType: "text/plain"}
+	staged := storage.StagedObject{TemporaryKey: temporaryKeyPrefix + strings.Repeat("a", 32), ContentType: "text/plain"}
 	client := &fakeObjectClient{}
 	store := &Store{client: client, bucket: "fixture"}
-	if err := store.Commit(context.Background(), staged, "raw/source/fixture.txt"); err != nil {
+	rawDigest := sha256.Sum256([]byte("fixture"))
+	rawKey := "raw/source/2026/08/29/" + fmt.Sprintf("%x", rawDigest) + ".txt"
+	if err := store.Commit(context.Background(), staged, rawKey); err != nil {
 		t.Fatalf("Commit() error = %v", err)
 	}
-	if client.copySource != staged.TemporaryKey || client.copyTarget != "raw/source/fixture.txt" || len(client.removed) != 1 {
+	if client.copySource != staged.TemporaryKey || client.copyTarget != rawKey || len(client.removed) != 1 {
 		t.Fatalf("copy source=%q target=%q removed=%v", client.copySource, client.copyTarget, client.removed)
 	}
-	if err := store.Commit(context.Background(), storage.StagedObject{TemporaryKey: "raw/not-staged"}, "raw/source/key"); err == nil {
+	if err := store.Commit(context.Background(), storage.StagedObject{TemporaryKey: "raw/not-staged"}, rawKey); err == nil {
 		t.Fatal("Commit() accepted a non-staging source")
 	}
 	if err := store.Commit(context.Background(), staged, "other/key"); err == nil {
-		t.Fatal("Commit() accepted a non-raw destination")
+		t.Fatal("Commit() accepted an unapproved destination")
+	}
+	if err := store.Commit(context.Background(), staged, "raw/../source/2026/08/29/"+fmt.Sprintf("%x", rawDigest)+".txt"); err == nil {
+		t.Fatal("Commit() accepted a path-traversal-shaped destination")
+	}
+	normalizedKey := "normalized/source/" + fmt.Sprintf("%x", rawDigest) + ".txt"
+	if err := store.Commit(context.Background(), staged, normalizedKey); err != nil {
+		t.Fatalf("Commit(normalized) error = %v", err)
 	}
 	if err := store.Abort(context.Background(), storage.StagedObject{TemporaryKey: "raw/not-staged"}); err == nil {
 		t.Fatal("Abort() accepted a non-staging source")
@@ -125,12 +168,14 @@ func TestStoreCommitAndAbortConstrainPrefixes(t *testing.T) {
 }
 
 func TestStorePropagatesCopyAndRemoveFailures(t *testing.T) {
-	staged := storage.StagedObject{TemporaryKey: temporaryKeyPrefix + "fixture", ContentType: "text/plain"}
-	if err := (&Store{client: &fakeObjectClient{copyError: errors.New("copy failed")}, bucket: "fixture"}).Commit(context.Background(), staged, "raw/source/key"); err == nil {
+	staged := storage.StagedObject{TemporaryKey: temporaryKeyPrefix + strings.Repeat("a", 32), ContentType: "text/plain"}
+	digest := sha256.Sum256([]byte("fixture"))
+	key := "raw/source/2026/08/29/" + fmt.Sprintf("%x", digest) + ".txt"
+	if err := (&Store{client: &fakeObjectClient{copyError: errors.New("copy failed")}, bucket: "fixture"}).Commit(context.Background(), staged, key); err == nil {
 		t.Fatal("Commit() ignored copy failure")
 	}
 	removeFailure := &Store{client: &fakeObjectClient{removeError: errors.New("remove failed")}, bucket: "fixture"}
-	if err := removeFailure.Commit(context.Background(), staged, "raw/source/key"); err == nil {
+	if err := removeFailure.Commit(context.Background(), staged, key); err == nil {
 		t.Fatal("Commit() ignored staging cleanup failure")
 	}
 	if err := removeFailure.Abort(context.Background(), staged); err == nil {
@@ -163,5 +208,10 @@ func TestRandomTemporaryKeyAndCounter(t *testing.T) {
 	counter := &byteCounter{}
 	if written, err := counter.Write([]byte("fixture")); err != nil || written != 7 || counter.total != 7 {
 		t.Fatalf("byteCounter.Write() = %d, %v, total %d", written, err, counter.total)
+	}
+	for _, invalid := range []string{"_incoming/fixture", "_incoming/../../raw", "raw/0123456789abcdef0123456789abcdef"} {
+		if validTemporaryKey(invalid) {
+			t.Fatalf("validTemporaryKey(%q) = true", invalid)
+		}
 	}
 }

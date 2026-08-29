@@ -40,6 +40,19 @@ type objectClient interface {
 	PutObject(context.Context, string, string, io.Reader, int64, minio.PutObjectOptions) (minio.UploadInfo, error)
 	CopyObject(context.Context, minio.CopyDestOptions, minio.CopySrcOptions) (minio.UploadInfo, error)
 	RemoveObject(context.Context, string, string, minio.RemoveObjectOptions) error
+	OpenObject(context.Context, string, string) (io.ReadCloser, error)
+}
+
+type minioObjectClient struct {
+	*minio.Client
+}
+
+func (client minioObjectClient) OpenObject(
+	ctx context.Context,
+	bucket string,
+	key string,
+) (io.ReadCloser, error) {
+	return client.GetObject(ctx, bucket, key, minio.GetObjectOptions{})
 }
 
 func (store *Store) Check(ctx context.Context) error {
@@ -74,7 +87,29 @@ func New(configuration Config) (*Store, error) {
 		return nil, fmt.Errorf("create S3-compatible client: %w", err)
 	}
 	client.SetAppInfo("relantern", "0.0.0")
-	return &Store{client: client, bucket: configuration.Bucket}, nil
+	return &Store{client: minioObjectClient{Client: client}, bucket: configuration.Bucket}, nil
+}
+
+func (store *Store) Read(ctx context.Context, objectKey string, maximumBytes int64) ([]byte, error) {
+	if err := storage.ValidateObjectKey(objectKey); err != nil {
+		return nil, fmt.Errorf("refusing to read object: %w", err)
+	}
+	if maximumBytes < 1 || maximumBytes > 15<<20 {
+		return nil, errors.New("object read limit must be between 1 byte and 15 MiB")
+	}
+	object, err := store.client.OpenObject(ctx, store.bucket, objectKey)
+	if err != nil {
+		return nil, fmt.Errorf("open object: %w", err)
+	}
+	defer object.Close()
+	payload, err := io.ReadAll(io.LimitReader(object, maximumBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("read object: %w", err)
+	}
+	if int64(len(payload)) > maximumBytes {
+		return nil, fmt.Errorf("object exceeds the %d-byte read limit", maximumBytes)
+	}
+	return payload, nil
 }
 
 func (store *Store) Stage(ctx context.Context, contentType string, body io.Reader) (storage.StagedObject, error) {
@@ -90,7 +125,7 @@ func (store *Store) Stage(ctx context.Context, contentType string, body io.Reade
 	})
 	if err != nil {
 		_ = store.removeStaged(ctx, temporaryKey)
-		return storage.StagedObject{}, fmt.Errorf("stage raw object: %w", err)
+		return storage.StagedObject{}, fmt.Errorf("stage object: %w", err)
 	}
 	if upload.Size != counter.total {
 		_ = store.removeStaged(ctx, temporaryKey)
@@ -107,11 +142,11 @@ func (store *Store) Stage(ctx context.Context, contentType string, body io.Reade
 }
 
 func (store *Store) Commit(ctx context.Context, staged storage.StagedObject, objectKey string) error {
-	if !strings.HasPrefix(staged.TemporaryKey, temporaryKeyPrefix) {
+	if !validTemporaryKey(staged.TemporaryKey) {
 		return errors.New("refusing to commit an object outside the staging prefix")
 	}
-	if !strings.HasPrefix(objectKey, "raw/") {
-		return errors.New("refusing to commit an object outside the raw prefix")
+	if err := storage.ValidateObjectKey(objectKey); err != nil {
+		return fmt.Errorf("refusing to commit object: %w", err)
 	}
 	_, err := store.client.CopyObject(ctx, minio.CopyDestOptions{
 		Bucket:      store.bucket,
@@ -122,7 +157,7 @@ func (store *Store) Commit(ctx context.Context, staged storage.StagedObject, obj
 		Object: staged.TemporaryKey,
 	})
 	if err != nil {
-		return fmt.Errorf("commit raw object: %w", err)
+		return fmt.Errorf("commit object: %w", err)
 	}
 	if err := store.client.RemoveObject(ctx, store.bucket, staged.TemporaryKey, minio.RemoveObjectOptions{}); err != nil {
 		return fmt.Errorf("remove committed staging object: %w", err)
@@ -131,7 +166,7 @@ func (store *Store) Commit(ctx context.Context, staged storage.StagedObject, obj
 }
 
 func (store *Store) Abort(ctx context.Context, staged storage.StagedObject) error {
-	if !strings.HasPrefix(staged.TemporaryKey, temporaryKeyPrefix) {
+	if !validTemporaryKey(staged.TemporaryKey) {
 		return errors.New("refusing to abort an object outside the staging prefix")
 	}
 	if err := store.client.RemoveObject(ctx, store.bucket, staged.TemporaryKey, minio.RemoveObjectOptions{}); err != nil {
@@ -183,6 +218,14 @@ func randomTemporaryKey() (string, error) {
 		return "", fmt.Errorf("generate staging object key: %w", err)
 	}
 	return temporaryKeyPrefix + hex.EncodeToString(random), nil
+}
+
+func validTemporaryKey(key string) bool {
+	if !strings.HasPrefix(key, temporaryKeyPrefix) || len(key) != len(temporaryKeyPrefix)+32 {
+		return false
+	}
+	_, err := hex.DecodeString(strings.TrimPrefix(key, temporaryKeyPrefix))
+	return err == nil
 }
 
 type byteCounter struct {

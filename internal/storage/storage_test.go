@@ -2,6 +2,7 @@ package storage_test
 
 import (
 	"crypto/sha256"
+	"fmt"
 	"testing"
 	"time"
 
@@ -54,5 +55,39 @@ func TestRawObjectKeySelectsSafeExtension(t *testing.T) {
 func TestRawObjectKeyRequiresObservationTime(t *testing.T) {
 	if _, err := storage.RawObjectKey("fixture", time.Time{}, sha256.Sum256(nil), "text/plain"); err == nil {
 		t.Fatal("RawObjectKey() accepted a zero observation time")
+	}
+}
+
+func TestNormalizedObjectKeyIsContentAddressed(t *testing.T) {
+	digest := sha256.Sum256([]byte("normalized fixture"))
+	key, err := storage.NormalizedObjectKey("go-blog", digest)
+	if err != nil {
+		t.Fatalf("NormalizedObjectKey() error = %v", err)
+	}
+	want := "normalized/go-blog/c3004bb0ca2ddef6411f72e21505dc931b49cdbc3b0ab30ab018b9c8ef0d4656.txt"
+	if key != want {
+		t.Fatalf("NormalizedObjectKey() = %q, want %q", key, want)
+	}
+	if err := storage.ValidateObjectKey(key); err != nil {
+		t.Fatalf("ValidateObjectKey() error = %v", err)
+	}
+}
+
+func TestObjectKeysRejectUnapprovedNamespacesAndShapes(t *testing.T) {
+	digest := sha256.Sum256([]byte("fixture"))
+	if _, err := storage.NormalizedObjectKey("../owner", digest); err == nil {
+		t.Fatal("NormalizedObjectKey() accepted a path-traversal source id")
+	}
+	for _, key := range []string{
+		"raw/../owner/2026/08/29/" + fmt.Sprintf("%x", digest) + ".xml",
+		"raw/source/not-a-date/" + fmt.Sprintf("%x", digest) + ".xml",
+		"raw/source/2026/99/99/" + fmt.Sprintf("%x", digest) + ".xml",
+		"normalized/source/../" + fmt.Sprintf("%x", digest) + ".txt",
+		"normalized/source/not-a-digest.txt",
+		"other/source/" + fmt.Sprintf("%x", digest) + ".txt",
+	} {
+		if err := storage.ValidateObjectKey(key); err == nil {
+			t.Fatalf("ValidateObjectKey(%q) succeeded", key)
+		}
 	}
 }

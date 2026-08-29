@@ -28,10 +28,11 @@ func TestS3StoreStagesAndCommitsContentAddressedObject(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
-	client, ok := store.client.(*minio.Client)
+	adapter, ok := store.client.(minioObjectClient)
 	if !ok {
 		t.Fatal("New() did not configure the MinIO client adapter")
 	}
+	client := adapter.Client
 	ctx := context.Background()
 	exists, err := client.BucketExists(ctx, configuration.Bucket)
 	if err != nil {

@@ -1,7 +1,7 @@
 version: 1
 
 # The HTTP profile is shared deliberately: every connector must prove the same
-# transport behavior before parser-specific assertions are added in PR 5.
+# transport behavior and parser contract against one reviewed scenario set.
 profiles:
   - id: http-v1
     cases:
