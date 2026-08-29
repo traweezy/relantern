@@ -1,0 +1,201 @@
+{
+  "schemaVersion": 1,
+  "requiredPrecision": 0.98,
+  "requiredRecall": 0.9,
+  "cases": [
+    {
+      "id": "go-release-wording",
+      "duplicate": true,
+      "package": "go",
+      "version": "1.27",
+      "left": "Go 1.27 improves scheduler latency, runtime diagnostics, and production reliability for developers.",
+      "right": "Go 1.27 improves scheduler latency, runtime diagnostics, and production reliability for all developers."
+    },
+    {
+      "id": "react-compiler-punctuation",
+      "duplicate": true,
+      "package": "react",
+      "version": "19.2",
+      "left": "React Compiler is stable in React 19.2; the release includes migration guidance and diagnostics.",
+      "right": "React Compiler is stable in React 19.2. The release includes migration guidance and diagnostics."
+    },
+    {
+      "id": "postgres-release-qualifier",
+      "duplicate": true,
+      "package": "postgresql",
+      "version": "18.1",
+      "left": "PostgreSQL 18.1 fixes replication, planner, and backup defects reported after the major release.",
+      "right": "PostgreSQL 18.1 fixes replication, query planner, and backup defects reported after the major release."
+    },
+    {
+      "id": "node-security-article",
+      "duplicate": true,
+      "package": "node",
+      "version": "26.8.1",
+      "left": "Node 26.8.1 resolves two permission model vulnerabilities and recommends an immediate production upgrade.",
+      "right": "Node 26.8.1 resolves two permission-model vulnerabilities and recommends an immediate upgrade in production."
+    },
+    {
+      "id": "river-release-detail",
+      "duplicate": true,
+      "package": "river",
+      "version": "0.44.1",
+      "left": "River 0.44.1 corrects unique job insertion under contention and improves graceful worker shutdown.",
+      "right": "River 0.44.1 corrects unique-job insertion during contention and improves graceful worker shutdown."
+    },
+    {
+      "id": "typescript-release-order",
+      "duplicate": true,
+      "package": "typescript",
+      "version": "6.1",
+      "left": "TypeScript 6.1 adds stricter module checks, faster declaration emit, and editor reliability fixes.",
+      "right": "TypeScript 6.1 adds faster declaration emit, stricter module checks, and editor reliability fixes."
+    },
+    {
+      "id": "docker-engine-word",
+      "duplicate": true,
+      "package": "docker",
+      "version": "29.0",
+      "left": "Docker Engine 29.0 updates container networking defaults and documents the required migration steps.",
+      "right": "Docker Engine 29.0 updates default container networking and documents the required migration steps."
+    },
+    {
+      "id": "kubernetes-patch",
+      "duplicate": true,
+      "package": "kubernetes",
+      "version": "1.35.2",
+      "left": "Kubernetes 1.35.2 patches API server authorization, kubelet stability, and storage regressions.",
+      "right": "Kubernetes 1.35.2 patches API-server authorization, kubelet stability, and several storage regressions."
+    },
+    {
+      "id": "vite-release",
+      "duplicate": true,
+      "package": "vite",
+      "version": "8.0",
+      "left": "Vite 8.0 ships a faster production bundler, updated defaults, and a documented plugin migration path.",
+      "right": "Vite 8.0 ships the faster production bundler, updated defaults, and a documented migration path for plugins."
+    },
+    {
+      "id": "playwright-release",
+      "duplicate": true,
+      "package": "playwright",
+      "version": "1.60",
+      "left": "Playwright 1.60 improves trace inspection, browser installation, and deterministic accessibility snapshots.",
+      "right": "Playwright 1.60 improves trace inspection, browser installs, and deterministic accessibility snapshots."
+    },
+    {
+      "id": "pgx-patch",
+      "duplicate": true,
+      "package": "pgx",
+      "version": "5.10.0",
+      "left": "pgx 5.10.0 fixes pool cancellation races and improves PostgreSQL 18 protocol compatibility.",
+      "right": "pgx 5.10.0 fixes connection pool cancellation races and improves PostgreSQL 18 protocol compatibility."
+    },
+    {
+      "id": "pnpm-release",
+      "duplicate": true,
+      "package": "pnpm",
+      "version": "10.16",
+      "left": "pnpm 10.16 hardens lifecycle script policy and improves deterministic workspace lockfile updates.",
+      "right": "pnpm 10.16 hardens the lifecycle-script policy and improves deterministic lockfile updates for workspaces."
+    },
+    {
+      "id": "go-different-version",
+      "duplicate": false,
+      "package": "go",
+      "version": "1.28",
+      "candidateVersion": "1.27",
+      "left": "Go 1.28 improves scheduler latency, runtime diagnostics, and production reliability for developers.",
+      "right": "Go 1.27 improves scheduler latency, runtime diagnostics, and production reliability for developers."
+    },
+    {
+      "id": "react-different-version",
+      "duplicate": false,
+      "package": "react",
+      "version": "20.0",
+      "candidateVersion": "19.2",
+      "left": "React Compiler is stable in React 20.0 and includes migration guidance and diagnostics.",
+      "right": "React Compiler is stable in React 19.2 and includes migration guidance and diagnostics."
+    },
+    {
+      "id": "same-version-security-versus-release",
+      "duplicate": false,
+      "package": "node",
+      "version": "26.8.1",
+      "left": "Node 26.8.1 release artifacts are available with platform checksums and installation archives.",
+      "right": "Node 26.8.1 resolves permission model vulnerabilities and recommends an immediate production upgrade."
+    },
+    {
+      "id": "same-version-benchmark-versus-fix",
+      "duplicate": false,
+      "package": "postgresql",
+      "version": "18.1",
+      "left": "PostgreSQL 18.1 benchmark results compare analytical query throughput on new server hardware.",
+      "right": "PostgreSQL 18.1 fixes replication, planner, and backup defects reported after the major release."
+    },
+    {
+      "id": "same-package-different-topic",
+      "duplicate": false,
+      "package": "docker",
+      "version": "29.0",
+      "left": "Docker Engine 29.0 changes container networking defaults and requires a bridge migration.",
+      "right": "Docker Engine 29.0 publishes Windows installation media and updated desktop licensing notes."
+    },
+    {
+      "id": "river-docs-versus-release",
+      "duplicate": false,
+      "package": "river",
+      "version": "0.44.1",
+      "left": "River 0.44.1 documentation explains periodic jobs, leadership, and transactional enqueue patterns.",
+      "right": "River 0.44.1 corrects unique job insertion under contention and improves graceful worker shutdown."
+    },
+    {
+      "id": "typescript-editor-versus-runtime",
+      "duplicate": false,
+      "package": "typescript",
+      "version": "6.1",
+      "left": "TypeScript 6.1 editor integration adds navigation commands and configurable inlay hint behavior.",
+      "right": "TypeScript 6.1 adds stricter module checks, faster declaration emit, and build reliability fixes."
+    },
+    {
+      "id": "kubernetes-cve-versus-storage",
+      "duplicate": false,
+      "package": "kubernetes",
+      "version": "1.35.2",
+      "left": "Kubernetes 1.35.2 addresses an API server authorization vulnerability affecting delegated credentials.",
+      "right": "Kubernetes 1.35.2 repairs a storage regression that delayed persistent volume attachment."
+    },
+    {
+      "id": "vite-plugin-versus-core",
+      "duplicate": false,
+      "package": "vite",
+      "version": "8.0",
+      "left": "Vite 8.0 plugin authors must update transform hooks for the revised environment interface.",
+      "right": "Vite 8.0 ships a faster production bundler, updated defaults, and a migration overview."
+    },
+    {
+      "id": "playwright-browser-versus-a11y",
+      "duplicate": false,
+      "package": "playwright",
+      "version": "1.60",
+      "left": "Playwright 1.60 changes browser download mirrors and offline installation configuration.",
+      "right": "Playwright 1.60 improves deterministic accessibility snapshots and trace inspection."
+    },
+    {
+      "id": "pgx-pool-versus-copy",
+      "duplicate": false,
+      "package": "pgx",
+      "version": "5.10.0",
+      "left": "pgx 5.10.0 improves COPY throughput for large batches with fewer intermediate allocations.",
+      "right": "pgx 5.10.0 fixes connection pool cancellation races and PostgreSQL protocol compatibility."
+    },
+    {
+      "id": "pnpm-policy-versus-catalog",
+      "duplicate": false,
+      "package": "pnpm",
+      "version": "10.16",
+      "left": "pnpm 10.16 adds catalog diagnostics and clearer workspace dependency resolution output.",
+      "right": "pnpm 10.16 hardens lifecycle script policy and deterministic workspace lockfile updates."
+    }
+  ]
+}

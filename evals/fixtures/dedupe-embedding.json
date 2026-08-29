@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "requiredPrecision": 0.98,
+  "requiredRecall": 0.9,
+  "cases": [
+    { "id": "postgres-failover-paraphrase", "cluster": true, "similarity": 0.96 },
+    { "id": "node-permissions-advisory", "cluster": true, "similarity": 0.94 },
+    { "id": "react-compiler-rollout", "cluster": true, "similarity": 0.93 },
+    { "id": "go-scheduler-release", "cluster": true, "similarity": 0.92 },
+    { "id": "kubernetes-api-advisory", "cluster": true, "similarity": 0.91 },
+    { "id": "river-queue-release", "cluster": true, "similarity": 0.9 },
+    { "id": "vite-environment-migration", "cluster": true, "similarity": 0.89 },
+    { "id": "playwright-trace-release", "cluster": true, "similarity": 0.88 },
+    { "id": "pgx-pool-cancellation", "cluster": true, "similarity": 0.87 },
+    { "id": "pnpm-lifecycle-policy", "cluster": true, "similarity": 0.865 },
+    { "id": "docker-networking-change", "cluster": true, "similarity": 0.86 },
+    { "id": "typescript-module-diagnostics", "cluster": true, "similarity": 0.82 },
+    { "id": "same-package-different-node-topic", "cluster": false, "similarity": 0.85 },
+    { "id": "same-release-different-postgres-topic", "cluster": false, "similarity": 0.84 },
+    { "id": "react-compiler-versus-router", "cluster": false, "similarity": 0.81 },
+    { "id": "go-runtime-versus-tooling", "cluster": false, "similarity": 0.79 },
+    { "id": "kubernetes-storage-versus-auth", "cluster": false, "similarity": 0.77 },
+    { "id": "river-docs-versus-patch", "cluster": false, "similarity": 0.75 },
+    { "id": "vite-plugin-versus-core", "cluster": false, "similarity": 0.72 },
+    { "id": "playwright-install-versus-a11y", "cluster": false, "similarity": 0.7 },
+    { "id": "pgx-copy-versus-pool", "cluster": false, "similarity": 0.68 },
+    { "id": "pnpm-catalog-versus-security", "cluster": false, "similarity": 0.65 },
+    { "id": "docker-license-versus-engine", "cluster": false, "similarity": 0.61 },
+    { "id": "unrelated-toolchains", "cluster": false, "similarity": 0.31 }
+  ]
+}
