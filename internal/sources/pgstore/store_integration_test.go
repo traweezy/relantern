@@ -29,18 +29,26 @@ func TestRegistryMirrorMatchesReviewedConfiguration(t *testing.T) {
 	}
 	defer pool.Close()
 
-	assertCount(t, pool, "select count(*) from app.sources", len(registry.Sources)+len(registry.Repositories))
+	sourceIDs := make([]string, 0, len(registry.Sources)+len(registry.Repositories))
+	for _, source := range registry.Sources {
+		sourceIDs = append(sourceIDs, source.ID)
+	}
+	for _, repository := range registry.Repositories {
+		sourceIDs = append(sourceIDs, repository.ID)
+	}
+
+	assertCount(t, pool, "select count(*) from app.sources where id = any($1::text[])", len(sourceIDs), sourceIDs)
 	assertCount(t, pool, "select count(*) from app.source_endpoints", len(registry.Endpoints()))
 	assertCount(t, pool, "select count(*) from app.github_repositories", len(registry.Repositories))
-	assertCount(t, pool, "select count(*) from app.sources where validation_state = 'paused'", len(registry.Sources)+len(registry.Repositories))
+	assertCount(t, pool, "select count(*) from app.sources where id = any($1::text[]) and validation_state = 'paused'", len(sourceIDs), sourceIDs)
 	assertCount(t, pool, "select count(*) from app.source_endpoints where next_poll_at is null", len(registry.Endpoints()))
 	assertCount(t, pool, "select count(*) from app.source_endpoints where health_state = 'paused'", len(registry.Endpoints()))
 }
 
-func assertCount(t *testing.T, pool *pgxpool.Pool, query string, expected int) {
+func assertCount(t *testing.T, pool *pgxpool.Pool, query string, expected int, arguments ...any) {
 	t.Helper()
 	var count int
-	if err := pool.QueryRow(context.Background(), query).Scan(&count); err != nil {
+	if err := pool.QueryRow(context.Background(), query, arguments...).Scan(&count); err != nil {
 		t.Fatalf("count query %q error = %v", query, err)
 	}
 	if count != expected {

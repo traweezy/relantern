@@ -6,7 +6,7 @@ COMPOSE_DEV := docker compose -f compose.yaml -f compose.dev.yaml
 GO := bash scripts/go-tool.sh
 PNPM := bash scripts/pnpm-tool.sh
 
-.PHONY: help doctor secrets bootstrap dev dev-live ps logs stop watch test test-unit test-integration test-e2e lint workflow-lint typecheck format generate generate-check migrate migration seed sources-verify fixtures-record eval scheduler-tick digest-preview digest-run test-scheduler test-dst time-travel time-travel-clean observability config-check demo demo-audit prepush prodlike prodlike-smoke sbom clean reset
+.PHONY: help doctor secrets bootstrap dev dev-live ps logs stop watch test test-unit test-integration test-e2e auth-smoke lint workflow-lint typecheck format generate generate-check migrate migration seed sources-verify fixtures-record eval test-dedupe test-search test-extraction test-research scheduler-tick digest-preview digest-run test-scheduler test-dst time-travel time-travel-clean observability config-check demo demo-audit prepush prodlike prodlike-smoke sbom clean reset
 
 help:
 	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z0-9_-]+:.*## / {printf "%-22s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -23,7 +23,7 @@ bootstrap: doctor secrets ## Build, generate, migrate, and seed the safe local s
 	$(COMPOSE_BASE) build
 	$(COMPOSE_BASE) up -d --wait postgres minio fake-source fake-openai fake-delivery
 	$(COMPOSE_BASE) run --rm minio-init
-	$(COMPOSE_BASE) run --rm migrate up
+	$(COMPOSE_BASE) run --rm --build migrate up
 	$(COMPOSE_BASE) run --rm seed
 
 dev: secrets ## Start the safe hot-reload stack
@@ -53,14 +53,14 @@ test-unit: ## Run Go and TypeScript unit tests
 	$(PNPM) test
 
 test-integration: secrets ## Run database, object-storage, and worker integration checks
-	$(COMPOSE_BASE) up -d --wait postgres minio fake-delivery
+	$(COMPOSE_BASE) up -d --wait postgres minio fake-openai fake-delivery
 	$(COMPOSE_BASE) run --rm minio-init
-	$(COMPOSE_BASE) run --rm migrate up
+	$(COMPOSE_BASE) run --rm --build migrate up
 	$(COMPOSE_BASE) run --rm seed
 	$(COMPOSE_BASE) run --rm --build worker once
 	@IFS= read -r relantern_database_secret < .local/secrets/database_password; \
 		DATABASE_URL="postgres://relantern:$${relantern_database_secret}@127.0.0.1:5432/relantern?sslmode=disable" \
-		$(GO) test ./internal/fetcher/pgstore ./internal/sources/pgstore -count=1
+		$(GO) test -p 1 ./internal/dedupe/pgstore ./internal/embedding/pgstore ./internal/extraction/pgstore ./internal/fetcher/pgstore ./internal/jobqueue ./internal/openaiwebhook ./internal/parsing/pgstore ./internal/reembedding ./internal/research/pgstore ./internal/scheduler ./internal/search/pgstore ./internal/sources/pgstore ./internal/worker -count=1
 	@IFS= read -r relantern_s3_access < .local/secrets/minio_access_key; \
 		IFS= read -r relantern_s3_secret < .local/secrets/minio_secret_key; \
 		S3_TEST_ENDPOINT=http://127.0.0.1:9000 \
@@ -69,8 +69,11 @@ test-integration: secrets ## Run database, object-storage, and worker integratio
 		S3_TEST_SECRET_KEY="$${relantern_s3_secret}" \
 		$(GO) test ./internal/storage/s3store -count=1
 
-test-e2e: ## Run the PR 0 production-build smoke in lieu of product flows
+test-e2e: ## Build the production web application
 	$(PNPM) --filter @relantern/web build
+
+auth-smoke: ## Verify the disconnected owner OAuth and session journey
+	bash scripts/auth-smoke.sh
 
 lint: ## Run Biome, gofmt verification, and Go vet
 	$(PNPM) lint
@@ -92,11 +95,19 @@ generate: ## Generate sqlc, OpenAPI, and the TypeScript API client
 	$(GO) run ./cmd/api openapi --output contracts/openapi.yaml
 	$(PNPM) --filter @relantern/api-client generate
 
-generate-check: generate ## Fail if committed generated artifacts drift
-	@git diff --exit-code -- contracts/openapi.yaml internal/database/sqlcdb packages/api-client/src/generated/schema.ts
+generate-check: ## Fail if regeneration changes the current generated artifacts
+	@relantern_generate_check_dir="$$(mktemp -d)"; \
+		trap 'rm -r "$${relantern_generate_check_dir}"' EXIT; \
+		cp contracts/openapi.yaml "$${relantern_generate_check_dir}/openapi.yaml"; \
+		cp internal/database/sqlcdb/models.go "$${relantern_generate_check_dir}/models.go"; \
+		cp packages/api-client/src/generated/schema.ts "$${relantern_generate_check_dir}/schema.ts"; \
+		$(MAKE) generate; \
+		cmp -s "$${relantern_generate_check_dir}/openapi.yaml" contracts/openapi.yaml; \
+		cmp -s "$${relantern_generate_check_dir}/models.go" internal/database/sqlcdb/models.go; \
+		cmp -s "$${relantern_generate_check_dir}/schema.ts" packages/api-client/src/generated/schema.ts
 
 migrate: secrets ## Apply forward local migrations
-	$(COMPOSE_BASE) run --rm migrate up
+	$(COMPOSE_BASE) run --rm --build migrate up
 
 migration: ## Create a timestamped empty migration (name=required)
 	@test -n "$(name)" || { printf 'Usage: make migration name=short_description\n' >&2; exit 1; }
@@ -107,13 +118,25 @@ seed: secrets ## Apply the idempotent local owner and schedule seed
 
 sources-verify: ## Strictly validate the reviewed registry and connector fixtures
 	$(GO) run ./cmd/sourcectl verify --registry sources/registry.yaml --fixtures sources/fixtures.yaml
+	$(GO) test ./internal/parsing -run '^TestReviewedFixtureParsers$$' -count=1
 
 fixtures-record: ## Refuse live fixture recording until separately authorized
 	@printf 'Live fixture recording remains disabled and requires explicit review.\n' >&2
 	@exit 1
 
-eval: ## Run deterministic zero-network evaluation fixtures
-	$(GO) test ./...
+eval: test-dedupe test-search test-extraction test-research ## Run deterministic zero-network evaluation fixtures
+
+test-dedupe: ## Run deterministic dedupe and cluster evaluation fixtures
+	$(GO) test ./internal/dedupe/... -count=1
+
+test-search: ## Run deterministic hybrid-retrieval evaluation fixtures
+	$(GO) test ./internal/embedding/... ./internal/reembedding/... ./internal/search/... -count=1
+
+test-extraction: ## Run structured-output, grounding, and injection evaluations
+	$(GO) test ./internal/extraction/... -count=1
+
+test-research: ## Run bounded research, provenance, and webhook evaluations
+	$(GO) test ./internal/research/... ./internal/openaiwebhook -count=1
 
 scheduler-tick: secrets ## Run one schedule reconciliation and capture pass
 	$(COMPOSE_BASE) run --rm worker once
@@ -132,9 +155,9 @@ test-dst: test-scheduler ## Alias for the reviewed DST suite
 
 time-travel: secrets ## Run one isolated fixed-clock reconciliation (at=RFC3339 required)
 	@test -n "$(at)" || { printf 'Usage: make time-travel at=2026-08-29T08:00:00-04:00\n' >&2; exit 1; }
-	CLOCK_MODE=fixed TEST_NOW='$(at)' COMPOSE_PROJECT_NAME=relantern-time-travel POSTGRES_PUBLISHED_PORT=15432 FAKE_DELIVERY_PUBLISHED_PORT=18092 $(COMPOSE_BASE) up --build --detach postgres fake-delivery migrate seed
-	CLOCK_MODE=fixed TEST_NOW='$(at)' COMPOSE_PROJECT_NAME=relantern-time-travel POSTGRES_PUBLISHED_PORT=15432 FAKE_DELIVERY_PUBLISHED_PORT=18092 STACK_LONG_RUNNING='postgres fake-delivery' STACK_ONE_SHOTS='migrate seed' bash scripts/stack-wait.sh
-	CLOCK_MODE=fixed TEST_NOW='$(at)' COMPOSE_PROJECT_NAME=relantern-time-travel POSTGRES_PUBLISHED_PORT=15432 FAKE_DELIVERY_PUBLISHED_PORT=18092 $(COMPOSE_BASE) run --rm worker once
+	CLOCK_MODE=fixed TEST_NOW='$(at)' COMPOSE_PROJECT_NAME=relantern-time-travel POSTGRES_PUBLISHED_PORT=15432 MINIO_API_PUBLISHED_PORT=19000 MINIO_CONSOLE_PUBLISHED_PORT=19001 FAKE_DELIVERY_PUBLISHED_PORT=18092 $(COMPOSE_BASE) up --build --detach postgres fake-delivery migrate seed
+	CLOCK_MODE=fixed TEST_NOW='$(at)' COMPOSE_PROJECT_NAME=relantern-time-travel POSTGRES_PUBLISHED_PORT=15432 MINIO_API_PUBLISHED_PORT=19000 MINIO_CONSOLE_PUBLISHED_PORT=19001 FAKE_DELIVERY_PUBLISHED_PORT=18092 STACK_LONG_RUNNING='postgres fake-delivery' STACK_ONE_SHOTS='migrate seed' bash scripts/stack-wait.sh
+	CLOCK_MODE=fixed TEST_NOW='$(at)' COMPOSE_PROJECT_NAME=relantern-time-travel POSTGRES_PUBLISHED_PORT=15432 MINIO_API_PUBLISHED_PORT=19000 MINIO_CONSOLE_PUBLISHED_PORT=19001 FAKE_DELIVERY_PUBLISHED_PORT=18092 $(COMPOSE_BASE) run --rm worker once
 	@capture_json="$$(curl --fail --silent --show-error http://127.0.0.1:18092/captures)"; printf '%s\n' "$$capture_json"; printf '%s' "$$capture_json" | rg -q '"count":1'
 
 time-travel-clean: ## Remove the isolated time-travel stack after confirmation
@@ -147,12 +170,15 @@ observability: ## Start the optional local LGTM profile
 config-check: secrets ## Validate Compose, Docker, env, and Railway parity
 	bash scripts/config-check.sh
 
-demo: dev ## Open the anonymous static demo placeholder
+demo: dev ## Open the isolated anonymous fixture demonstration
 	@printf 'Open http://127.0.0.1:3000/demo\n'
 
-demo-audit: ## Validate the demo's current static isolation contract
+demo-audit: ## Validate the demo fixture and emitted isolation contract
+	$(PNPM) --filter @relantern/web test -- demo-sanitizer.test.ts route-policy.test.ts
 	$(PNPM) --filter @relantern/web build
 	@rg -q 'noindex,nofollow' docs/demo-route-contract.md
+	@test ! -s apps/web/.next/server/app/demo.html
+	@test ! -s 'apps/web/.next/server/app/demo/story/[fixtureId].html'
 
 prepush: lint workflow-lint typecheck test generate-check config-check sources-verify ## Run required local fast release gates
 	bash scripts/policy-check.sh
@@ -167,6 +193,7 @@ prodlike-smoke: prodlike ## Smoke test all production-like health surfaces
 	curl --fail --silent --show-error http://127.0.0.1:3000/healthz >/dev/null
 	curl --fail --silent --show-error http://127.0.0.1:8080/readyz >/dev/null
 	curl --fail --silent --show-error http://127.0.0.1:8092/healthz >/dev/null
+	$(MAKE) auth-smoke
 
 sbom: ## Require Syft before generating release SBOMs
 	@command -v syft >/dev/null 2>&1 || { printf 'Install pinned Syft before generating release SBOMs.\n' >&2; exit 1; }

@@ -6,7 +6,226 @@ package sqlcdb
 
 import (
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/pgvector/pgvector-go"
 )
+
+type AppAiRun struct {
+	ID                 pgtype.UUID        `json:"id"`
+	ItemID             pgtype.UUID        `json:"item_id"`
+	RevisionID         pgtype.UUID        `json:"revision_id"`
+	Purpose            string             `json:"purpose"`
+	ModelConfigID      pgtype.UUID        `json:"model_config_id"`
+	PromptVersionID    pgtype.UUID        `json:"prompt_version_id"`
+	ProviderResponseID pgtype.Text        `json:"provider_response_id"`
+	Background         bool               `json:"background"`
+	State              string             `json:"state"`
+	InputSha256        []byte             `json:"input_sha256"`
+	ValidatedOutput    []byte             `json:"validated_output"`
+	InputTokens        int64              `json:"input_tokens"`
+	CachedInputTokens  int64              `json:"cached_input_tokens"`
+	OutputTokens       int64              `json:"output_tokens"`
+	ToolCalls          int32              `json:"tool_calls"`
+	AttemptCount       int32              `json:"attempt_count"`
+	EstimatedCostUsd   pgtype.Numeric     `json:"estimated_cost_usd"`
+	StartedAt          pgtype.Timestamptz `json:"started_at"`
+	CompletedAt        pgtype.Timestamptz `json:"completed_at"`
+	ErrorCode          pgtype.Text        `json:"error_code"`
+	CreatedAt          pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
+	ClusterID          pgtype.UUID        `json:"cluster_id"`
+}
+
+type AppAiRunAttempt struct {
+	ID                 int64              `json:"id"`
+	AiRunID            pgtype.UUID        `json:"ai_run_id"`
+	AttemptNumber      int32              `json:"attempt_number"`
+	State              string             `json:"state"`
+	ProviderResponseID pgtype.Text        `json:"provider_response_id"`
+	InputTokens        int64              `json:"input_tokens"`
+	CachedInputTokens  int64              `json:"cached_input_tokens"`
+	OutputTokens       int64              `json:"output_tokens"`
+	ReservedCostUsd    pgtype.Numeric     `json:"reserved_cost_usd"`
+	EstimatedCostUsd   pgtype.Numeric     `json:"estimated_cost_usd"`
+	BudgetSoftAlert    bool               `json:"budget_soft_alert"`
+	StartedAt          pgtype.Timestamptz `json:"started_at"`
+	CompletedAt        pgtype.Timestamptz `json:"completed_at"`
+	ErrorCode          pgtype.Text        `json:"error_code"`
+	CreatedAt          pgtype.Timestamptz `json:"created_at"`
+	ReservedToolCalls  int32              `json:"reserved_tool_calls"`
+	ToolCalls          int32              `json:"tool_calls"`
+}
+
+type AppAuditEvent struct {
+	ID         int64              `json:"id"`
+	ActorType  string             `json:"actor_type"`
+	ActorID    string             `json:"actor_id"`
+	Action     string             `json:"action"`
+	TargetType string             `json:"target_type"`
+	TargetID   string             `json:"target_id"`
+	RequestID  pgtype.Text        `json:"request_id"`
+	Metadata   []byte             `json:"metadata"`
+	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+}
+
+type AppAuthAccount struct {
+	ID                    pgtype.UUID        `json:"id"`
+	Issuer                string             `json:"issuer"`
+	AccountID             string             `json:"account_id"`
+	ProviderID            string             `json:"provider_id"`
+	UserID                pgtype.UUID        `json:"user_id"`
+	AccessToken           pgtype.Text        `json:"access_token"`
+	RefreshToken          pgtype.Text        `json:"refresh_token"`
+	IDToken               pgtype.Text        `json:"id_token"`
+	AccessTokenExpiresAt  pgtype.Timestamptz `json:"access_token_expires_at"`
+	RefreshTokenExpiresAt pgtype.Timestamptz `json:"refresh_token_expires_at"`
+	Scope                 pgtype.Text        `json:"scope"`
+	Password              pgtype.Text        `json:"password"`
+	CreatedAt             pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt             pgtype.Timestamptz `json:"updated_at"`
+}
+
+type AppAuthRateLimit struct {
+	ID          pgtype.UUID `json:"id"`
+	Key         string      `json:"key"`
+	Count       int32       `json:"count"`
+	LastRequest int64       `json:"last_request"`
+}
+
+type AppAuthSession struct {
+	ID        pgtype.UUID        `json:"id"`
+	ExpiresAt pgtype.Timestamptz `json:"expires_at"`
+	Token     string             `json:"token"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+	IpAddress pgtype.Text        `json:"ip_address"`
+	UserAgent pgtype.Text        `json:"user_agent"`
+	UserID    pgtype.UUID        `json:"user_id"`
+}
+
+type AppAuthVerification struct {
+	ID         pgtype.UUID        `json:"id"`
+	Identifier string             `json:"identifier"`
+	Value      string             `json:"value"`
+	ExpiresAt  pgtype.Timestamptz `json:"expires_at"`
+	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
+}
+
+type AppClaim struct {
+	ID                pgtype.UUID        `json:"id"`
+	ItemID            pgtype.UUID        `json:"item_id"`
+	RevisionID        pgtype.UUID        `json:"revision_id"`
+	AiRunID           pgtype.UUID        `json:"ai_run_id"`
+	ClaimIndex        int32              `json:"claim_index"`
+	ClaimType         string             `json:"claim_type"`
+	ClaimText         string             `json:"claim_text"`
+	NormalizedValue   []byte             `json:"normalized_value"`
+	Confidence        string             `json:"confidence"`
+	Material          bool               `json:"material"`
+	VerificationState string             `json:"verification_state"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+}
+
+type AppClusterMember struct {
+	ClusterID  pgtype.UUID        `json:"cluster_id"`
+	ItemID     pgtype.UUID        `json:"item_id"`
+	Similarity pgtype.Numeric     `json:"similarity"`
+	Method     string             `json:"method"`
+	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+}
+
+type AppContentRevision struct {
+	ID                      pgtype.UUID        `json:"id"`
+	RawDocumentID           pgtype.UUID        `json:"raw_document_id"`
+	PreviousRevisionID      pgtype.UUID        `json:"previous_revision_id"`
+	NormalizedSha256        []byte             `json:"normalized_sha256"`
+	NormalizedTextObjectKey string             `json:"normalized_text_object_key"`
+	ParserName              string             `json:"parser_name"`
+	ParserVersion           string             `json:"parser_version"`
+	Title                   string             `json:"title"`
+	Author                  string             `json:"author"`
+	Language                string             `json:"language"`
+	SourcePublishedAt       pgtype.Timestamptz `json:"source_published_at"`
+	SourceUpdatedAt         pgtype.Timestamptz `json:"source_updated_at"`
+	NormalizedBytes         int64              `json:"normalized_bytes"`
+	Outline                 []byte             `json:"outline"`
+	OffsetMap               []byte             `json:"offset_map"`
+	Warnings                []byte             `json:"warnings"`
+	ChangeKind              string             `json:"change_kind"`
+	ChangeReason            string             `json:"change_reason"`
+	MaterialChange          bool               `json:"material_change"`
+	ObservedAt              pgtype.Timestamptz `json:"observed_at"`
+	CreatedAt               pgtype.Timestamptz `json:"created_at"`
+}
+
+type AppDedupeDecision struct {
+	RevisionID      pgtype.UUID        `json:"revision_id"`
+	ItemID          pgtype.UUID        `json:"item_id"`
+	ClusterID       pgtype.UUID        `json:"cluster_id"`
+	CandidateItemID pgtype.UUID        `json:"candidate_item_id"`
+	Outcome         string             `json:"outcome"`
+	Method          string             `json:"method"`
+	Similarity      pgtype.Numeric     `json:"similarity"`
+	SimhashDistance pgtype.Int4        `json:"simhash_distance"`
+	Details         []byte             `json:"details"`
+	EvaluatedAt     pgtype.Timestamptz `json:"evaluated_at"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+}
+
+type AppEmbedding struct {
+	ID            pgtype.UUID        `json:"id"`
+	EntityType    string             `json:"entity_type"`
+	EntityID      pgtype.UUID        `json:"entity_id"`
+	RevisionID    pgtype.UUID        `json:"revision_id"`
+	ModelID       string             `json:"model_id"`
+	Dimensions    int32              `json:"dimensions"`
+	Embedding     pgvector.Vector    `json:"embedding"`
+	ContentSha256 []byte             `json:"content_sha256"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+}
+
+type AppEmbeddingModel struct {
+	ModelID        string             `json:"model_id"`
+	Provider       string             `json:"provider"`
+	Dimensions     int32              `json:"dimensions"`
+	LifecycleState string             `json:"lifecycle_state"`
+	EvaluatedAt    pgtype.Timestamptz `json:"evaluated_at"`
+	ActivatedAt    pgtype.Timestamptz `json:"activated_at"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+}
+
+type AppEvalCase struct {
+	ID           pgtype.UUID        `json:"id"`
+	Suite        string             `json:"suite"`
+	InputFixture string             `json:"input_fixture"`
+	Expected     []byte             `json:"expected"`
+	Source       string             `json:"source"`
+	Active       bool               `json:"active"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+}
+
+type AppEvalRun struct {
+	ID              pgtype.UUID        `json:"id"`
+	GitSha          string             `json:"git_sha"`
+	ModelConfigID   pgtype.UUID        `json:"model_config_id"`
+	PromptVersionID pgtype.UUID        `json:"prompt_version_id"`
+	Metrics         []byte             `json:"metrics"`
+	Result          string             `json:"result"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+}
+
+type AppEvidenceSpan struct {
+	ID             pgtype.UUID        `json:"id"`
+	ClaimID        pgtype.UUID        `json:"claim_id"`
+	RevisionID     pgtype.UUID        `json:"revision_id"`
+	SpanIdentifier string             `json:"span_identifier"`
+	SectionPath    string             `json:"section_path"`
+	StartOffset    int32              `json:"start_offset"`
+	EndOffset      int32              `json:"end_offset"`
+	QuoteHash      []byte             `json:"quote_hash"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+}
 
 type AppGithubRepository struct {
 	SourceID        string             `json:"source_id"`
@@ -18,6 +237,67 @@ type AppGithubRepository struct {
 	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
 }
 
+type AppItem struct {
+	ID                pgtype.UUID        `json:"id"`
+	CurrentRevisionID pgtype.UUID        `json:"current_revision_id"`
+	CanonicalUrl      string             `json:"canonical_url"`
+	Title             string             `json:"title"`
+	NormalizedTitle   string             `json:"normalized_title"`
+	NormalizedAuthor  string             `json:"normalized_author"`
+	PackageName       string             `json:"package_name"`
+	Version           string             `json:"version"`
+	Slug              string             `json:"slug"`
+	LifecycleState    string             `json:"lifecycle_state"`
+	EventType         string             `json:"event_type"`
+	PublishedAt       pgtype.Timestamptz `json:"published_at"`
+	FirstSeenAt       pgtype.Timestamptz `json:"first_seen_at"`
+	Status            string             `json:"status"`
+	Simhash           []byte             `json:"simhash"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
+}
+
+type AppItemSource struct {
+	RevisionID   pgtype.UUID        `json:"revision_id"`
+	ItemID       pgtype.UUID        `json:"item_id"`
+	CanonicalUrl string             `json:"canonical_url"`
+	SourceRole   string             `json:"source_role"`
+	SourceTier   string             `json:"source_tier"`
+	SortOrder    int32              `json:"sort_order"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+}
+
+type AppModelConfig struct {
+	ID                       pgtype.UUID        `json:"id"`
+	Role                     string             `json:"role"`
+	Provider                 string             `json:"provider"`
+	ModelID                  string             `json:"model_id"`
+	Reasoning                string             `json:"reasoning"`
+	Verbosity                string             `json:"verbosity"`
+	EnabledTools             []string           `json:"enabled_tools"`
+	MaxOutputTokens          int32              `json:"max_output_tokens"`
+	InputUsdPerMillion       pgtype.Numeric     `json:"input_usd_per_million"`
+	CachedInputUsdPerMillion pgtype.Numeric     `json:"cached_input_usd_per_million"`
+	OutputUsdPerMillion      pgtype.Numeric     `json:"output_usd_per_million"`
+	Enabled                  bool               `json:"enabled"`
+	ValidFrom                pgtype.Timestamptz `json:"valid_from"`
+	CreatedAt                pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt                pgtype.Timestamptz `json:"updated_at"`
+	WebSearchUsdPerCall      pgtype.Numeric     `json:"web_search_usd_per_call"`
+}
+
+type AppOpenaiWebhookEvent struct {
+	WebhookID       string             `json:"webhook_id"`
+	EventID         string             `json:"event_id"`
+	EventType       string             `json:"event_type"`
+	ResponseID      string             `json:"response_id"`
+	EventCreatedAt  pgtype.Timestamptz `json:"event_created_at"`
+	ReceivedAt      pgtype.Timestamptz `json:"received_at"`
+	ProcessedAt     pgtype.Timestamptz `json:"processed_at"`
+	ProcessingError pgtype.Text        `json:"processing_error"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+}
+
 type AppOutboxEvent struct {
 	ID            int64              `json:"id"`
 	EventType     string             `json:"event_type"`
@@ -25,6 +305,17 @@ type AppOutboxEvent struct {
 	AggregateID   pgtype.UUID        `json:"aggregate_id"`
 	Payload       []byte             `json:"payload"`
 	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+}
+
+type AppPromptVersion struct {
+	ID              pgtype.UUID        `json:"id"`
+	Purpose         string             `json:"purpose"`
+	SemanticVersion string             `json:"semantic_version"`
+	PromptSha256    []byte             `json:"prompt_sha256"`
+	SchemaVersion   string             `json:"schema_version"`
+	SchemaSha256    []byte             `json:"schema_sha256"`
+	Active          bool               `json:"active"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
 }
 
 type AppRawDocument struct {
@@ -38,6 +329,49 @@ type AppRawDocument struct {
 	SourcePublishedAt pgtype.Timestamptz `json:"source_published_at"`
 	ContentPolicy     string             `json:"content_policy"`
 	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+}
+
+type AppResearchAssertion struct {
+	ID              pgtype.UUID        `json:"id"`
+	ResearchBriefID pgtype.UUID        `json:"research_brief_id"`
+	AssertionIndex  int32              `json:"assertion_index"`
+	AssertionText   string             `json:"assertion_text"`
+	Material        bool               `json:"material"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+}
+
+type AppResearchAssertionClaim struct {
+	ResearchAssertionID pgtype.UUID        `json:"research_assertion_id"`
+	ClaimID             pgtype.UUID        `json:"claim_id"`
+	CreatedAt           pgtype.Timestamptz `json:"created_at"`
+}
+
+type AppResearchAssertionSource struct {
+	ResearchAssertionID pgtype.UUID        `json:"research_assertion_id"`
+	ResearchSourceID    pgtype.UUID        `json:"research_source_id"`
+	CreatedAt           pgtype.Timestamptz `json:"created_at"`
+}
+
+type AppResearchBrief struct {
+	ID                pgtype.UUID        `json:"id"`
+	ClusterID         pgtype.UUID        `json:"cluster_id"`
+	AiRunID           pgtype.UUID        `json:"ai_run_id"`
+	Headline          string             `json:"headline"`
+	Summary           string             `json:"summary"`
+	WhyItMatters      string             `json:"why_it_matters"`
+	RecommendedAction string             `json:"recommended_action"`
+	Confidence        string             `json:"confidence"`
+	Uncertainties     []byte             `json:"uncertainties"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
+}
+
+type AppResearchSource struct {
+	ID           pgtype.UUID        `json:"id"`
+	AiRunID      pgtype.UUID        `json:"ai_run_id"`
+	SourceUrl    string             `json:"source_url"`
+	SourceDomain string             `json:"source_domain"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
 }
 
 type AppScheduleDefinition struct {
@@ -72,6 +406,24 @@ type AppScheduleOccurrence struct {
 	CompletedAt        pgtype.Timestamptz `json:"completed_at"`
 	ErrorCode          pgtype.Text        `json:"error_code"`
 	Metadata           []byte             `json:"metadata"`
+	RiverJobID         pgtype.Int8        `json:"river_job_id"`
+}
+
+type AppSearchDocument struct {
+	ItemID            pgtype.UUID        `json:"item_id"`
+	RevisionID        pgtype.UUID        `json:"revision_id"`
+	Title             string             `json:"title"`
+	Summary           string             `json:"summary"`
+	EntityText        string             `json:"entity_text"`
+	PackageName       string             `json:"package_name"`
+	NormalizedContent string             `json:"normalized_content"`
+	SourceTier        string             `json:"source_tier"`
+	LifecycleState    string             `json:"lifecycle_state"`
+	PublishedAt       pgtype.Timestamptz `json:"published_at"`
+	FirstSeenAt       pgtype.Timestamptz `json:"first_seen_at"`
+	SearchVector      interface{}        `json:"search_vector"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
 }
 
 type AppSource struct {
@@ -141,6 +493,21 @@ type AppSourceFetch struct {
 	CreatedAt       pgtype.Timestamptz `json:"created_at"`
 }
 
+type AppSourceParseAttempt struct {
+	ID            int64              `json:"id"`
+	RawDocumentID pgtype.UUID        `json:"raw_document_id"`
+	RevisionID    pgtype.UUID        `json:"revision_id"`
+	Outcome       string             `json:"outcome"`
+	ParserName    string             `json:"parser_name"`
+	ParserVersion string             `json:"parser_version"`
+	AttemptedAt   pgtype.Timestamptz `json:"attempted_at"`
+	CompletedAt   pgtype.Timestamptz `json:"completed_at"`
+	DurationMs    int32              `json:"duration_ms"`
+	ErrorCode     pgtype.Text        `json:"error_code"`
+	Warnings      []byte             `json:"warnings"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+}
+
 type AppSourceRuntimeOverride struct {
 	SourceID       string             `json:"source_id"`
 	PollingEnabled bool               `json:"polling_enabled"`
@@ -150,12 +517,26 @@ type AppSourceRuntimeOverride struct {
 	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
 }
 
+type AppStoryCluster struct {
+	ID            pgtype.UUID        `json:"id"`
+	PrimaryItemID pgtype.UUID        `json:"primary_item_id"`
+	ClusterKey    string             `json:"cluster_key"`
+	Title         string             `json:"title"`
+	FirstSeenAt   pgtype.Timestamptz `json:"first_seen_at"`
+	LastChangedAt pgtype.Timestamptz `json:"last_changed_at"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
+}
+
 type AppUser struct {
-	ID           pgtype.UUID        `json:"id"`
-	GithubUserID int64              `json:"github_user_id"`
-	Login        string             `json:"login"`
-	DisplayName  pgtype.Text        `json:"display_name"`
-	Timezone     string             `json:"timezone"`
-	CreatedAt    pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
+	ID            pgtype.UUID        `json:"id"`
+	GithubUserID  int64              `json:"github_user_id"`
+	Login         string             `json:"login"`
+	DisplayName   string             `json:"display_name"`
+	Timezone      string             `json:"timezone"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
+	Email         string             `json:"email"`
+	EmailVerified bool               `json:"email_verified"`
+	ImageUrl      pgtype.Text        `json:"image_url"`
 }

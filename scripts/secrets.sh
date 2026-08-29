@@ -26,5 +26,7 @@ generate_secret minio_access_key
 generate_secret minio_secret_key
 generate_secret fake_openai_secret
 generate_secret fake_delivery_secret
+generate_secret openai_webhook_secret
+generate_secret web_internal_service_token
 
 printf 'Local secrets are present under %s (values not displayed).\n' "${secret_directory}"

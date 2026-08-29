@@ -17,6 +17,9 @@ import (
 	"github.com/traweezy/relantern/internal/api"
 	"github.com/traweezy/relantern/internal/config"
 	"github.com/traweezy/relantern/internal/database"
+	"github.com/traweezy/relantern/internal/intelligence/pgstore"
+	"github.com/traweezy/relantern/internal/jobqueue"
+	"github.com/traweezy/relantern/internal/openaiwebhook"
 	"github.com/traweezy/relantern/internal/service"
 )
 
@@ -50,6 +53,10 @@ func run(arguments []string, logger *slog.Logger) error {
 	if err != nil {
 		return fmt.Errorf("load HTTP configuration: %w", err)
 	}
+	webhookConfig, err := config.LoadOpenAIWebhookInternal()
+	if err != nil {
+		return fmt.Errorf("load private OpenAI webhook configuration: %w", err)
+	}
 
 	rootContext, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -59,11 +66,27 @@ func run(arguments []string, logger *slog.Logger) error {
 	}
 	defer pool.Close()
 
+	inserter, err := jobqueue.NewInserter()
+	if err != nil {
+		return err
+	}
+	webhookStore, err := openaiwebhook.NewStore(pool, inserter)
+	if err != nil {
+		return err
+	}
+	webhookHandler, err := openaiwebhook.NewHandler(webhookStore, webhookConfig.ServiceToken, logger)
+	if err != nil {
+		return err
+	}
+	intelligenceStore, err := pgstore.New(pool)
+	if err != nil {
+		return err
+	}
 	application := api.New(logger, api.Info{Version: common.Version, GitSHA: common.GitSHA}, func(ctx context.Context) error {
 		pingContext, cancel := context.WithTimeout(ctx, 2*time.Second)
 		defer cancel()
 		return pool.Ping(pingContext)
-	})
+	}, api.WithIntelligence(intelligenceStore, webhookConfig.ServiceToken), api.WithOpenAIWebhook(webhookHandler))
 
 	return service.RunHTTP(rootContext, logger, service.HTTPServerConfig{
 		Host:            "0.0.0.0",

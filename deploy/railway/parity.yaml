@@ -5,16 +5,38 @@ services:
     target: production
     healthcheck: /healthz
     internal_port: 8080
+    required_secrets:
+      - DATABASE_URL
+      - WEB_INTERNAL_SERVICE_TOKEN
   worker:
     dockerfile: deploy/docker/worker.Dockerfile
     target: production
     healthcheck: /healthz
     internal_port: 8081
+    required_secrets:
+      - DATABASE_URL
+      - OBJECT_STORAGE_ACCESS_KEY
+      - OBJECT_STORAGE_SECRET_KEY
+    conditional_secrets:
+      OPENAI_RESEARCH_ENABLED:
+        - OPENAI_API_KEY
   web:
     dockerfile: deploy/docker/web.Dockerfile
     target: production
     healthcheck: /healthz
     internal_port: 3000
+    required_secrets:
+      - BETTER_AUTH_SECRET
+      - DATABASE_URL
+      - GITHUB_OAUTH_CLIENT_SECRET
+      - OPENAI_WEBHOOK_SECRET
+      - WEB_INTERNAL_SERVICE_TOKEN
+    required_configuration:
+      - AUTH_ALLOWED_GITHUB_USER_ID
+      - BETTER_AUTH_URL
+      - GITHUB_OAUTH_CLIENT_ID
+      - INTERNAL_API_URL
+      - PUBLIC_BASE_URL
   migrate:
     dockerfile: deploy/docker/migrate.Dockerfile
     target: production
@@ -30,3 +52,9 @@ clock:
   production_mode: system
 public_services:
   - web
+openai_background:
+  public_receiver: /api/webhooks/openai
+  private_receiver: /internal/v1/openai/events
+  signature_verifier: official-openai-javascript-sdk
+  reconciliation_interval: 15m
+  result_fetcher: official-openai-go-sdk

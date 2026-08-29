@@ -25,6 +25,31 @@ done
 rg -q 'production_mode: system' deploy/railway/parity.yaml
 rg -q 'CLOCK_MODE: \$\{CLOCK_MODE:-system\}' compose.yaml
 
+test "$(sed -n '/^public_services:/,/^[^ ]/p' deploy/railway/parity.yaml | rg -c '^  - web$')" -eq 1
+rg -q 'public_receiver: /api/webhooks/openai' deploy/railway/parity.yaml
+rg -q 'private_receiver: /internal/v1/openai/events' deploy/railway/parity.yaml
+rg -q 'reconciliation_interval: 15m' deploy/railway/parity.yaml
+rg -q 'OPENAI_WEBHOOK_SECRET_FILE: /run/secrets/openai_webhook_secret' compose.yaml
+test "$(rg -c 'WEB_INTERNAL_SERVICE_TOKEN_FILE: /run/secrets/web_internal_service_token' compose.yaml)" -eq 2
+rg -q 'OPENAI_RESEARCH_MAX_TOOL_CALLS: "4"' compose.yaml
+rg -q 'OPENAI_DAILY_WEB_SEARCH_LIMIT: "100"' compose.yaml
+rg -q 'AUTH_PROVIDER_MODE: fixture' compose.yaml
+rg -q 'BETTER_AUTH_URL: http://127.0.0.1:3000' compose.yaml
+rg -q 'INTERNAL_API_URL: http://api:8080' compose.yaml
+rg -q 'PUBLIC_BASE_URL: http://127.0.0.1:3000' compose.yaml
+rg -q '^INTERNAL_API_URL=http://127.0.0.1:8080$' .env.local.example
+rg -q '^PUBLIC_BASE_URL=http://127.0.0.1:3000$' .env.local.example
+rg -q '      - INTERNAL_API_URL' deploy/railway/parity.yaml
+rg -q '      - PUBLIC_BASE_URL' deploy/railway/parity.yaml
+rg -q 'LOCAL_OAUTH_STUB_SECRET_FILE: /run/secrets/local_oauth_stub_secret' compose.yaml
+test "$(rg -c 'DATABASE_PASSWORD_FILE: /run/secrets/database_password' compose.yaml)" -ge 2
+for secret in BETTER_AUTH_SECRET DATABASE_URL GITHUB_OAUTH_CLIENT_SECRET; do
+  rg -q "      - ${secret}" deploy/railway/parity.yaml || {
+    printf 'Railway web auth parity is missing %s.\n' "${secret}" >&2
+    exit 1
+  }
+done
+
 while IFS= read -r digest; do
   if ! rg -q "${digest}" docs/version-manifest.md; then
     printf 'Image digest %s is absent from the reviewed version manifest.\n' "${digest}" >&2

@@ -1234,7 +1234,7 @@ Use the newest security-patched, stable, compatible patch at bootstrap:
 | Next.js | 16.3.3 security floor |
 | React | 19.2 |
 | TypeScript | 7 stable |
-| Node | 24 LTS, current compatible patch |
+| Node | 26 Current, exact compatible patch |
 | pnpm | 12 stable |
 | Biome | 2.5 |
 | Tailwind CSS | 4 |
@@ -1248,7 +1248,9 @@ Use the newest security-patched, stable, compatible patch at bootstrap:
 | Motion | 13.1 |
 | Better Auth | 1.7 |
 
-TanStack Form 2 remains excluded while pre-release. Node 26 is not the production baseline while Node 24 is the active LTS line.
+TanStack Form 2 remains excluded while pre-release. Node 26 is the
+owner-selected production baseline despite its Current-line status; pin the
+exact compatible patch and reassess its status at each runtime upgrade.
 
 ### 15.2 State ownership
 
@@ -1532,8 +1534,8 @@ Rendering and state:
 - The public layout imports the demo adapter directly and never imports the authenticated repository, Better Auth session helper, private BFF client, server action, or live-transport implementation.
 - Demo mutations run only in an in-memory store with an optional namespaced sessionStorage snapshot. They never use localStorage keys belonging to the authenticated app.
 - Reset demo discards all simulated state and returns to the initial guided step.
-- The route is fully prerenderable and receives Cache-Control suitable for shared public caching without Vary: Cookie.
-- The page remains identical whether or not the visitor already has an owner session.
+- The route is request-rendered so the root layout can apply a unique strict CSP nonce to every executable script. "Static demo" means the data and dependency graph are immutable and fixture-only; it does not mean static HTML.
+- The page content and fixture state remain session-independent whether or not the visitor already has an owner session. Per-request nonce bytes are expected to differ.
 - Fixture IDs are allowlisted at build time; unknown IDs return notFound.
 - The demo does not accept arbitrary URLs, HTML, Markdown, search queries sent to a server, or user-generated content.
 
@@ -2109,7 +2111,9 @@ Unique: schedule_id, scheduled_for. The occurrence ledger is the durable schedul
 
 Use Better Auth with GitHub OAuth.
 
-- Create separate GitHub OAuth apps for local, staging, and production.
+- Create separate GitHub OAuth apps for staging and production. The safe local
+  profile uses the reviewed disconnected OAuth fixture; an optional live local
+  app remains behind the explicit external-provider fuse.
 - Allow only the configured numeric GitHub user ID.
 - Reject successful OAuth identities not on the allowlist.
 - Secure, HttpOnly, SameSite=Lax cookies.
@@ -3093,7 +3097,7 @@ Containers, logs, traces, and database timestamps remain UTC. Owner-facing sched
 
 | Variable | Scope |
 |---|---|
-| DATABASE_URL | api, worker, migrate |
+| DATABASE_URL | web, api, worker, migrate |
 | INTERNAL_API_SHARED_SECRET | web and api |
 | OTEL_EXPORTER_OTLP_HEADERS | services when external OTLP is enabled |
 | SENTRY_DSN | web/api only if Sentry is selected |
@@ -3175,18 +3179,29 @@ Only one credential mode is active. A fine-grained read token is acceptable for 
 | OPENAI_PROJECT_ID | no | environment project |
 | OPENAI_ORG_ID | no | optional |
 | OPENAI_WEBHOOK_SECRET | yes | per environment |
+| WEB_INTERNAL_SERVICE_TOKEN | yes | distinct per environment; shared only by web and private API |
+| OPENAI_BASE_URL | no | https://api.openai.com in hosted environments |
+| FAKE_OPENAI_URL | no | http://fake-openai:8091 in the disconnected local profile only |
+| OPENAI_FAST_ENABLED | no | false in hosted environments; true against local fake provider |
+| OPENAI_RESEARCH_ENABLED | no | false in hosted environments; true against local fake provider |
 | OPENAI_MODEL_FAST | no | gpt-5.6-luna |
 | OPENAI_MODEL_RESEARCH | no | gpt-5.6-terra |
 | OPENAI_MODEL_DEEP | no | gpt-5.6-sol |
 | OPENAI_EMBEDDING_MODEL | no | text-embedding-3-small |
 | OPENAI_FAST_REASONING | no | low |
+| OPENAI_FAST_MAX_OUTPUT_TOKENS | no | 4096 |
 | OPENAI_RESEARCH_REASONING | no | medium |
+| OPENAI_RESEARCH_MAX_OUTPUT_TOKENS | no | 8192 |
+| OPENAI_RESEARCH_MAX_TOOL_CALLS | no | 4 |
+| OPENAI_RESEARCH_ALLOWED_DOMAINS | no | reviewed primary-source domain allowlist |
+| OPENAI_RESEARCH_BLOCKED_DOMAINS | no | reviewed redirect, paste, and untrusted-host blocklist |
 | OPENAI_DEEP_REASONING | no | high |
 | OPENAI_VERBOSITY | no | low |
 | OPENAI_BACKGROUND_ENABLED | no | true in hosted envs |
 | OPENAI_BATCH_ENABLED | no | true after validation |
 | OPENAI_MONTHLY_SOFT_USD | no | 25 |
 | OPENAI_MONTHLY_HARD_USD | no | 50 |
+| OPENAI_MAX_DOCUMENT_AGE | no | 720h |
 | OPENAI_DAILY_WEB_SEARCH_LIMIT | no | 100 |
 | OPENAI_DAILY_DEEP_LIMIT | no | 3 |
 
@@ -3216,8 +3231,8 @@ Store queue definitions as parsed configuration, validate names and positive wor
 |---|---:|
 | SEARCH_HYBRID_ENABLED | true |
 | SEARCH_RRF_K | 60 |
-| DEDUPE_SIMHASH_DISTANCE | evaluated value |
-| DEDUPE_EMBEDDING_THRESHOLD | evaluated value |
+| DEDUPE_SIMHASH_DISTANCE | 17; promoted from the labeled precision fixture |
+| DEDUPE_EMBEDDING_THRESHOLD | 0.86; promoted from the labeled embedding fixture |
 | CLUSTER_MAX_AGE | 30d |
 | EMBEDDING_DIMENSIONS | verified from configured model |
 
@@ -4101,7 +4116,7 @@ The complete platform is accepted only when all are true:
 45. make config-check proves typed configuration, Compose, Docker, env examples, and Railway parity.
 46. /demo renders from a signed-out browser while PostgreSQL, the private API, worker, Better Auth provider, OpenAI, and delivery providers are unavailable.
 47. The complete /demo request graph contains no /api/v1, /api/auth, SSE, OpenAI, Discord, Resend, or object-storage request.
-48. A logged-in owner and an anonymous visitor receive byte-equivalent cacheable demo content for the same build.
+48. A logged-in owner and an anonymous visitor receive semantically equivalent, session-independent demo content for the same build; per-request CSP nonce bytes may differ.
 49. Unknown fixture IDs and route-normalization attacks cannot cross from /demo into a protected route.
 50. The emitted demo HTML, React payload, JavaScript, and public assets contain no forbidden secret or owner-data fixture.
 51. Demo read/Later/star/archive interactions remain local, reset cleanly, and cannot create an audit or outbox record.
@@ -4213,7 +4228,7 @@ Important findings:
 Important findings:
 
 - Go 1.27 is stable.
-- Node 24 is the LTS production line; a newer non-LTS current line is not automatically a better production choice.
+- Node 26.8.1 is the owner-selected production line under an explicit Current-line and release-age exception; keep every production input exactly pinned.
 - TypeScript 7 is stable.
 - Next.js 16.3.3 is the security floor identified during this audit; recheck for later patches.
 - pnpm 12 and Biome 2.5 are current stable baselines.
@@ -4443,7 +4458,7 @@ At Android Phase A0, re-run the latest-stable compatibility policy and pin the s
 | React Native | 0.86.3 through the Expo SDK | Do not override Expo's supported version |
 | React | 19.2.3 | Keep one compatible React line across the workspace |
 | TypeScript | 7 stable | Share the root strict baseline |
-| Node | 24 LTS compatible patch | Satisfies Expo's Node 22.13 minimum and matches the web toolchain |
+| Node | 26.8.1 compatible patch | Owner-selected production line; satisfies Expo's Node 22.13 minimum and matches the web toolchain |
 | pnpm | 12 stable | One root workspace and lockfile |
 | Expo Router | SDK 57 compatible ~57.0.17 line | Typed file routes; exact resolved package pin |
 | React Native architecture | New Architecture with Hermes | Legacy Architecture is not supported by current Expo |

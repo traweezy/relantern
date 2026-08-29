@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"regexp"
@@ -11,6 +12,11 @@ import (
 	"time"
 
 	"github.com/traweezy/relantern/internal/clock"
+	"github.com/traweezy/relantern/internal/dedupe"
+	"github.com/traweezy/relantern/internal/embedding"
+	"github.com/traweezy/relantern/internal/extraction"
+	"github.com/traweezy/relantern/internal/research"
+	"github.com/traweezy/relantern/internal/search"
 )
 
 type Environment string
@@ -60,7 +66,68 @@ type ObjectStorage struct {
 	SecretKey string
 }
 
+type Dedupe struct {
+	SimHashDistance     int
+	EmbeddingSimilarity float64
+	ClusterMaxAge       time.Duration
+}
+
+type EmbeddingSearch struct {
+	BaseURL        string
+	ModelID        string
+	Dimensions     int
+	RRFK           int
+	HybridEnabled  bool
+	RequestTimeout time.Duration
+}
+
+type OpenAIExtraction struct {
+	Enabled            bool
+	BaseURL            string
+	APIKey             string
+	ProjectID          string
+	OrganizationID     string
+	ModelID            string
+	Reasoning          string
+	Verbosity          string
+	MaxOutputTokens    int
+	MonthlySoftUSD     extraction.USD
+	MonthlyHardUSD     extraction.USD
+	MaximumDocumentAge time.Duration
+	RequestTimeout     time.Duration
+}
+
+type OpenAIResearch struct {
+	Enabled             bool
+	BaseURL             string
+	APIKey              string
+	ProjectID           string
+	OrganizationID      string
+	ModelID             string
+	Reasoning           string
+	Verbosity           string
+	MaxOutputTokens     int
+	MaxToolCalls        int
+	AllowedDomains      []string
+	BlockedDomains      []string
+	Background          bool
+	DailyWebSearchLimit int
+	MonthlySoftUSD      extraction.USD
+	MonthlyHardUSD      extraction.USD
+	RequestTimeout      time.Duration
+}
+
+type OpenAIWebhookInternal struct {
+	ServiceToken string
+}
+
+type LocalOAuthStub struct {
+	ClientSecret      string
+	OwnerGitHubUserID string
+}
+
 var bucketPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$`)
+var githubUserIDPattern = regexp.MustCompile(`^[1-9][0-9]{0,15}$`)
 
 func LoadCommon() (Common, error) {
 	environment := Environment(valueOrDefault("APP_ENV", string(EnvironmentLocal)))
@@ -130,6 +197,27 @@ func LoadHTTP(defaultPort uint16) (HTTP, error) {
 	return HTTP{Port: uint16(port), ShutdownTimeout: shutdownTimeout}, nil
 }
 
+func LoadLocalOAuthStub(environment Environment) (LocalOAuthStub, error) {
+	if environment != EnvironmentLocal && environment != EnvironmentTest {
+		return LocalOAuthStub{}, errors.New("the OAuth stub is restricted to local and test environments")
+	}
+	clientSecret, err := secretValue("LOCAL_OAUTH_STUB_SECRET", "LOCAL_OAUTH_STUB_SECRET_FILE")
+	if err != nil {
+		return LocalOAuthStub{}, err
+	}
+	if len(clientSecret) < 32 {
+		return LocalOAuthStub{}, errors.New("LOCAL_OAUTH_STUB_SECRET must contain at least 32 characters")
+	}
+	ownerGitHubUserID := strings.TrimSpace(os.Getenv("AUTH_ALLOWED_GITHUB_USER_ID"))
+	if !githubUserIDPattern.MatchString(ownerGitHubUserID) {
+		return LocalOAuthStub{}, errors.New("AUTH_ALLOWED_GITHUB_USER_ID must be a positive numeric GitHub user ID")
+	}
+	return LocalOAuthStub{
+		ClientSecret:      clientSecret,
+		OwnerGitHubUserID: ownerGitHubUserID,
+	}, nil
+}
+
 func LoadWorker() (Worker, error) {
 	deliveryURL := strings.TrimSpace(os.Getenv("FAKE_DELIVERY_URL"))
 	if deliveryURL == "" {
@@ -146,6 +234,9 @@ func LoadWorker() (Worker, error) {
 	reconcileInterval, err := positiveDuration("SCHEDULER_RECONCILE_INTERVAL", "1m")
 	if err != nil {
 		return Worker{}, err
+	}
+	if reconcileInterval != time.Minute {
+		return Worker{}, errors.New("SCHEDULER_RECONCILE_INTERVAL must be exactly 1m")
 	}
 	requestTimeout, err := positiveDuration("PROVIDER_REQUEST_TIMEOUT", "5s")
 	if err != nil {
@@ -197,6 +288,284 @@ func LoadObjectStorage(environment Environment) (ObjectStorage, error) {
 		AccessKey: accessKey,
 		SecretKey: secretKey,
 	}, nil
+}
+
+func LoadDedupe() (Dedupe, error) {
+	distanceValue := valueOrDefault("DEDUPE_SIMHASH_DISTANCE", strconv.Itoa(dedupe.EvaluatedSimHashDistance))
+	distance, err := strconv.Atoi(distanceValue)
+	if err != nil || distance < 0 || distance > 64 {
+		return Dedupe{}, errors.New("DEDUPE_SIMHASH_DISTANCE must be an integer from 0 through 64")
+	}
+	similarityValue := valueOrDefault(
+		"DEDUPE_EMBEDDING_THRESHOLD",
+		strconv.FormatFloat(dedupe.EvaluatedEmbeddingSimilarity, 'f', -1, 64),
+	)
+	similarity, err := strconv.ParseFloat(similarityValue, 64)
+	if err != nil || similarity <= 0 || similarity > 1 {
+		return Dedupe{}, errors.New("DEDUPE_EMBEDDING_THRESHOLD must be greater than 0 and at most 1")
+	}
+	maximumAge, err := positiveDuration("CLUSTER_MAX_AGE", "720h")
+	if err != nil {
+		return Dedupe{}, err
+	}
+	if maximumAge > 365*24*time.Hour {
+		return Dedupe{}, errors.New("CLUSTER_MAX_AGE may not exceed 365 days")
+	}
+	return Dedupe{
+		SimHashDistance:     distance,
+		EmbeddingSimilarity: similarity,
+		ClusterMaxAge:       maximumAge,
+	}, nil
+}
+
+func LoadEmbeddingSearch() (EmbeddingSearch, error) {
+	dimensionsValue := valueOrDefault("EMBEDDING_DIMENSIONS", strconv.Itoa(embedding.DefaultDimensions))
+	dimensions, err := strconv.Atoi(dimensionsValue)
+	if err != nil || dimensions != embedding.DefaultDimensions {
+		return EmbeddingSearch{}, fmt.Errorf("EMBEDDING_DIMENSIONS must be exactly %d", embedding.DefaultDimensions)
+	}
+	rrfValue := valueOrDefault("SEARCH_RRF_K", strconv.Itoa(search.DefaultRRFK))
+	rrfK, err := strconv.Atoi(rrfValue)
+	if err != nil || rrfK < 1 || rrfK > 1000 {
+		return EmbeddingSearch{}, errors.New("SEARCH_RRF_K must be an integer from 1 through 1000")
+	}
+	hybridEnabled, err := strconv.ParseBool(valueOrDefault("SEARCH_HYBRID_ENABLED", "true"))
+	if err != nil {
+		return EmbeddingSearch{}, errors.New("SEARCH_HYBRID_ENABLED must be true or false")
+	}
+	requestTimeout, err := positiveDuration("PROVIDER_REQUEST_TIMEOUT", "5s")
+	if err != nil {
+		return EmbeddingSearch{}, err
+	}
+	modelID := strings.TrimSpace(valueOrDefault("OPENAI_EMBEDDING_MODEL", embedding.DefaultModelID))
+	if modelID == "" || len(modelID) > 255 {
+		return EmbeddingSearch{}, errors.New("OPENAI_EMBEDDING_MODEL must contain between 1 and 255 characters")
+	}
+	return EmbeddingSearch{
+		BaseURL:        valueOrDefault("FAKE_OPENAI_URL", "http://fake-openai:8091"),
+		ModelID:        modelID,
+		Dimensions:     dimensions,
+		RRFK:           rrfK,
+		HybridEnabled:  hybridEnabled,
+		RequestTimeout: requestTimeout,
+	}, nil
+}
+
+func LoadOpenAIExtraction(environment Environment) (OpenAIExtraction, error) {
+	defaultEnabled := environment == EnvironmentLocal || environment == EnvironmentTest
+	enabled, err := strconv.ParseBool(valueOrDefault("OPENAI_FAST_ENABLED", strconv.FormatBool(defaultEnabled)))
+	if err != nil {
+		return OpenAIExtraction{}, errors.New("OPENAI_FAST_ENABLED must be true or false")
+	}
+	baseURL := valueOrDefault("OPENAI_BASE_URL", "https://api.openai.com")
+	apiKey := ""
+	if environment == EnvironmentLocal || environment == EnvironmentTest {
+		baseURL = valueOrDefault("FAKE_OPENAI_URL", "http://fake-openai:8091")
+		apiKey = "relantern-local-fake-provider"
+	} else if enabled {
+		apiKey, err = secretValue("OPENAI_API_KEY", "OPENAI_API_KEY_FILE")
+		if err != nil {
+			return OpenAIExtraction{}, err
+		}
+		if apiKey == "" {
+			return OpenAIExtraction{}, errors.New("OPENAI_API_KEY or OPENAI_API_KEY_FILE is required when hosted extraction is enabled")
+		}
+	}
+	if err := validateOpenAIBaseURL(baseURL, environment); err != nil {
+		return OpenAIExtraction{}, err
+	}
+	modelID := strings.TrimSpace(valueOrDefault("OPENAI_MODEL_FAST", extraction.DefaultFastModelID))
+	if modelID == "" || len(modelID) > 255 {
+		return OpenAIExtraction{}, errors.New("OPENAI_MODEL_FAST must contain between 1 and 255 characters")
+	}
+	reasoning := valueOrDefault("OPENAI_FAST_REASONING", extraction.DefaultFastReasoning)
+	if !stringAllowed(reasoning, "none", "low", "medium", "high", "xhigh", "max") {
+		return OpenAIExtraction{}, errors.New("OPENAI_FAST_REASONING must be none, low, medium, high, xhigh, or max")
+	}
+	verbosity := valueOrDefault("OPENAI_VERBOSITY", extraction.DefaultVerbosity)
+	if !stringAllowed(verbosity, "low", "medium", "high") {
+		return OpenAIExtraction{}, errors.New("OPENAI_VERBOSITY must be low, medium, or high")
+	}
+	maxOutputTokens, err := strconv.Atoi(valueOrDefault("OPENAI_FAST_MAX_OUTPUT_TOKENS", strconv.Itoa(extraction.DefaultMaximumOutputTokens)))
+	if err != nil || maxOutputTokens < 256 || maxOutputTokens > 128_000 {
+		return OpenAIExtraction{}, errors.New("OPENAI_FAST_MAX_OUTPUT_TOKENS must be an integer from 256 through 128000")
+	}
+	softBudget, err := extraction.ParseUSD(valueOrDefault("OPENAI_MONTHLY_SOFT_USD", "25.00"))
+	if err != nil {
+		return OpenAIExtraction{}, fmt.Errorf("OPENAI_MONTHLY_SOFT_USD: %w", err)
+	}
+	hardBudget, err := extraction.ParseUSD(valueOrDefault("OPENAI_MONTHLY_HARD_USD", "50.00"))
+	if err != nil {
+		return OpenAIExtraction{}, fmt.Errorf("OPENAI_MONTHLY_HARD_USD: %w", err)
+	}
+	if err := extraction.ValidateBudgetRange(softBudget, hardBudget); err != nil {
+		return OpenAIExtraction{}, fmt.Errorf("invalid OpenAI monthly budgets: %w", err)
+	}
+	maximumAge, err := positiveDuration("OPENAI_MAX_DOCUMENT_AGE", "720h")
+	if err != nil {
+		return OpenAIExtraction{}, err
+	}
+	if maximumAge > 365*24*time.Hour {
+		return OpenAIExtraction{}, errors.New("OPENAI_MAX_DOCUMENT_AGE may not exceed 365 days")
+	}
+	requestTimeout, err := positiveDuration("RIVER_AI_TIMEOUT", "10m")
+	if err != nil {
+		return OpenAIExtraction{}, err
+	}
+	if requestTimeout > 10*time.Minute {
+		return OpenAIExtraction{}, errors.New("RIVER_AI_TIMEOUT may not exceed 10 minutes")
+	}
+	return OpenAIExtraction{
+		Enabled:            enabled,
+		BaseURL:            strings.TrimSuffix(baseURL, "/"),
+		APIKey:             apiKey,
+		ProjectID:          strings.TrimSpace(os.Getenv("OPENAI_PROJECT_ID")),
+		OrganizationID:     strings.TrimSpace(os.Getenv("OPENAI_ORG_ID")),
+		ModelID:            modelID,
+		Reasoning:          reasoning,
+		Verbosity:          verbosity,
+		MaxOutputTokens:    maxOutputTokens,
+		MonthlySoftUSD:     softBudget,
+		MonthlyHardUSD:     hardBudget,
+		MaximumDocumentAge: maximumAge,
+		RequestTimeout:     requestTimeout,
+	}, nil
+}
+
+func LoadOpenAIResearch(environment Environment) (OpenAIResearch, error) {
+	defaultEnabled := environment == EnvironmentLocal || environment == EnvironmentTest
+	enabled, err := strconv.ParseBool(valueOrDefault("OPENAI_RESEARCH_ENABLED", strconv.FormatBool(defaultEnabled)))
+	if err != nil {
+		return OpenAIResearch{}, errors.New("OPENAI_RESEARCH_ENABLED must be true or false")
+	}
+	background, err := strconv.ParseBool(valueOrDefault("OPENAI_BACKGROUND_ENABLED", "true"))
+	if err != nil {
+		return OpenAIResearch{}, errors.New("OPENAI_BACKGROUND_ENABLED must be true or false")
+	}
+	if enabled && !background {
+		return OpenAIResearch{}, errors.New("enabled research requires OPENAI_BACKGROUND_ENABLED=true")
+	}
+	baseURL := valueOrDefault("OPENAI_BASE_URL", "https://api.openai.com")
+	apiKey := ""
+	if environment == EnvironmentLocal || environment == EnvironmentTest {
+		baseURL = valueOrDefault("FAKE_OPENAI_URL", "http://fake-openai:8091")
+		apiKey = "relantern-local-fake-provider"
+	} else if enabled {
+		apiKey, err = secretValue("OPENAI_API_KEY", "OPENAI_API_KEY_FILE")
+		if err != nil {
+			return OpenAIResearch{}, err
+		}
+		if apiKey == "" {
+			return OpenAIResearch{}, errors.New("OPENAI_API_KEY or OPENAI_API_KEY_FILE is required when hosted research is enabled")
+		}
+	}
+	if err := validateOpenAIBaseURL(baseURL, environment); err != nil {
+		return OpenAIResearch{}, err
+	}
+	modelID := strings.TrimSpace(valueOrDefault("OPENAI_MODEL_RESEARCH", research.DefaultModelID))
+	if modelID == "" || len(modelID) > 255 {
+		return OpenAIResearch{}, errors.New("OPENAI_MODEL_RESEARCH must contain between 1 and 255 characters")
+	}
+	reasoning := valueOrDefault("OPENAI_RESEARCH_REASONING", research.DefaultReasoning)
+	if !stringAllowed(reasoning, "none", "low", "medium", "high", "xhigh", "max") {
+		return OpenAIResearch{}, errors.New("OPENAI_RESEARCH_REASONING must be none, low, medium, high, xhigh, or max")
+	}
+	verbosity := valueOrDefault("OPENAI_VERBOSITY", research.DefaultVerbosity)
+	if !stringAllowed(verbosity, "low", "medium", "high") {
+		return OpenAIResearch{}, errors.New("OPENAI_VERBOSITY must be low, medium, or high")
+	}
+	maxOutputTokens, err := strconv.Atoi(valueOrDefault("OPENAI_RESEARCH_MAX_OUTPUT_TOKENS", strconv.Itoa(research.DefaultMaximumOutputTokens)))
+	if err != nil || maxOutputTokens < 256 || maxOutputTokens > 128_000 {
+		return OpenAIResearch{}, errors.New("OPENAI_RESEARCH_MAX_OUTPUT_TOKENS must be an integer from 256 through 128000")
+	}
+	maxToolCalls, err := strconv.Atoi(valueOrDefault("OPENAI_RESEARCH_MAX_TOOL_CALLS", strconv.Itoa(research.DefaultMaximumToolCalls)))
+	if err != nil || maxToolCalls < 1 || maxToolCalls > 10 {
+		return OpenAIResearch{}, errors.New("OPENAI_RESEARCH_MAX_TOOL_CALLS must be an integer from 1 through 10")
+	}
+	dailyLimit, err := strconv.Atoi(valueOrDefault("OPENAI_DAILY_WEB_SEARCH_LIMIT", "100"))
+	if err != nil || dailyLimit < maxToolCalls || dailyLimit > 100_000 {
+		return OpenAIResearch{}, errors.New("OPENAI_DAILY_WEB_SEARCH_LIMIT must cover one research run and be at most 100000")
+	}
+	allowedDomains, err := commaSeparatedDomains(
+		"OPENAI_RESEARCH_ALLOWED_DOMAINS",
+		"go.dev,github.com,github.blog,nodejs.org,react.dev,nextjs.org,typescriptlang.org,microsoft.com,postgresql.org,docker.com,kubernetes.io,openai.com,developers.openai.com,railway.com,biomejs.dev,pnpm.io,tailwindcss.com,tanstack.com,radix-ui.com,ui.shadcn.com",
+		true,
+	)
+	if err != nil {
+		return OpenAIResearch{}, err
+	}
+	blockedDomains, err := commaSeparatedDomains(
+		"OPENAI_RESEARCH_BLOCKED_DOMAINS",
+		"bit.ly,gist.github.com,pastebin.com,tinyurl.com",
+		false,
+	)
+	if err != nil {
+		return OpenAIResearch{}, err
+	}
+	softBudget, err := extraction.ParseUSD(valueOrDefault("OPENAI_MONTHLY_SOFT_USD", "25.00"))
+	if err != nil {
+		return OpenAIResearch{}, fmt.Errorf("OPENAI_MONTHLY_SOFT_USD: %w", err)
+	}
+	hardBudget, err := extraction.ParseUSD(valueOrDefault("OPENAI_MONTHLY_HARD_USD", "50.00"))
+	if err != nil {
+		return OpenAIResearch{}, fmt.Errorf("OPENAI_MONTHLY_HARD_USD: %w", err)
+	}
+	if err := extraction.ValidateBudgetRange(softBudget, hardBudget); err != nil {
+		return OpenAIResearch{}, fmt.Errorf("invalid OpenAI monthly budgets: %w", err)
+	}
+	requestTimeout, err := positiveDuration("RIVER_RESEARCH_TIMEOUT", "30m")
+	if err != nil {
+		return OpenAIResearch{}, err
+	}
+	if requestTimeout > 30*time.Minute {
+		return OpenAIResearch{}, errors.New("RIVER_RESEARCH_TIMEOUT may not exceed 30 minutes")
+	}
+	return OpenAIResearch{
+		Enabled: enabled, BaseURL: strings.TrimSuffix(baseURL, "/"), APIKey: apiKey,
+		ProjectID:      strings.TrimSpace(os.Getenv("OPENAI_PROJECT_ID")),
+		OrganizationID: strings.TrimSpace(os.Getenv("OPENAI_ORG_ID")),
+		ModelID:        modelID, Reasoning: reasoning, Verbosity: verbosity,
+		MaxOutputTokens: maxOutputTokens, MaxToolCalls: maxToolCalls,
+		AllowedDomains: allowedDomains, BlockedDomains: blockedDomains,
+		Background: background, DailyWebSearchLimit: dailyLimit,
+		MonthlySoftUSD: softBudget, MonthlyHardUSD: hardBudget,
+		RequestTimeout: requestTimeout,
+	}, nil
+}
+
+func LoadOpenAIWebhookInternal() (OpenAIWebhookInternal, error) {
+	token, err := secretValue("WEB_INTERNAL_SERVICE_TOKEN", "WEB_INTERNAL_SERVICE_TOKEN_FILE")
+	if err != nil {
+		return OpenAIWebhookInternal{}, err
+	}
+	if len(token) < 32 || len(token) > 512 {
+		return OpenAIWebhookInternal{}, errors.New("WEB_INTERNAL_SERVICE_TOKEN or WEB_INTERNAL_SERVICE_TOKEN_FILE must contain 32 through 512 characters")
+	}
+	return OpenAIWebhookInternal{ServiceToken: token}, nil
+}
+
+func validateOpenAIBaseURL(value string, environment Environment) error {
+	parsed, err := url.Parse(strings.TrimSpace(value))
+	if err != nil || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return errors.New("OpenAI provider URL must be an absolute trusted origin")
+	}
+	path := strings.TrimSuffix(parsed.EscapedPath(), "/")
+	if path != "" && path != "/v1" {
+		return errors.New("OpenAI provider URL path must be empty or /v1")
+	}
+	hostname := strings.ToLower(parsed.Hostname())
+	if environment == EnvironmentLocal || environment == EnvironmentTest {
+		parsedIP := net.ParseIP(hostname)
+		if parsed.Scheme != "http" ||
+			(hostname != "fake-openai" && hostname != "localhost" && (parsedIP == nil || !parsedIP.IsLoopback())) {
+			return errors.New("local and test OpenAI traffic is restricted to fake-openai or loopback HTTP")
+		}
+		return nil
+	}
+	if parsed.Scheme != "https" || hostname != "api.openai.com" {
+		return errors.New("hosted OpenAI traffic is restricted to https://api.openai.com")
+	}
+	return nil
 }
 
 func validateEnvironment(environment Environment) error {
@@ -290,6 +659,43 @@ func positiveDuration(name string, fallback string) (time.Duration, error) {
 		return 0, fmt.Errorf("%s must be a positive duration", name)
 	}
 	return value, nil
+}
+
+func stringAllowed(value string, allowed ...string) bool {
+	for _, candidate := range allowed {
+		if value == candidate {
+			return true
+		}
+	}
+	return false
+}
+
+func commaSeparatedDomains(name string, fallback string, required bool) ([]string, error) {
+	raw := valueOrDefault(name, fallback)
+	parts := strings.Split(raw, ",")
+	result := make([]string, 0, len(parts))
+	seen := make(map[string]struct{}, len(parts))
+	for _, part := range parts {
+		domain := strings.ToLower(strings.Trim(strings.TrimSpace(part), "."))
+		if domain == "" {
+			continue
+		}
+		if len(domain) > 253 || strings.ContainsAny(domain, "/:@?#") || net.ParseIP(domain) != nil {
+			return nil, fmt.Errorf("%s contains invalid domain %q", name, part)
+		}
+		if _, duplicate := seen[domain]; duplicate {
+			return nil, fmt.Errorf("%s contains duplicate domain %q", name, domain)
+		}
+		seen[domain] = struct{}{}
+		result = append(result, domain)
+	}
+	if required && len(result) == 0 {
+		return nil, fmt.Errorf("%s must contain at least one domain", name)
+	}
+	if len(result) > 100 {
+		return nil, fmt.Errorf("%s may contain at most 100 domains", name)
+	}
+	return result, nil
 }
 
 func valueOrDefault(name string, fallback string) string {

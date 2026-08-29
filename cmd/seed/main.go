@@ -51,11 +51,17 @@ func run(ctx context.Context) error {
 
 	var userID string
 	if err := tx.QueryRow(ctx, `
-		insert into app.users (github_user_id, login, display_name, timezone)
-		values ($1, 'traweezy', 'Relantern owner', 'America/New_York')
+		insert into app.users (
+			github_user_id, login, display_name, timezone, email, email_verified
+		)
+		values (
+			$1::bigint, 'traweezy', 'Relantern owner', 'America/New_York',
+			($1::bigint)::text || '@github.relantern.local', true
+		)
 		on conflict (github_user_id) do update
 		set login = excluded.login, display_name = excluded.display_name,
-			timezone = excluded.timezone, updated_at = now()
+			timezone = excluded.timezone, email = excluded.email,
+			email_verified = excluded.email_verified, updated_at = now()
 		returning id::text`, ownerGitHubID).Scan(&userID); err != nil {
 		return fmt.Errorf("seed owner: %w", err)
 	}

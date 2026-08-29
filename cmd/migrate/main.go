@@ -14,8 +14,11 @@ import (
 	"github.com/jackc/pgx/v5"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
+	"github.com/riverqueue/river/riverdriver/riverpgxv5"
+	"github.com/riverqueue/river/rivermigrate"
 	"github.com/traweezy/relantern/internal/config"
 	"github.com/traweezy/relantern/internal/database"
+	"github.com/traweezy/relantern/internal/jobqueue"
 	"github.com/traweezy/relantern/internal/sources"
 	"github.com/traweezy/relantern/internal/sources/pgstore"
 )
@@ -70,19 +73,78 @@ func run(arguments []string, logger *slog.Logger) error {
 		if err := goose.UpContext(ctx, databaseHandle, migrationsDirectory); err != nil {
 			return err
 		}
+		if err := applyRiverMigrations(ctx, databaseConfig, logger); err != nil {
+			return err
+		}
 		if err := syncSourceRegistry(ctx, databaseConfig, common.Clock.Now()); err != nil {
 			return err
 		}
 		logger.Info("reviewed source registry synchronized")
 		return nil
 	case "status":
-		return goose.StatusContext(ctx, databaseHandle, migrationsDirectory)
+		if err := goose.StatusContext(ctx, databaseHandle, migrationsDirectory); err != nil {
+			return err
+		}
+		return validateRiverMigrations(ctx, databaseConfig, logger)
 	case "down":
 		logger.Warn("rolling back one local migration")
 		return goose.DownContext(ctx, databaseHandle, migrationsDirectory)
 	default:
 		return fmt.Errorf("unsupported migration command %q", command)
 	}
+}
+
+func applyRiverMigrations(
+	ctx context.Context,
+	databaseConfig config.Database,
+	logger *slog.Logger,
+) error {
+	pool, err := database.Open(ctx, databaseConfig)
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+	migrator, err := rivermigrate.New(
+		riverpgxv5.New(pool),
+		&rivermigrate.Config{Logger: logger, Schema: jobqueue.Schema},
+	)
+	if err != nil {
+		return fmt.Errorf("create River migrator: %w", err)
+	}
+	result, err := migrator.Migrate(ctx, rivermigrate.DirectionUp, nil)
+	if err != nil {
+		return fmt.Errorf("apply River migrations: %w", err)
+	}
+	logger.Info("River migrations applied", "migration_count", len(result.Versions))
+	return nil
+}
+
+func validateRiverMigrations(
+	ctx context.Context,
+	databaseConfig config.Database,
+	logger *slog.Logger,
+) error {
+	pool, err := database.Open(ctx, databaseConfig)
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+	migrator, err := rivermigrate.New(
+		riverpgxv5.New(pool),
+		&rivermigrate.Config{Logger: logger, Schema: jobqueue.Schema},
+	)
+	if err != nil {
+		return fmt.Errorf("create River migrator: %w", err)
+	}
+	result, err := migrator.Validate(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("validate River migrations: %w", err)
+	}
+	if !result.OK {
+		return fmt.Errorf("River migrations are incomplete: %v", result.Messages)
+	}
+	logger.Info("River migrations are current")
+	return nil
 }
 
 func syncSourceRegistry(ctx context.Context, databaseConfig config.Database, now time.Time) error {

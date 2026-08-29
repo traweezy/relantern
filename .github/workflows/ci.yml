@@ -233,6 +233,23 @@ jobs:
       - name: Test with race detection
         run: go test -race -shuffle=on -count=1 ./...
 
+  go-eval:
+    name: go / deterministic evaluations
+    needs: go-setup
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Go workspace
+        uses: ./.github/actions/setup
+        with:
+          node: "false"
+      - name: Run zero-network intelligence evaluations
+        run: make eval
+
   go-vulnerability:
     name: go / vulnerability analysis
     needs: go-setup
@@ -298,6 +315,7 @@ jobs:
       - go-build
       - go-analysis
       - go-test
+      - go-eval
       - go-vulnerability
       - storage-integration
     runs-on: ubuntu-24.04
@@ -309,6 +327,7 @@ jobs:
           BUILD_RESULT: ${{ needs.go-build.result }}
           ANALYSIS_RESULT: ${{ needs.go-analysis.result }}
           TEST_RESULT: ${{ needs.go-test.result }}
+          EVAL_RESULT: ${{ needs.go-eval.result }}
           VULNERABILITY_RESULT: ${{ needs.go-vulnerability.result }}
           STORAGE_RESULT: ${{ needs.storage-integration.result }}
         run: |
@@ -317,6 +336,7 @@ jobs:
             "${BUILD_RESULT}" \
             "${ANALYSIS_RESULT}" \
             "${TEST_RESULT}" \
+            "${EVAL_RESULT}" \
             "${VULNERABILITY_RESULT}" \
             "${STORAGE_RESULT}"; do
             [[ "${result}" == "success" ]] || exit 1
@@ -357,7 +377,7 @@ jobs:
           go run ./cmd/migrate up
           go run ./cmd/seed
       - name: Verify database adapters
-        run: go test ./internal/database/... ./internal/fetcher/pgstore/... ./internal/scheduler/... ./internal/sources/...
+        run: go test -p 1 ./internal/database/... ./internal/dedupe/... ./internal/embedding/... ./internal/extraction/... ./internal/fetcher/pgstore/... ./internal/jobqueue/... ./internal/openaiwebhook/... ./internal/parsing/pgstore/... ./internal/reembedding/... ./internal/research/... ./internal/scheduler/... ./internal/search/... ./internal/sources/... ./internal/worker/...
 
   contract-drift:
     name: contract-drift

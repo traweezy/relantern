@@ -24,6 +24,17 @@ x-worker-secrets: &worker-secrets
   - minio_access_key
   - minio_secret_key
 
+x-api-secrets: &api-secrets
+  - database_password
+  - web_internal_service_token
+
+x-web-secrets: &web-secrets
+  - better_auth_secret
+  - database_password
+  - local_oauth_stub_secret
+  - openai_webhook_secret
+  - web_internal_service_token
+
 services:
   postgres:
     image: pgvector/pgvector:0.8.6-pg18-trixie@sha256:78bf48b801e792f99e3ac62b5036fd3876e9be48afda16c1e331af1c75ceb2ff
@@ -57,8 +68,8 @@ services:
       timeout: 3s
       retries: 30
     ports:
-      - "127.0.0.1:9000:9000"
-      - "127.0.0.1:9001:9001"
+      - "127.0.0.1:${MINIO_API_PUBLISHED_PORT:-9000}:9000"
+      - "127.0.0.1:${MINIO_CONSOLE_PUBLISHED_PORT:-9001}:9001"
     restart: unless-stopped
     secrets:
       - minio_access_key
@@ -93,7 +104,9 @@ services:
       target: production
     environment:
       <<: *app-environment
+      AUTH_ALLOWED_GITHUB_USER_ID: "5276132"
       HTTP_PORT: "8090"
+      LOCAL_OAUTH_STUB_SECRET_FILE: /run/secrets/local_oauth_stub_secret
     healthcheck:
       test: ["CMD", "/app/provider", "healthcheck"]
       interval: 2s
@@ -102,6 +115,8 @@ services:
     ports:
       - "127.0.0.1:8090:8090"
     restart: unless-stopped
+    secrets:
+      - local_oauth_stub_secret
     networks: [private]
 
   fake-openai:
@@ -182,6 +197,7 @@ services:
     environment:
       <<: *app-environment
       HTTP_PORT: "8080"
+      WEB_INTERNAL_SERVICE_TOKEN_FILE: /run/secrets/web_internal_service_token
     healthcheck:
       test: ["CMD", "/app/api", "healthcheck"]
       interval: 3s
@@ -190,7 +206,7 @@ services:
     ports:
       - "127.0.0.1:8080:8080"
     restart: unless-stopped
-    secrets: *go-secrets
+    secrets: *api-secrets
     networks: [private]
 
   worker:
@@ -201,20 +217,49 @@ services:
     depends_on:
       fake-delivery:
         condition: service_healthy
+      fake-openai:
+        condition: service_healthy
       minio-init:
         condition: service_completed_successfully
       migrate:
         condition: service_completed_successfully
     environment:
       <<: *app-environment
+      CLUSTER_MAX_AGE: 720h
+      DEDUPE_EMBEDDING_THRESHOLD: "0.86"
+      DEDUPE_SIMHASH_DISTANCE: "17"
       FAKE_DELIVERY_URL: http://fake-delivery:8092/capture
+      FAKE_OPENAI_URL: http://fake-openai:8091
       HTTP_PORT: "8081"
+      EMBEDDING_DIMENSIONS: "1536"
+      OPENAI_EMBEDDING_MODEL: text-embedding-3-small
+      OPENAI_FAST_ENABLED: "true"
+      OPENAI_FAST_MAX_OUTPUT_TOKENS: "4096"
+      OPENAI_FAST_REASONING: low
+      OPENAI_MAX_DOCUMENT_AGE: 720h
+      OPENAI_MODEL_FAST: gpt-5.6-luna
+      OPENAI_MODEL_RESEARCH: gpt-5.6-terra
+      OPENAI_MONTHLY_HARD_USD: "50.00"
+      OPENAI_MONTHLY_SOFT_USD: "25.00"
+      OPENAI_BACKGROUND_ENABLED: "true"
+      OPENAI_DAILY_WEB_SEARCH_LIMIT: "100"
+      OPENAI_RESEARCH_ALLOWED_DOMAINS: go.dev,github.com,github.blog,nodejs.org,react.dev,nextjs.org,typescriptlang.org,microsoft.com,postgresql.org,docker.com,kubernetes.io,openai.com,developers.openai.com,railway.com,biomejs.dev,pnpm.io,tailwindcss.com,tanstack.com,radix-ui.com,ui.shadcn.com,fixtures.example.test
+      OPENAI_RESEARCH_BLOCKED_DOMAINS: bit.ly,gist.github.com,pastebin.com,tinyurl.com
+      OPENAI_RESEARCH_ENABLED: "true"
+      OPENAI_RESEARCH_MAX_OUTPUT_TOKENS: "8192"
+      OPENAI_RESEARCH_MAX_TOOL_CALLS: "4"
+      OPENAI_RESEARCH_REASONING: medium
+      OPENAI_VERBOSITY: low
       OBJECT_STORAGE_ACCESS_KEY_FILE: /run/secrets/minio_access_key
       OBJECT_STORAGE_BUCKET: relantern-local
       OBJECT_STORAGE_ENDPOINT: http://minio:9000
       OBJECT_STORAGE_REGION: us-east-1
       OBJECT_STORAGE_SECRET_KEY_FILE: /run/secrets/minio_secret_key
       PROVIDER_REQUEST_TIMEOUT: 5s
+      RIVER_AI_TIMEOUT: 10m
+      RIVER_RESEARCH_TIMEOUT: 30m
+      SEARCH_HYBRID_ENABLED: "true"
+      SEARCH_RRF_K: "60"
       SCHEDULER_RECONCILE_INTERVAL: 1m
     healthcheck:
       test: ["CMD", "/app/worker", "healthcheck"]
@@ -234,10 +279,29 @@ services:
       api:
         condition: service_healthy
     environment:
-      API_BASE_URL: http://api:8080
+      INTERNAL_API_URL: http://api:8080
+      APP_ENV: local
+      AUTH_ALLOWED_GITHUB_USER_ID: "5276132"
+      AUTH_PROVIDER_MODE: fixture
+      BETTER_AUTH_SECRET_FILE: /run/secrets/better_auth_secret
+      BETTER_AUTH_URL: http://127.0.0.1:3000
+      DATABASE_HOST: postgres:5432
+      DATABASE_NAME: relantern
+      DATABASE_PASSWORD_FILE: /run/secrets/database_password
+      DATABASE_SSLMODE: disable
+      DATABASE_USER: relantern
+      LOCAL_OAUTH_AUTHORIZATION_URL: http://127.0.0.1:8090/oauth/authorize
+      LOCAL_OAUTH_STUB_SECRET_FILE: /run/secrets/local_oauth_stub_secret
+      LOCAL_OAUTH_TOKEN_URL: http://fake-source:8090/oauth/token
+      LOCAL_OAUTH_USERINFO_URL: http://fake-source:8090/oauth/userinfo
       NEXT_TELEMETRY_DISABLED: "1"
       NODE_ENV: production
+      OPENAI_WEBHOOK_SECRET_FILE: /run/secrets/openai_webhook_secret
+      OWNER_TIMEZONE: America/New_York
       PORT: "3000"
+      PUBLIC_BASE_URL: http://127.0.0.1:3000
+      SESSION_MAX_AGE_SECONDS: "604800"
+      WEB_INTERNAL_SERVICE_TOKEN_FILE: /run/secrets/web_internal_service_token
     healthcheck:
       test: ["CMD", "/nodejs/bin/node", "-e", "fetch('http://127.0.0.1:3000/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
       interval: 3s
@@ -246,6 +310,7 @@ services:
     ports:
       - "127.0.0.1:3000:3000"
     restart: unless-stopped
+    secrets: *web-secrets
     networks: [private]
 
   otel-lgtm:
@@ -258,12 +323,20 @@ services:
     networks: [private]
 
 secrets:
+  better_auth_secret:
+    file: .local/secrets/better_auth_secret
   database_password:
     file: .local/secrets/database_password
+  local_oauth_stub_secret:
+    file: .local/secrets/local_oauth_stub_secret
   minio_access_key:
     file: .local/secrets/minio_access_key
   minio_secret_key:
     file: .local/secrets/minio_secret_key
+  openai_webhook_secret:
+    file: .local/secrets/openai_webhook_secret
+  web_internal_service_token:
+    file: .local/secrets/web_internal_service_token
 
 volumes:
   minio-data:
