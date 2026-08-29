@@ -314,7 +314,7 @@ jobs:
           go run ./cmd/migrate up
           go run ./cmd/seed
       - name: Verify database extensions
-        run: go test ./internal/database/... ./internal/scheduler/...
+        run: go test ./internal/database/... ./internal/scheduler/... ./internal/sources/...
 
   contract-drift:
     name: contract-drift
@@ -335,6 +335,7 @@ jobs:
 
   source-fixtures:
     name: source-fixtures
+    needs: go-setup
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -342,7 +343,11 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Verify disabled PR 0 registry
+      - name: Set up Go workspace
+        uses: ./.github/actions/setup
+        with:
+          node: "false"
+      - name: Verify reviewed registry and fixtures
         run: make sources-verify
 
   security:

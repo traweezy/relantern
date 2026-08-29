@@ -69,6 +69,7 @@ and [Better Auth 1.7 changelog](https://better-auth.com/changelog).
 | `github.com/go-chi/chi/v5` | 5.3.2 | 2026-08-20 |
 | `github.com/jackc/pgx/v5` | 5.10.0 | 2026-06-03 |
 | `github.com/pressly/goose/v3` | 3.27.3 | 2026-07-22 |
+| `gopkg.in/yaml.v3` | 3.0.1 | Stable strict registry/fixture decoder |
 | `github.com/riverqueue/river` | 0.45.0 | Audited; wait for release-age gate before use |
 | `github.com/robfig/cron/v3` | 3.0.1 | Audited |
 | `github.com/mmcdole/gofeed` | 1.4.2 | Audited |

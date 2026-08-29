@@ -94,12 +94,11 @@ migration: ## Create a timestamped empty migration (name=required)
 seed: secrets ## Apply the idempotent local owner and schedule seed
 	$(COMPOSE_BASE) run --rm seed
 
-sources-verify: ## Verify that live ingestion remains disabled in PR 0
-	@test -f sources/registry.yaml
-	@grep -Eq '^enabled: false$$' sources/registry.yaml
+sources-verify: ## Strictly validate the reviewed registry and connector fixtures
+	$(GO) run ./cmd/sourcectl verify --registry sources/registry.yaml --fixtures sources/fixtures.yaml
 
 fixtures-record: ## Refuse live fixture recording until ingestion is approved
-	@printf 'Fixture recording is intentionally unavailable in PR 0.\n' >&2
+	@printf 'Live fixture recording is unavailable until the PR 4 fetcher is approved.\n' >&2
 	@exit 1
 
 eval: ## Run deterministic zero-network evaluation fixtures
@@ -144,7 +143,7 @@ demo-audit: ## Validate the demo's current static isolation contract
 	$(PNPM) --filter @relantern/web build
 	@rg -q 'noindex,nofollow' docs/demo-route-contract.md
 
-prepush: lint workflow-lint typecheck test generate-check config-check ## Run required local fast release gates
+prepush: lint workflow-lint typecheck test generate-check config-check sources-verify ## Run required local fast release gates
 	bash scripts/policy-check.sh
 	$(GO) test -race ./...
 	$(PNPM) build

@@ -8,6 +8,16 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type AppGithubRepository struct {
+	SourceID        string             `json:"source_id"`
+	NodeID          string             `json:"node_id"`
+	RepositoryOwner string             `json:"repository_owner"`
+	RepositoryName  string             `json:"repository_name"`
+	EnabledEvents   []string           `json:"enabled_events"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
+}
+
 type AppOutboxEvent struct {
 	ID            int64              `json:"id"`
 	EventType     string             `json:"event_type"`
@@ -49,6 +59,43 @@ type AppScheduleOccurrence struct {
 	CompletedAt        pgtype.Timestamptz `json:"completed_at"`
 	ErrorCode          pgtype.Text        `json:"error_code"`
 	Metadata           []byte             `json:"metadata"`
+}
+
+type AppSource struct {
+	ID              string             `json:"id"`
+	Name            string             `json:"name"`
+	TrustTier       string             `json:"trust_tier"`
+	Owner           string             `json:"owner"`
+	Origin          string             `json:"origin"`
+	ValidationState string             `json:"validation_state"`
+	HomepageUrl     string             `json:"homepage_url"`
+	ContentPolicy   string             `json:"content_policy"`
+	Enabled         bool               `json:"enabled"`
+	Topics          []string           `json:"topics"`
+	ReviewedAt      pgtype.Timestamptz `json:"reviewed_at"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
+}
+
+type AppSourceEndpoint struct {
+	ID                   pgtype.UUID        `json:"id"`
+	RegistryID           string             `json:"registry_id"`
+	SourceID             string             `json:"source_id"`
+	Connector            string             `json:"connector"`
+	Url                  string             `json:"url"`
+	PollInterval         pgtype.Interval    `json:"poll_interval"`
+	Priority             string             `json:"priority"`
+	RobotsPolicy         string             `json:"robots_policy"`
+	ExpectedContentTypes []string           `json:"expected_content_types"`
+	MaxResponseBytes     int64              `json:"max_response_bytes"`
+	FixtureSuite         string             `json:"fixture_suite"`
+	Config               []byte             `json:"config"`
+	NextPollAt           pgtype.Timestamptz `json:"next_poll_at"`
+	LastAttemptAt        pgtype.Timestamptz `json:"last_attempt_at"`
+	LastSuccessAt        pgtype.Timestamptz `json:"last_success_at"`
+	HealthState          string             `json:"health_state"`
+	CreatedAt            pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt            pgtype.Timestamptz `json:"updated_at"`
 }
 
 type AppUser struct {

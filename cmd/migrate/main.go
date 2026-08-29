@@ -9,10 +9,15 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
+	"github.com/jackc/pgx/v5"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
 	"github.com/traweezy/relantern/internal/config"
+	"github.com/traweezy/relantern/internal/database"
+	"github.com/traweezy/relantern/internal/sources"
+	"github.com/traweezy/relantern/internal/sources/pgstore"
 )
 
 func main() {
@@ -62,7 +67,14 @@ func run(arguments []string, logger *slog.Logger) error {
 	switch command {
 	case "up":
 		logger.Info("applying forward migrations")
-		return goose.UpContext(ctx, databaseHandle, migrationsDirectory)
+		if err := goose.UpContext(ctx, databaseHandle, migrationsDirectory); err != nil {
+			return err
+		}
+		if err := syncSourceRegistry(ctx, databaseConfig, common.Clock.Now()); err != nil {
+			return err
+		}
+		logger.Info("reviewed source registry synchronized")
+		return nil
 	case "status":
 		return goose.StatusContext(ctx, databaseHandle, migrationsDirectory)
 	case "down":
@@ -71,4 +83,37 @@ func run(arguments []string, logger *slog.Logger) error {
 	default:
 		return fmt.Errorf("unsupported migration command %q", command)
 	}
+}
+
+func syncSourceRegistry(ctx context.Context, databaseConfig config.Database, now time.Time) error {
+	sourceConfig := config.LoadSources()
+	registry, err := sources.LoadRegistry(sourceConfig.RegistryPath)
+	if err != nil {
+		return err
+	}
+	fixtures, err := sources.LoadFixtureCatalog(sourceConfig.FixturesPath)
+	if err != nil {
+		return err
+	}
+	if err := sources.Validate(registry, fixtures, now); err != nil {
+		return fmt.Errorf("validate source registry: %w", err)
+	}
+
+	pool, err := database.Open(ctx, databaseConfig)
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+	transaction, err := pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	if err != nil {
+		return fmt.Errorf("begin source registry sync: %w", err)
+	}
+	defer func() { _ = transaction.Rollback(ctx) }()
+	if err := (pgstore.Store{}).Sync(ctx, transaction, registry); err != nil {
+		return fmt.Errorf("sync source registry: %w", err)
+	}
+	if err := transaction.Commit(ctx); err != nil {
+		return fmt.Errorf("commit source registry sync: %w", err)
+	}
+	return nil
 }

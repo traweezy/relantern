@@ -31,3 +31,16 @@ func TestTestEnvironmentLoadsFixedClock(t *testing.T) {
 		t.Fatalf("Clock.Now() = %s, want %s", got, want)
 	}
 }
+
+func TestLoadSourcesUsesExplicitPaths(t *testing.T) {
+	t.Setenv("SOURCE_REGISTRY_PATH", "/tmp/registry.yaml")
+	t.Setenv("SOURCE_FIXTURES_PATH", "/tmp/fixtures.yaml")
+
+	settings := config.LoadSources()
+	if settings.RegistryPath != "/tmp/registry.yaml" {
+		t.Fatalf("RegistryPath = %q", settings.RegistryPath)
+	}
+	if settings.FixturesPath != "/tmp/fixtures.yaml" {
+		t.Fatalf("FixturesPath = %q", settings.FixturesPath)
+	}
+}

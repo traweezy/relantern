@@ -11,9 +11,10 @@ The implementation authority is
 
 ## Current phase
 
-PR 0 establishes the reproducible repository and local-platform foundation.
-Ingestion and live provider access remain intentionally disabled until the
-owner approves the PR 0 evidence.
+The reproducible foundation, database/API skeleton, parallel CI graph, and
+reviewed source-registry contract are implemented. Live ingestion and provider
+access remain intentionally disabled until the SSRF-safe fetcher in PR 4 is
+implemented and approved.
 
 ## Safe local workflow
 
@@ -45,6 +46,12 @@ files with the pinned actionlint release. CI warms the pnpm and Go caches in
 setup gates, then runs the independent frontend and Go checks in parallel. See
 [ADR-011](docs/adr/011-parallel-github-actions.md) for the graph and plan-aware
 security gates.
+
+`make sources-verify` performs strict, zero-network validation of 91 reviewed
+source endpoints and the deterministic fixture catalog. The forward-migration
+release command mirrors built-ins into PostgreSQL as paused entries; no poll is
+scheduled while the registry network fuse is off. See
+[ADR-012](docs/adr/012-reviewed-source-registry.md).
 
 `make reset` is destructive and requires confirmation. It targets only the
 validated Relantern Compose project and its volumes.

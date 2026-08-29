@@ -12,6 +12,8 @@ x-app-environment: &app-environment
   GIT_SHA: ${GIT_SHA:-unknown}
   LOG_LEVEL: info
   SHUTDOWN_TIMEOUT: 15s
+  SOURCE_FIXTURES_PATH: /app/sources/fixtures.yaml
+  SOURCE_REGISTRY_PATH: /app/sources/registry.yaml
   TEST_NOW: ${TEST_NOW:-}
 
 x-go-secrets: &go-secrets

@@ -12,5 +12,6 @@ WORKDIR /app
 COPY --from=build --chown=nonroot:nonroot /out/migrate /app/migrate
 COPY --from=build --chown=nonroot:nonroot /out/seed /app/seed
 COPY --chown=nonroot:nonroot migrations /app/migrations
+COPY --chown=nonroot:nonroot sources /app/sources
 USER nonroot:nonroot
 ENTRYPOINT ["/app/migrate"]

@@ -46,6 +46,11 @@ type Worker struct {
 	RequestTimeout    time.Duration
 }
 
+type Sources struct {
+	RegistryPath string
+	FixturesPath string
+}
+
 func LoadCommon() (Common, error) {
 	environment := Environment(valueOrDefault("APP_ENV", string(EnvironmentLocal)))
 	if err := validateEnvironment(environment); err != nil {
@@ -141,6 +146,13 @@ func LoadWorker() (Worker, error) {
 		ReconcileInterval: reconcileInterval,
 		RequestTimeout:    requestTimeout,
 	}, nil
+}
+
+func LoadSources() Sources {
+	return Sources{
+		RegistryPath: valueOrDefault("SOURCE_REGISTRY_PATH", "sources/registry.yaml"),
+		FixturesPath: valueOrDefault("SOURCE_FIXTURES_PATH", "sources/fixtures.yaml"),
+	}
 }
 
 func validateEnvironment(environment Environment) error {

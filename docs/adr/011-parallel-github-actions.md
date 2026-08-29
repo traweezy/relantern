@@ -62,21 +62,22 @@ flowchart LR
   GS --> GA[static analysis]
   GS --> GT[race tests]
   GS --> GV[vulnerability analysis]
+  GS --> S[source-fixtures]
   GB --> G[go]
   GA --> G
   GT --> G
   GV --> G
 
   P[policy]
-  S[source-fixtures]
   E[e2e boundary]
   D[demo boundary]
   C[container matrix] --> CA[container-build]
 ```
 
-The five root checks start immediately alongside both setup gates. The
-database and security jobs depend only on `go / setup`; contract drift depends
-on both setup gates so it restores warm Go and pnpm caches.
+The policy, browser-boundary, demo, and container checks start immediately
+alongside both setup gates. Database, security, and source-fixture jobs depend
+only on `go / setup`; contract drift depends on both setup gates so it restores
+warm Go and pnpm caches.
 
 ## Consequences
 

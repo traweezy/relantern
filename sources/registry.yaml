@@ -1,4 +1,577 @@
 version: 1
+# Runtime network fuse. Records are reviewed, but fetching stays unavailable
+# until the PR 4 SSRF-safe client and checkpoint implementation are approved.
 enabled: false
 contact: https://github.com/traweezy
-sources: []
+
+sources:
+  - id: go-blog
+    name: Go Blog
+    trust_tier: T0
+    connector: atom
+    url: https://go.dev/blog/feed.atom
+    topics: [go]
+    poll_interval: 30m
+    priority: critical
+    robots_policy: feed
+    content_license: link-and-excerpt
+    enabled: true
+    owner: system
+    origin: system
+    reviewed_at: 2026-08-29
+    expected_content_types: [application/atom+xml]
+    max_response_bytes: 5242880
+    fixture_suite: atom-v1
+
+  - &page_source
+    id: go-release-history
+    name: Go release history
+    trust_tier: T0
+    connector: page
+    url: https://go.dev/doc/devel/release
+    topics: [go, releases]
+    poll_interval: 15m
+    priority: critical
+    robots_policy: page
+    content_license: link-and-excerpt
+    enabled: true
+    owner: system
+    origin: system
+    reviewed_at: 2026-08-29
+    expected_content_types: [text/html]
+    max_response_bytes: 15728640
+    fixture_suite: page-v1
+
+  - <<: *page_source
+    id: go-security
+    name: Go security policy and announcements
+    url: https://go.dev/doc/security/
+    topics: [go, security]
+    poll_interval: 5m
+
+  - &rss_source
+    id: typescript-blog
+    name: TypeScript Blog
+    trust_tier: T0
+    connector: rss
+    url: https://devblogs.microsoft.com/typescript/feed/
+    topics: [typescript]
+    poll_interval: 30m
+    priority: critical
+    robots_policy: feed
+    content_license: link-and-excerpt
+    enabled: true
+    owner: system
+    origin: system
+    reviewed_at: 2026-08-29
+    expected_content_types: [application/rss+xml]
+    max_response_bytes: 5242880
+    fixture_suite: rss-v1
+
+  - <<: *page_source
+    id: node-release-blog
+    name: Node.js release posts
+    url: https://nodejs.org/en/blog/release
+    topics: [nodejs, releases]
+
+  - <<: *page_source
+    id: node-security-blog
+    name: Node.js vulnerability posts
+    url: https://nodejs.org/en/blog/vulnerability
+    topics: [nodejs, security]
+    poll_interval: 5m
+
+  - <<: *rss_source
+    id: github-changelog
+    name: GitHub Changelog
+    url: https://github.blog/changelog/feed/
+    topics: [github, github-actions]
+
+  - <<: *rss_source
+    id: github-security-blog
+    name: GitHub Security Blog
+    url: https://github.blog/security/feed/
+    topics: [github, security, supply-chain]
+    poll_interval: 5m
+
+  - <<: *rss_source
+    id: postgresql-news
+    name: PostgreSQL news
+    url: https://www.postgresql.org/news.rss
+    topics: [postgresql]
+
+  - <<: *page_source
+    id: postgresql-release-notes
+    name: PostgreSQL release notes
+    url: https://www.postgresql.org/docs/release/
+    topics: [postgresql, releases]
+
+  - <<: *page_source
+    id: postgresql-security
+    name: PostgreSQL security information
+    url: https://www.postgresql.org/support/security/
+    topics: [postgresql, security]
+    poll_interval: 5m
+
+  - <<: *rss_source
+    id: kubernetes-blog
+    name: Kubernetes Blog
+    url: https://kubernetes.io/feed.xml
+    topics: [kubernetes, containers]
+    priority: high
+    expected_content_types: [application/xml]
+
+  - <<: *page_source
+    id: docker-security-announcements
+    name: Docker security announcements
+    url: https://docs.docker.com/security/security-announcements/
+    topics: [docker, security, supply-chain]
+    poll_interval: 5m
+
+  - <<: *page_source
+    id: docker-engine-release-notes
+    name: Docker Engine release notes
+    url: https://docs.docker.com/engine/release-notes/
+    topics: [docker, releases]
+
+  - <<: *rss_source
+    id: docker-blog
+    name: Docker Blog
+    url: https://www.docker.com/feed/
+    topics: [docker, containers]
+    priority: high
+
+  - <<: *page_source
+    id: railway-changelog
+    name: Railway Changelog
+    url: https://railway.com/changelog
+    topics: [railway, deployment]
+    poll_interval: 30m
+
+  - <<: *page_source
+    id: railway-network-limits
+    name: Railway public-network limits
+    url: https://docs.railway.com/networking/public-networking/specs-and-limits
+    topics: [railway, networking, limits]
+    poll_interval: 30m
+
+  - id: railway-status
+    name: Railway platform status
+    trust_tier: T0
+    connector: structured_api
+    url: https://api.railwaystatus.com/status
+    topics: [railway, reliability]
+    poll_interval: 5m
+    priority: critical
+    robots_policy: api
+    content_license: metadata-only
+    enabled: true
+    owner: system
+    origin: system
+    reviewed_at: 2026-08-29
+    expected_content_types: [application/json]
+    max_response_bytes: 10485760
+    fixture_suite: structured-api-v1
+
+  - <<: *page_source
+    id: react-blog
+    name: React Blog
+    url: https://react.dev/blog
+    topics: [react]
+    poll_interval: 30m
+
+  - <<: *page_source
+    id: react-versions
+    name: React versions
+    url: https://react.dev/versions
+    topics: [react, releases]
+
+  - <<: *page_source
+    id: openai-developer-changelog
+    name: OpenAI developer changelog
+    url: https://developers.openai.com/api/docs/changelog
+    topics: [openai, ai, api]
+
+  - <<: *page_source
+    id: openai-model-catalog
+    name: OpenAI model catalog
+    url: https://developers.openai.com/api/docs/models
+    topics: [openai, models, api]
+
+  - <<: *page_source
+    id: mdn-server-sent-events
+    name: MDN Server-sent events
+    url: https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events
+    topics: [web-platform, sse, streaming]
+    poll_interval: 30m
+
+  - <<: *page_source
+    id: whatwg-server-sent-events
+    name: WHATWG server-sent events standard
+    url: https://html.spec.whatwg.org/multipage/server-sent-events.html
+    topics: [web-platform, sse, standards]
+    poll_interval: 30m
+
+  - &registry_source
+    id: npm-react-metadata
+    name: npm React package metadata
+    trust_tier: T1
+    connector: registry
+    url: https://registry.npmjs.org/react
+    topics: [react, npm, releases]
+    poll_interval: 24h
+    priority: high
+    robots_policy: api
+    content_license: metadata-only
+    enabled: true
+    owner: system
+    origin: system
+    reviewed_at: 2026-08-29
+    expected_content_types: [application/json]
+    max_response_bytes: 10485760
+    fixture_suite: registry-v1
+
+  - <<: *registry_source
+    id: go-pgx-module-metadata
+    name: Go module metadata for pgx
+    url: https://proxy.golang.org/github.com/jackc/pgx/v5/@latest
+    topics: [go, postgresql, pgx, releases]
+
+  - id: json-feed-news
+    name: JSON Feed project news
+    trust_tier: T0
+    connector: json_feed
+    url: https://www.jsonfeed.org/feed.json
+    topics: [feeds, web-platform]
+    poll_interval: 30m
+    priority: normal
+    robots_policy: feed
+    content_license: link-and-excerpt
+    enabled: true
+    owner: system
+    origin: system
+    reviewed_at: 2026-08-29
+    expected_content_types: [application/feed+json, application/json]
+    max_response_bytes: 10485760
+    fixture_suite: json-feed-v1
+
+repositories:
+  - &repo_watch
+    id: github-golang-go
+    name: golang/go repository
+    trust_tier: T1
+    url: https://api.github.com/repos/golang/go
+    node_id: MDEwOlJlcG9zaXRvcnkyMzA5Njk1OQ==
+    repository_owner: golang
+    repository_name: go
+    topics: [go, toolchain, runtime]
+    poll_interval: 15m
+    priority: critical
+    content_license: metadata-only
+    enabled: true
+    owner: system
+    origin: system
+    reviewed_at: 2026-08-29
+    max_response_bytes: 10485760
+    enabled_events: [releases, security_advisories]
+    fixture_suites:
+      releases: github-releases-v1
+      security_advisories: github-advisories-v1
+
+  - <<: *repo_watch
+    id: github-react-react
+    name: react/react repository
+    url: https://api.github.com/repos/react/react
+    node_id: MDEwOlJlcG9zaXRvcnkxMDI3MDI1MA==
+    repository_owner: react
+    repository_name: react
+    topics: [react, rendering, rsc]
+
+  - <<: *repo_watch
+    id: github-vercel-nextjs
+    name: vercel/next.js repository
+    url: https://api.github.com/repos/vercel/next.js
+    node_id: MDEwOlJlcG9zaXRvcnk3MDEwNzc4Ng==
+    repository_owner: vercel
+    repository_name: next.js
+    topics: [nextjs, react, rsc]
+
+  - <<: *repo_watch
+    id: github-microsoft-typescript
+    name: microsoft/TypeScript repository
+    url: https://api.github.com/repos/microsoft/TypeScript
+    node_id: MDEwOlJlcG9zaXRvcnkyMDkyOTAyNQ==
+    repository_owner: microsoft
+    repository_name: TypeScript
+    topics: [typescript, compiler]
+
+  - <<: *repo_watch
+    id: github-nodejs-node
+    name: nodejs/node repository
+    url: https://api.github.com/repos/nodejs/node
+    node_id: MDEwOlJlcG9zaXRvcnkyNzE5Mzc3OQ==
+    repository_owner: nodejs
+    repository_name: node
+    topics: [nodejs, runtime]
+
+  - <<: *repo_watch
+    id: github-pnpm-pnpm
+    name: pnpm/pnpm repository
+    url: https://api.github.com/repos/pnpm/pnpm
+    node_id: MDEwOlJlcG9zaXRvcnk1MDU2NTQzMA==
+    repository_owner: pnpm
+    repository_name: pnpm
+    topics: [pnpm, package-management, supply-chain]
+    priority: high
+
+  - <<: *repo_watch
+    id: github-biomejs-biome
+    name: biomejs/biome repository
+    url: https://api.github.com/repos/biomejs/biome
+    node_id: R_kgDOKAiibA
+    repository_owner: biomejs
+    repository_name: biome
+    topics: [biome, tooling, linting]
+    priority: high
+
+  - <<: *repo_watch
+    id: github-tanstack-query
+    name: TanStack/query repository
+    url: https://api.github.com/repos/TanStack/query
+    node_id: MDEwOlJlcG9zaXRvcnkyMDc2NDUwODM=
+    repository_owner: TanStack
+    repository_name: query
+    topics: [tanstack, react, server-state]
+    priority: high
+
+  - <<: *repo_watch
+    id: github-tanstack-table
+    name: TanStack/table repository
+    url: https://api.github.com/repos/TanStack/table
+    node_id: MDEwOlJlcG9zaXRvcnk3MTQ4NzA1OA==
+    repository_owner: TanStack
+    repository_name: table
+    topics: [tanstack, react, tables]
+    priority: high
+
+  - <<: *repo_watch
+    id: github-tanstack-form
+    name: TanStack/form repository
+    url: https://api.github.com/repos/TanStack/form
+    node_id: MDEwOlJlcG9zaXRvcnkzNTA0NDUyNQ==
+    repository_owner: TanStack
+    repository_name: form
+    topics: [tanstack, react, forms]
+    priority: high
+
+  - <<: *repo_watch
+    id: github-tanstack-virtual
+    name: TanStack/virtual repository
+    url: https://api.github.com/repos/TanStack/virtual
+    node_id: MDEwOlJlcG9zaXRvcnkyNjIyNTU1MzM=
+    repository_owner: TanStack
+    repository_name: virtual
+    topics: [tanstack, react, virtualization]
+    priority: high
+
+  - <<: *repo_watch
+    id: github-shadcn-ui
+    name: shadcn-ui/ui repository
+    url: https://api.github.com/repos/shadcn-ui/ui
+    node_id: R_kgDOIuCgEw
+    repository_owner: shadcn-ui
+    repository_name: ui
+    topics: [shadcn-ui, react, accessibility]
+    priority: high
+
+  - <<: *repo_watch
+    id: github-radix-primitives
+    name: radix-ui/primitives repository
+    url: https://api.github.com/repos/radix-ui/primitives
+    node_id: MDEwOlJlcG9zaXRvcnkyNzM0OTk1MjI=
+    repository_owner: radix-ui
+    repository_name: primitives
+    topics: [radix-ui, react, accessibility]
+    priority: high
+
+  - <<: *repo_watch
+    id: github-tailwindcss
+    name: tailwindlabs/tailwindcss repository
+    url: https://api.github.com/repos/tailwindlabs/tailwindcss
+    node_id: MDEwOlJlcG9zaXRvcnkxMDYwMTczNDM=
+    repository_owner: tailwindlabs
+    repository_name: tailwindcss
+    topics: [tailwindcss, css, frontend]
+    priority: high
+
+  - <<: *repo_watch
+    id: github-vitejs-vite
+    name: vitejs/vite repository
+    url: https://api.github.com/repos/vitejs/vite
+    node_id: MDEwOlJlcG9zaXRvcnkyNTc0ODU0MjI=
+    repository_owner: vitejs
+    repository_name: vite
+    topics: [vite, frontend, build-tools]
+    priority: high
+
+  - <<: *repo_watch
+    id: github-vitest
+    name: vitest-dev/vitest repository
+    url: https://api.github.com/repos/vitest-dev/vitest
+    node_id: R_kgDOGekgxw
+    repository_owner: vitest-dev
+    repository_name: vitest
+    topics: [vitest, testing, frontend]
+    priority: high
+
+  - <<: *repo_watch
+    id: github-playwright
+    name: microsoft/playwright repository
+    url: https://api.github.com/repos/microsoft/playwright
+    node_id: MDEwOlJlcG9zaXRvcnkyMjE5ODE4OTE=
+    repository_owner: microsoft
+    repository_name: playwright
+    topics: [playwright, testing, browsers]
+    priority: high
+
+  - <<: *repo_watch
+    id: github-storybook
+    name: storybookjs/storybook repository
+    url: https://api.github.com/repos/storybookjs/storybook
+    node_id: MDEwOlJlcG9zaXRvcnk1NDE3MzU5Mw==
+    repository_owner: storybookjs
+    repository_name: storybook
+    topics: [storybook, react, testing]
+    priority: high
+
+  - <<: *repo_watch
+    id: github-zustand
+    name: pmndrs/zustand repository
+    url: https://api.github.com/repos/pmndrs/zustand
+    node_id: MDEwOlJlcG9zaXRvcnkxODAzMjg3MTU=
+    repository_owner: pmndrs
+    repository_name: zustand
+    topics: [zustand, react, state-management]
+    priority: high
+
+  - <<: *repo_watch
+    id: github-motion
+    name: motiondivision/motion repository
+    url: https://api.github.com/repos/motiondivision/motion
+    node_id: MDEwOlJlcG9zaXRvcnkxNTc4NDY4NzY=
+    repository_owner: motiondivision
+    repository_name: motion
+    topics: [motion, react, animation]
+    priority: high
+
+  - <<: *repo_watch
+    id: github-postgres
+    name: postgres/postgres repository
+    url: https://api.github.com/repos/postgres/postgres
+    node_id: MDEwOlJlcG9zaXRvcnk5Mjc0NDI=
+    repository_owner: postgres
+    repository_name: postgres
+    topics: [postgresql, database]
+
+  - <<: *repo_watch
+    id: github-pgvector
+    name: pgvector/pgvector repository
+    url: https://api.github.com/repos/pgvector/pgvector
+    node_id: MDEwOlJlcG9zaXRvcnkzNTk5NTI2MDE=
+    repository_owner: pgvector
+    repository_name: pgvector
+    topics: [postgresql, vector-search, embeddings]
+
+  - <<: *repo_watch
+    id: github-sqlc
+    name: sqlc-dev/sqlc repository
+    url: https://api.github.com/repos/sqlc-dev/sqlc
+    node_id: MDEwOlJlcG9zaXRvcnkxOTMxNjA2Nzk=
+    repository_owner: sqlc-dev
+    repository_name: sqlc
+    topics: [go, postgresql, sqlc]
+
+  - <<: *repo_watch
+    id: github-jackc-pgx
+    name: jackc/pgx repository
+    url: https://api.github.com/repos/jackc/pgx
+    node_id: MDEwOlJlcG9zaXRvcnk5MTIwNTI2
+    repository_owner: jackc
+    repository_name: pgx
+    topics: [go, postgresql, pgx]
+
+  - <<: *repo_watch
+    id: github-river
+    name: riverqueue/river repository
+    url: https://api.github.com/repos/riverqueue/river
+    node_id: R_kgDOKrDIpA
+    repository_owner: riverqueue
+    repository_name: river
+    topics: [go, postgresql, jobs]
+
+  - <<: *repo_watch
+    id: github-docker-compose
+    name: docker/compose repository
+    url: https://api.github.com/repos/docker/compose
+    node_id: MDEwOlJlcG9zaXRvcnkxNTA0NTc1MQ==
+    repository_owner: docker
+    repository_name: compose
+    topics: [docker, compose, containers]
+
+  - <<: *repo_watch
+    id: github-docker-buildx
+    name: docker/buildx repository
+    url: https://api.github.com/repos/docker/buildx
+    node_id: MDEwOlJlcG9zaXRvcnkxNzcyMTA2Mjc=
+    repository_owner: docker
+    repository_name: buildx
+    topics: [docker, buildkit, supply-chain]
+
+  - <<: *repo_watch
+    id: github-kubernetes
+    name: kubernetes/kubernetes repository
+    url: https://api.github.com/repos/kubernetes/kubernetes
+    node_id: MDEwOlJlcG9zaXRvcnkyMDU4MDQ5OA==
+    repository_owner: kubernetes
+    repository_name: kubernetes
+    topics: [kubernetes, containers, orchestration]
+    priority: high
+
+  - <<: *repo_watch
+    id: github-opentelemetry-go
+    name: open-telemetry/opentelemetry-go repository
+    url: https://api.github.com/repos/open-telemetry/opentelemetry-go
+    node_id: MDEwOlJlcG9zaXRvcnkxODcwODYxNjE=
+    repository_owner: open-telemetry
+    repository_name: opentelemetry-go
+    topics: [go, opentelemetry, observability]
+    priority: high
+
+  - <<: *repo_watch
+    id: github-openai-go
+    name: openai/openai-go repository
+    url: https://api.github.com/repos/openai/openai-go
+    node_id: R_kgDOMZw3Bg
+    repository_owner: openai
+    repository_name: openai-go
+    topics: [openai, go, api]
+
+  - <<: *repo_watch
+    id: github-rust-lang-rust
+    name: rust-lang/rust repository
+    url: https://api.github.com/repos/rust-lang/rust
+    node_id: MDEwOlJlcG9zaXRvcnk3MjQ3MTI=
+    repository_owner: rust-lang
+    repository_name: rust
+    topics: [rust, compiler, tooling]
+    priority: high
+
+  - <<: *repo_watch
+    id: github-tokio
+    name: tokio-rs/tokio repository
+    url: https://api.github.com/repos/tokio-rs/tokio
+    node_id: MDEwOlJlcG9zaXRvcnk2NzgzNjc4OQ==
+    repository_owner: tokio-rs
+    repository_name: tokio
+    topics: [rust, async, runtime]
+    priority: high
