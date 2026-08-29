@@ -1,9 +1,11 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
+    "baseUrl": ".",
     "incremental": true,
     "jsx": "preserve",
     "lib": ["DOM", "DOM.Iterable", "ES2022"],
+    "paths": { "@/*": ["./src/*"] },
     "plugins": [{ "name": "next" }],
     "types": ["node", "react", "react-dom"]
   },
