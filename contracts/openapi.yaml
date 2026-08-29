@@ -1,5 +1,23 @@
 components:
   schemas:
+    ClaimEvidence:
+      additionalProperties: false
+      properties:
+        claim:
+          type: string
+        material:
+          type: boolean
+        sources:
+          items:
+            $ref: "#/components/schemas/Source"
+          type:
+            - array
+            - "null"
+      required:
+        - claim
+        - material
+        - sources
+      type: object
     ErrorDetail:
       additionalProperties: false
       properties:
@@ -83,6 +101,262 @@ components:
         - version
         - gitSha
       type: object
+    LiveEvent:
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+        observedAt:
+          format: date-time
+          type: string
+        story:
+          $ref: "#/components/schemas/StorySummary"
+        type:
+          type: string
+      required:
+        - id
+        - observedAt
+        - story
+        - type
+      type: object
+    LiveSnapshot:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/LiveSnapshot.json
+          format: uri
+          readOnly: true
+          type: string
+        events:
+          items:
+            $ref: "#/components/schemas/LiveEvent"
+          type:
+            - array
+            - "null"
+        generatedAt:
+          format: date-time
+          type: string
+      required:
+        - events
+        - generatedAt
+      type: object
+    Source:
+      additionalProperties: false
+      properties:
+        domain:
+          type: string
+        label:
+          type: string
+        tier:
+          type: string
+        url:
+          type: string
+      required:
+        - domain
+        - label
+        - tier
+        - url
+      type: object
+    StoryDetail:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/StoryDetail.json
+          format: uri
+          readOnly: true
+          type: string
+        assertions:
+          items:
+            $ref: "#/components/schemas/ClaimEvidence"
+          type:
+            - array
+            - "null"
+        confidence:
+          type: string
+        firstSeenAt:
+          format: date-time
+          type: string
+        headline:
+          type: string
+        id:
+          type: string
+        lastChangedAt:
+          format: date-time
+          type: string
+        readTimeMinutes:
+          format: int64
+          type: integer
+        recommendedAction:
+          type: string
+        related:
+          items:
+            $ref: "#/components/schemas/StorySummary"
+          type:
+            - array
+            - "null"
+        signal:
+          type: string
+        sourceCount:
+          format: int64
+          type: integer
+        sourceTier:
+          type: string
+        sources:
+          items:
+            $ref: "#/components/schemas/Source"
+          type:
+            - array
+            - "null"
+        status:
+          type: string
+        summary:
+          type: string
+        uncertainties:
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        whyItMatters:
+          type: string
+      required:
+        - assertions
+        - related
+        - sources
+        - uncertainties
+        - confidence
+        - firstSeenAt
+        - headline
+        - id
+        - lastChangedAt
+        - readTimeMinutes
+        - recommendedAction
+        - signal
+        - sourceCount
+        - sourceTier
+        - status
+        - summary
+        - whyItMatters
+      type: object
+    StorySummary:
+      additionalProperties: false
+      properties:
+        confidence:
+          type: string
+        firstSeenAt:
+          format: date-time
+          type: string
+        headline:
+          type: string
+        id:
+          type: string
+        lastChangedAt:
+          format: date-time
+          type: string
+        readTimeMinutes:
+          format: int64
+          type: integer
+        recommendedAction:
+          type: string
+        signal:
+          type: string
+        sourceCount:
+          format: int64
+          type: integer
+        sourceTier:
+          type: string
+        status:
+          type: string
+        summary:
+          type: string
+        whyItMatters:
+          type: string
+      required:
+        - confidence
+        - firstSeenAt
+        - headline
+        - id
+        - lastChangedAt
+        - readTimeMinutes
+        - recommendedAction
+        - signal
+        - sourceCount
+        - sourceTier
+        - status
+        - summary
+        - whyItMatters
+      type: object
+    TodaySnapshot:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/TodaySnapshot.json
+          format: uri
+          readOnly: true
+          type: string
+        coverageEndAt:
+          format: date-time
+          type: string
+        coverageStartAt:
+          format: date-time
+          type: string
+        deliveryState:
+          type: string
+        generatedAt:
+          format: date-time
+          type: string
+        nextRunAt:
+          format: date-time
+          type:
+            - string
+            - "null"
+        stats:
+          $ref: "#/components/schemas/TodayStats"
+        stories:
+          items:
+            $ref: "#/components/schemas/StorySummary"
+          type:
+            - array
+            - "null"
+      required:
+        - coverageEndAt
+        - coverageStartAt
+        - deliveryState
+        - generatedAt
+        - nextRunAt
+        - stats
+        - stories
+      type: object
+    TodayStats:
+      additionalProperties: false
+      properties:
+        criticalAlerts:
+          format: int64
+          type: integer
+        estimatedCostUsd:
+          type: string
+        releases:
+          format: int64
+          type: integer
+        reviewRequired:
+          format: int64
+          type: integer
+        sourceCoverage:
+          format: int64
+          type: integer
+      required:
+        - criticalAlerts
+        - estimatedCostUsd
+        - releases
+        - reviewRequired
+        - sourceCoverage
+      type: object
 info:
   title: Relantern API
   version: 0.0.0
@@ -107,3 +381,82 @@ paths:
       summary: Get API process health
       tags:
         - operations
+  /api/v1/live:
+    get:
+      operationId: get-live-intelligence
+      parameters:
+        - in: header
+          name: Authorization
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LiveSnapshot"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Get the current owner intelligence stream snapshot
+      tags:
+        - intelligence
+  /api/v1/stories/{storyId}:
+    get:
+      operationId: get-story
+      parameters:
+        - in: header
+          name: Authorization
+          schema:
+            type: string
+        - in: path
+          name: storyId
+          required: true
+          schema:
+            maxLength: 36
+            minLength: 36
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StoryDetail"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Get an evidence-backed owner intelligence story
+      tags:
+        - intelligence
+  /api/v1/today:
+    get:
+      operationId: get-today
+      parameters:
+        - in: header
+          name: Authorization
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TodaySnapshot"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Get the owner daily intelligence snapshot
+      tags:
+        - intelligence

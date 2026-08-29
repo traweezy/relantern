@@ -21,10 +21,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/live": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get the current owner intelligence stream snapshot */
+        get: operations["get-live-intelligence"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/stories/{storyId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get an evidence-backed owner intelligence story */
+        get: operations["get-story"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/today": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get the owner daily intelligence snapshot */
+        get: operations["get-today"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        ClaimEvidence: {
+            claim: string;
+            material: boolean;
+            sources: components["schemas"]["Source"][] | null;
+        };
         ErrorDetail: {
             /** @description Where the error occurred, e.g. 'body.items[3].tags' or 'path.thing-id' */
             location?: string;
@@ -84,6 +140,108 @@ export interface components {
             status: string;
             version: string;
         };
+        LiveEvent: {
+            id: string;
+            /** Format: date-time */
+            observedAt: string;
+            story: components["schemas"]["StorySummary"];
+            type: string;
+        };
+        LiveSnapshot: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/LiveSnapshot.json
+             */
+            readonly $schema?: string;
+            events: components["schemas"]["LiveEvent"][] | null;
+            /** Format: date-time */
+            generatedAt: string;
+        };
+        Source: {
+            domain: string;
+            label: string;
+            tier: string;
+            url: string;
+        };
+        StoryDetail: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/StoryDetail.json
+             */
+            readonly $schema?: string;
+            assertions: components["schemas"]["ClaimEvidence"][] | null;
+            confidence: string;
+            /** Format: date-time */
+            firstSeenAt: string;
+            headline: string;
+            id: string;
+            /** Format: date-time */
+            lastChangedAt: string;
+            /** Format: int64 */
+            readTimeMinutes: number;
+            recommendedAction: string;
+            related: components["schemas"]["StorySummary"][] | null;
+            signal: string;
+            /** Format: int64 */
+            sourceCount: number;
+            sourceTier: string;
+            sources: components["schemas"]["Source"][] | null;
+            status: string;
+            summary: string;
+            uncertainties: string[] | null;
+            whyItMatters: string;
+        };
+        StorySummary: {
+            confidence: string;
+            /** Format: date-time */
+            firstSeenAt: string;
+            headline: string;
+            id: string;
+            /** Format: date-time */
+            lastChangedAt: string;
+            /** Format: int64 */
+            readTimeMinutes: number;
+            recommendedAction: string;
+            signal: string;
+            /** Format: int64 */
+            sourceCount: number;
+            sourceTier: string;
+            status: string;
+            summary: string;
+            whyItMatters: string;
+        };
+        TodaySnapshot: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/TodaySnapshot.json
+             */
+            readonly $schema?: string;
+            /** Format: date-time */
+            coverageEndAt: string;
+            /** Format: date-time */
+            coverageStartAt: string;
+            deliveryState: string;
+            /** Format: date-time */
+            generatedAt: string;
+            /** Format: date-time */
+            nextRunAt: string | null;
+            stats: components["schemas"]["TodayStats"];
+            stories: components["schemas"]["StorySummary"][] | null;
+        };
+        TodayStats: {
+            /** Format: int64 */
+            criticalAlerts: number;
+            estimatedCostUsd: string;
+            /** Format: int64 */
+            releases: number;
+            /** Format: int64 */
+            reviewRequired: number;
+            /** Format: int64 */
+            sourceCoverage: number;
+        };
     };
     responses: never;
     parameters: never;
@@ -109,6 +267,101 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HealthBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-live-intelligence": {
+        parameters: {
+            query?: never;
+            header?: {
+                Authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LiveSnapshot"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-story": {
+        parameters: {
+            query?: never;
+            header?: {
+                Authorization?: string;
+            };
+            path: {
+                storyId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StoryDetail"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-today": {
+        parameters: {
+            query?: never;
+            header?: {
+                Authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TodaySnapshot"];
                 };
             };
             /** @description Error */

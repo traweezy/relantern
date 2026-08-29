@@ -23,6 +23,7 @@ Status: approved for PR 0 on 2026-08-29.
 | Source and retention policy | Specification defaults approved |
 | Demo contact | `https://github.com/traweezy`; no case-study URL initially |
 | Demo indexing | `noindex,nofollow`; synthetic fixtures require review |
+| Demo rendering | Strict per-request CSP nonce; request-rendered immutable fixture content |
 | Hosted telemetry | Railway baseline initially; external OTLP deferred |
 | Railway region | Closest stable US East region available to the project |
 
