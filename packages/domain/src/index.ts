@@ -504,6 +504,104 @@ export type OperationsSnapshot = Readonly<{
   stuckJobs: readonly StuckJob[];
 }>;
 
+export type RadarState = "adopt" | "assess" | "hold" | "reject" | "trial";
+
+export type RadarEvidenceLink = Readonly<{
+  label: string;
+  sourceTier: "T0" | "T1" | "T2" | "T3";
+  url: string;
+}>;
+
+export type RadarComparisonDimension = Readonly<{
+  candidate: string;
+  current: string;
+  evidence: readonly RadarEvidenceLink[];
+  name:
+    | "Capability"
+    | "Maintenance"
+    | "Migration"
+    | "Performance"
+    | "Reversibility"
+    | "Security"
+    | "Stability";
+  verdict: "needs-evidence" | "supported";
+}>;
+
+export type RadarMetricSnapshot = Readonly<{
+  bundleSizeBytes?: number | undefined;
+  contributorCount: number;
+  id: string;
+  license: string;
+  maintenance: Readonly<Record<string, unknown>>;
+  observedAt: string;
+  popularity: Readonly<Record<string, unknown>>;
+  provenance: Readonly<Record<string, unknown>>;
+  releaseVersion: string;
+  runtimeCompatibility: readonly string[];
+  security: Readonly<Record<string, unknown>>;
+  typesSupported: boolean;
+}>;
+
+export type RadarComparison = Readonly<{
+  assessedAt: string;
+  confidence: number;
+  dimensions: readonly RadarComparisonDimension[];
+  evidence: readonly RadarEvidenceLink[];
+  id: string;
+  misleading: boolean;
+  suggestedState: "assess" | "hold" | "reject";
+}>;
+
+export type RadarDecision = Readonly<{
+  applicableProjectTypes: readonly string[];
+  compatibilityRequirements: readonly string[];
+  decidedAt: string;
+  decisionSource: "owner" | "system";
+  evidence: Readonly<Record<string, unknown>>;
+  exitConditions: readonly string[];
+  id: string;
+  rationale: string;
+  reviewAt: string;
+  state: RadarState;
+}>;
+
+export type RadarCandidate = Readonly<{
+  currentState: RadarState;
+  decisions: readonly RadarDecision[];
+  discoveredAt: string;
+  discoverySource: string;
+  ecosystem: "go" | "jvm" | "npm" | "other" | "python" | "rust";
+  id: string;
+  incumbentPackage: string;
+  latestComparison?: RadarComparison | undefined;
+  latestMetric?: RadarMetricSnapshot | undefined;
+  packageName: string;
+  repositoryUrl: string;
+  reviewAt: string;
+  version: number;
+}>;
+
+export type RadarDiscoveryRun = Readonly<{
+  candidateCount: number;
+  completedAt?: string | undefined;
+  errorCode?: string | undefined;
+  evidenceCount: number;
+  id: string;
+  misleadingCount: number;
+  requestedAt: string;
+  startedAt?: string | undefined;
+  state: "completed" | "failed" | "queued" | "running";
+  triggerType: "owner" | "scheduled";
+}>;
+
+export type RadarSnapshot = Readonly<{
+  candidates: readonly RadarCandidate[];
+  generatedAt: string;
+  reviewDue: number;
+  runs: readonly RadarDiscoveryRun[];
+  states: readonly RadarState[];
+}>;
+
 export type ItemState = Readonly<{
   isRead: boolean;
   location: ReadingLocation;

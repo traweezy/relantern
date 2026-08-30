@@ -3,6 +3,9 @@ import "server-only";
 import type {
   ManagedSource,
   OperationsSnapshot,
+  RadarCandidate,
+  RadarDiscoveryRun,
+  RadarSnapshot,
   ScheduleActionResult,
   ScheduleDefinition,
   SchedulePreview,
@@ -11,6 +14,8 @@ import type {
   SourcesSnapshot,
 } from "@relantern/domain";
 import type {
+  RadarDecisionCommand,
+  RadarDiscoveryCommand,
   ScheduleActionCommand,
   ScheduleCommand,
   SettingsCommand,
@@ -20,6 +25,9 @@ import type {
 import {
   parseManagedSource,
   parseOperationsSnapshot,
+  parseRadarCandidate,
+  parseRadarDiscoveryRun,
+  parseRadarSnapshot,
   parseScheduleActionResult,
   parseScheduleDefinition,
   parseSchedulePreview,
@@ -163,3 +171,27 @@ export const previewSchedule = (userID: string, scheduleID: string): Promise<Sch
 
 export const getOperations = (userID: string): Promise<OperationsSnapshot> =>
   requestJSON("/api/v1/operations", userID, parseOperationsSnapshot);
+
+export const getRadar = (userID: string): Promise<RadarSnapshot> =>
+  requestJSON("/api/v1/radar", userID, parseRadarSnapshot);
+
+export const queueRadarDiscovery = (
+  userID: string,
+  command: RadarDiscoveryCommand,
+): Promise<RadarDiscoveryRun> =>
+  requestJSON("/api/v1/radar/discovery-runs", userID, parseRadarDiscoveryRun, {
+    body: command,
+    method: "POST",
+  });
+
+export const recordRadarDecision = (
+  userID: string,
+  candidateID: string,
+  command: RadarDecisionCommand,
+): Promise<RadarCandidate> =>
+  requestJSON(
+    `/api/v1/radar/candidates/${encodeURIComponent(candidateID)}/decisions`,
+    userID,
+    parseRadarCandidate,
+    { body: command, method: "POST" },
+  );

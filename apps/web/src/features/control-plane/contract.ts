@@ -1,6 +1,9 @@
 import type {
   ManagedSource,
   OperationsSnapshot,
+  RadarCandidate,
+  RadarDiscoveryRun,
+  RadarSnapshot,
   ScheduleActionResult,
   ScheduleDefinition,
   SchedulePreview,
@@ -220,6 +223,97 @@ const operationsSnapshotSchema: z.ZodType<OperationsSnapshot> = z.object({
   ),
 });
 
+const radarStateSchema = z.enum(["adopt", "trial", "assess", "hold", "reject"]);
+const radarEvidenceLinkSchema = z.object({
+  label: z.string().min(1),
+  sourceTier: sourceTierSchema,
+  url: z.url(),
+});
+const radarDimensionSchema = z.object({
+  candidate: z.string(),
+  current: z.string(),
+  evidence: z.array(radarEvidenceLinkSchema),
+  name: z.enum([
+    "Capability",
+    "Stability",
+    "Maintenance",
+    "Security",
+    "Performance",
+    "Migration",
+    "Reversibility",
+  ]),
+  verdict: z.enum(["needs-evidence", "supported"]),
+});
+const radarMetricSchema = z.object({
+  bundleSizeBytes: z.number().int().nonnegative().optional(),
+  contributorCount: z.number().int().nonnegative(),
+  id: z.uuid(),
+  license: z.string().min(1),
+  maintenance: z.record(z.string(), z.unknown()),
+  observedAt: z.iso.datetime({ offset: true }),
+  popularity: z.record(z.string(), z.unknown()),
+  provenance: z.record(z.string(), z.unknown()),
+  releaseVersion: z.string().min(1),
+  runtimeCompatibility: z.array(z.string().min(1)),
+  security: z.record(z.string(), z.unknown()),
+  typesSupported: z.boolean(),
+});
+const radarComparisonSchema = z.object({
+  assessedAt: z.iso.datetime({ offset: true }),
+  confidence: z.number().min(0).max(1),
+  dimensions: z.array(radarDimensionSchema).length(7),
+  evidence: z.array(radarEvidenceLinkSchema),
+  id: z.uuid(),
+  misleading: z.boolean(),
+  suggestedState: z.enum(["assess", "hold", "reject"]),
+});
+const radarDecisionSchema = z.object({
+  applicableProjectTypes: z.array(z.string().min(1)),
+  compatibilityRequirements: z.array(z.string().min(1)),
+  decidedAt: z.iso.datetime({ offset: true }),
+  decisionSource: z.enum(["owner", "system"]),
+  evidence: z.record(z.string(), z.unknown()),
+  exitConditions: z.array(z.string().min(1)),
+  id: z.uuid(),
+  rationale: z.string().min(3),
+  reviewAt: z.iso.datetime({ offset: true }),
+  state: radarStateSchema,
+});
+const radarCandidateSchema: z.ZodType<RadarCandidate> = z.object({
+  currentState: radarStateSchema,
+  decisions: z.array(radarDecisionSchema),
+  discoveredAt: z.iso.datetime({ offset: true }),
+  discoverySource: z.string().min(1),
+  ecosystem: z.enum(["go", "jvm", "npm", "other", "python", "rust"]),
+  id: z.uuid(),
+  incumbentPackage: z.string().min(1),
+  latestComparison: radarComparisonSchema.optional(),
+  latestMetric: radarMetricSchema.optional(),
+  packageName: z.string().min(1),
+  repositoryUrl: z.url(),
+  reviewAt: z.iso.datetime({ offset: true }),
+  version: z.number().int().positive(),
+});
+const radarDiscoveryRunSchema: z.ZodType<RadarDiscoveryRun> = z.object({
+  candidateCount: z.number().int().nonnegative(),
+  completedAt: optionalTimeSchema,
+  errorCode: z.string().optional(),
+  evidenceCount: z.number().int().nonnegative(),
+  id: z.uuid(),
+  misleadingCount: z.number().int().nonnegative(),
+  requestedAt: z.iso.datetime({ offset: true }),
+  startedAt: optionalTimeSchema,
+  state: z.enum(["completed", "failed", "queued", "running"]),
+  triggerType: z.enum(["owner", "scheduled"]),
+});
+const radarSnapshotSchema: z.ZodType<RadarSnapshot> = z.object({
+  candidates: z.array(radarCandidateSchema),
+  generatedAt: z.iso.datetime({ offset: true }),
+  reviewDue: z.number().int().nonnegative(),
+  runs: z.array(radarDiscoveryRunSchema),
+  states: z.array(radarStateSchema).length(5),
+});
+
 export const parseSourcesSnapshot = (value: unknown): SourcesSnapshot =>
   sourcesSnapshotSchema.parse(value);
 
@@ -243,3 +337,12 @@ export const parseScheduleActionResult = (value: unknown): ScheduleActionResult 
 
 export const parseOperationsSnapshot = (value: unknown): OperationsSnapshot =>
   operationsSnapshotSchema.parse(value);
+
+export const parseRadarSnapshot = (value: unknown): RadarSnapshot =>
+  radarSnapshotSchema.parse(value);
+
+export const parseRadarCandidate = (value: unknown): RadarCandidate =>
+  radarCandidateSchema.parse(value);
+
+export const parseRadarDiscoveryRun = (value: unknown): RadarDiscoveryRun =>
+  radarDiscoveryRunSchema.parse(value);

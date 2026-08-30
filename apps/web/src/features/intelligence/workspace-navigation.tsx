@@ -42,7 +42,7 @@ const NavigationListComponent = ({ compact = false }: NavigationListProps) => {
           item.href === "/"
             ? pathname === "/" || pathname.startsWith("/story/")
             : pathname === item.href,
-        enabled: item.href !== "/radar",
+        enabled: true,
       })),
     [compact, pathname],
   );

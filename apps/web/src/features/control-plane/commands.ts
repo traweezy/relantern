@@ -85,8 +85,38 @@ export const scheduleActionCommandSchema = z
   })
   .strict();
 
+export const radarDiscoveryCommandSchema = z
+  .object({ idempotencyKey: z.string().min(16).max(200) })
+  .strict();
+
+export const radarDecisionCommandSchema = z
+  .object({
+    applicableProjectTypes: z.array(z.string().trim().min(1).max(120)).min(1).max(20),
+    compatibilityRequirements: z.array(z.string().trim().min(1).max(500)).min(1).max(50),
+    evidence: z.record(z.string().trim().min(1).max(120), z.unknown()),
+    exitConditions: z.array(z.string().trim().min(1).max(500)).min(1).max(50),
+    expectedVersion: z.number().int().positive(),
+    rationale: z.string().trim().min(3).max(4000),
+    reviewAt: z.iso.datetime({ offset: true }),
+    state: z.enum(["adopt", "trial", "assess", "hold", "reject"]),
+  })
+  .strict();
+
+export const radarDecisionDraftSchema = z
+  .object({
+    compatibilityRequirements: z.string().trim().min(1).max(4000),
+    exitConditions: z.string().trim().min(1).max(4000),
+    projectTypes: z.string().trim().min(1).max(1000),
+    rationale: z.string().trim().min(3).max(4000),
+    reviewDate: z.iso.date(),
+    state: z.enum(["adopt", "trial", "assess", "hold", "reject"]),
+  })
+  .strict();
+
 export type SourcePreferenceCommand = z.infer<typeof sourcePreferenceCommandSchema>;
 export type SourceActionCommand = z.infer<typeof sourceActionCommandSchema>;
 export type SettingsCommand = z.infer<typeof settingsCommandSchema>;
 export type ScheduleCommand = z.infer<typeof scheduleCommandSchema>;
 export type ScheduleActionCommand = z.infer<typeof scheduleActionCommandSchema>;
+export type RadarDiscoveryCommand = z.infer<typeof radarDiscoveryCommandSchema>;
+export type RadarDecisionCommand = z.infer<typeof radarDecisionCommandSchema>;
