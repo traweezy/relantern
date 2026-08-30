@@ -25,9 +25,9 @@ func TestOwnerControlPlaneRoundTrip(t *testing.T) {
 	cleanupControlPlaneFixture(t, pool, userID)
 	restoreCompletedAt := seedRestoreDrillFixture(t, pool)
 
-	jobs, err := jobqueue.NewInserter()
+	jobs, err := jobqueue.NewIsolatedTestInserter("test_controlplane")
 	if err != nil {
-		t.Fatalf("NewInserter() error = %v", err)
+		t.Fatalf("NewIsolatedTestInserter() error = %v", err)
 	}
 	store, err := controlplanestore.New(pool, jobs)
 	if err != nil {

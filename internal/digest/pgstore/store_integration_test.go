@@ -29,7 +29,7 @@ func TestDigestWorkflowFreezesAndRetriesOneIdempotentPayload(t *testing.T) {
 	now := time.Date(2099, time.August, 29, 12, 0, 0, 0, time.UTC)
 	userID, occurrenceID := insertDigestOccurrence(t, pool, now)
 	cleanupDigestFixture(t, pool, userID, occurrenceID)
-	jobs, err := jobqueue.NewInserter()
+	jobs, err := jobqueue.NewIsolatedTestInserter("test_digest_workflow")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,7 +169,7 @@ func TestDigestPreviewDoesNotPersistAndRunNowDefaultsToDashboardOnly(t *testing.
 	now := time.Date(2098, time.August, 29, 12, 0, 0, 0, time.UTC)
 	userID, occurrenceID := insertDigestOccurrence(t, pool, now)
 	cleanupDigestFixture(t, pool, userID, occurrenceID)
-	jobs, err := jobqueue.NewInserter()
+	jobs, err := jobqueue.NewIsolatedTestInserter("test_digest_preview")
 	if err != nil {
 		t.Fatal(err)
 	}

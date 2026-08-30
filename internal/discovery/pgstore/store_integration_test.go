@@ -42,9 +42,9 @@ func TestStoreKeepsManualCaptureAndOPMLImportsPending(t *testing.T) {
 	if err != nil {
 		t.Fatalf("searchstore.New() error = %v", err)
 	}
-	jobs, err := jobqueue.NewInserter()
+	jobs, err := jobqueue.NewIsolatedTestInserter("test_discovery")
 	if err != nil {
-		t.Fatalf("jobqueue.NewInserter() error = %v", err)
+		t.Fatalf("jobqueue.NewIsolatedTestInserter() error = %v", err)
 	}
 	store, err := discoverystore.New(pool, searchIndex, jobs, true)
 	if err != nil {

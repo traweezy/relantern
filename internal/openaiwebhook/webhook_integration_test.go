@@ -22,9 +22,9 @@ func TestDuplicateVerifiedWebhookProducesOneEventAndOnePollJob(t *testing.T) {
 		t.Fatalf("pgxpool.New() error = %v", err)
 	}
 	defer pool.Close()
-	inserter, err := jobqueue.NewInserter()
+	inserter, err := jobqueue.NewIsolatedTestInserter("test_openai_webhook")
 	if err != nil {
-		t.Fatalf("jobqueue.NewInserter() error = %v", err)
+		t.Fatalf("jobqueue.NewIsolatedTestInserter() error = %v", err)
 	}
 	store, err := openaiwebhook.NewStore(pool, inserter)
 	if err != nil {

@@ -24,9 +24,9 @@ func TestConcurrentReconcilersCreateOneOccurrenceAndRiverJob(t *testing.T) {
 	userID, scheduleID := insertDueSchedule(t, pool, now)
 	cleanupScheduleIntegration(t, pool, userID, scheduleID)
 
-	inserter, err := jobqueue.NewInserter()
+	inserter, err := jobqueue.NewIsolatedTestInserter("test_scheduler_race")
 	if err != nil {
-		t.Fatalf("NewInserter() error = %v", err)
+		t.Fatalf("NewIsolatedTestInserter() error = %v", err)
 	}
 	first := scheduler.NewReconciler(
 		pool,
@@ -160,9 +160,9 @@ func TestReconcileResumesElapsedTimedPauseBeforeClaimingDueSchedule(t *testing.T
 		t.Fatalf("set elapsed timed pause: %v", err)
 	}
 
-	inserter, err := jobqueue.NewInserter()
+	inserter, err := jobqueue.NewIsolatedTestInserter("test_scheduler_resume")
 	if err != nil {
-		t.Fatalf("NewInserter() error = %v", err)
+		t.Fatalf("NewIsolatedTestInserter() error = %v", err)
 	}
 	reconciler := scheduler.NewReconciler(
 		pool,

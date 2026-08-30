@@ -104,9 +104,9 @@ func TestManualRetryIsAtomicAndAudited(t *testing.T) {
 
 func TestTransactionalInserterSuppressesDuplicateOccurrenceJob(t *testing.T) {
 	pool := openJobQueueIntegrationPool(t)
-	inserter, err := jobqueue.NewInserter()
+	inserter, err := jobqueue.NewIsolatedTestInserter("test_jobqueue_occurrence")
 	if err != nil {
-		t.Fatalf("NewInserter() error = %v", err)
+		t.Fatalf("NewIsolatedTestInserter() error = %v", err)
 	}
 	tx, err := pool.BeginTx(context.Background(), pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
@@ -146,9 +146,9 @@ func TestTransactionalInserterSuppressesDuplicateOccurrenceJob(t *testing.T) {
 
 func TestTransactionalInserterSuppressesDuplicateReembeddingJob(t *testing.T) {
 	pool := openJobQueueIntegrationPool(t)
-	inserter, err := jobqueue.NewInserter()
+	inserter, err := jobqueue.NewIsolatedTestInserter("test_jobqueue_reembedding")
 	if err != nil {
-		t.Fatalf("NewInserter() error = %v", err)
+		t.Fatalf("NewIsolatedTestInserter() error = %v", err)
 	}
 	tx, err := pool.BeginTx(context.Background(), pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
@@ -183,9 +183,9 @@ func TestTransactionalInserterSuppressesDuplicateReembeddingJob(t *testing.T) {
 
 func TestTransactionalInserterSuppressesDuplicateExtractionJob(t *testing.T) {
 	pool := openJobQueueIntegrationPool(t)
-	inserter, err := jobqueue.NewInserter()
+	inserter, err := jobqueue.NewIsolatedTestInserter("test_jobqueue_extraction")
 	if err != nil {
-		t.Fatalf("NewInserter() error = %v", err)
+		t.Fatalf("NewIsolatedTestInserter() error = %v", err)
 	}
 	tx, err := pool.BeginTx(context.Background(), pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {

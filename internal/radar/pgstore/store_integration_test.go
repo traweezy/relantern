@@ -25,7 +25,7 @@ func TestRadarEvidenceToOwnerDecisionRoundTrip(t *testing.T) {
 	cleanupRadarFixture(t, pool, userID)
 	insertRadarEvidence(t, pool, userID, now)
 
-	jobs, err := jobqueue.NewInserter()
+	jobs, err := jobqueue.NewIsolatedTestInserter("test_radar")
 	if err != nil {
 		t.Fatal(err)
 	}
