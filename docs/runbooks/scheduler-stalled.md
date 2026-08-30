@@ -43,7 +43,9 @@ make time-travel at=2026-11-01T01:30:00-04:00
    runs on startup and uses a PostgreSQL advisory lock.
 3. Confirm an elapsed timed pause clears automatically and that an active pause
    remains excluded.
-4. Use Run now only as a preview until external delivery is separately enabled.
+4. Use Run now without `deliver=true` for a dashboard-only preview. Enable
+   external delivery only after verifying same-date channel history and the
+   environment fuse.
 5. If a job is discarded, follow the queue recovery runbook and prove its
    downstream idempotency key before retrying.
 

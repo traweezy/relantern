@@ -68,18 +68,18 @@ rescued by PostgreSQL-backed maintenance, and a worker restart cannot create a
 second schedule occurrence. The queue dependency and its MPL-2.0 license remain
 exactly pinned, scanned, and recorded in the supply-chain manifest.
 
-The safe local profile still targets only the in-process fake delivery service.
-Source polling, OpenAI, Discord, Resend, and Railway delivery remain disabled
-until their separate rollout gates pass.
+The safe local profile targets only reviewed fake providers. Live source
+polling, OpenAI, Discord, Resend, and Railway delivery remain disabled until
+their separate rollout gates pass.
 
 ## Owner control-plane amendment
 
 PR15 adds optimistic, audited schedule edits plus Preview, Skip next, timed
 pause, resume, and Run now controls. A timed pause is durable and the reconciler
-clears it under the existing advisory lock after expiry. Run now creates an
-idempotent preview-only occurrence and cannot reach an external delivery
-provider before the PR17 delivery gate. Schedule state, audit evidence, and
-outbox publication commit together.
+clears it under the existing advisory lock after expiry. PR17 keeps Run now
+dashboard-only unless the caller explicitly sets `deliver=true`; environment
+delivery fuses remain authoritative. Schedule state, audit evidence, job
+enqueue, and outbox publication commit together.
 
 ## Primary references
 

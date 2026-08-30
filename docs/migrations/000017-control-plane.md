@@ -51,8 +51,8 @@ new schedule/technology columns. Never run it in staging or production.
 
 ## Variables and permissions
 
-No variable or external permission is added. Deployment metadata uses the
-existing environment/version/SHA configuration. The feature reuses the private
-web-to-API service credential and PostgreSQL role. Source tests are
-configuration-only and perform no network I/O; Run now creates a preview-only
-occurrence with external delivery disabled.
+No variable or external permission is added by migration 17. Deployment
+metadata uses the existing environment/version/SHA configuration. The feature
+reuses the private web-to-API service credential and PostgreSQL role. Source
+tests are configuration-only and perform no network I/O. PR17 later amends Run
+now so external delivery requires both `deliver=true` and the environment fuse.
