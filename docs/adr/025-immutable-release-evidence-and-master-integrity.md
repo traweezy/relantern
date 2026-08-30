@@ -48,6 +48,9 @@ not claim a human approval or protected environment that GitHub cannot supply.
   manual workflow from `master` requiring the exact GitHub-verified annotated
   tag, full commit SHA, and typed `DEPLOY_PRODUCTION`. This workflow deliberately
   stops before reading production secrets or deploying.
+- Railway production application services have an empty source in IaC. They
+  cannot follow mutable `master` pushes; a later reviewed P10 deployment job
+  must upload the exact detached signed-release checkout after authorization.
 
 ## Consequences
 

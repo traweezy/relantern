@@ -96,6 +96,14 @@ or deploy. P10 deployment remains blocked until P9 evidence exists, production
 credentials/backups/domain are separately verified, and an explicit deployment
 implementation is reviewed.
 
+Railway production application services deliberately have no connected GitHub
+branch source. A reviewed deployment implementation must upload the exact
+detached, signed release checkout to `migrate`, `api`, `worker`, and `web`; it
+must not connect those services to mutable `master` autodeploys. The migration
+must pass before application services are started, and every resulting
+deployment must report the authorized release SHA before traffic or ingestion
+is enabled.
+
 ## Emergency hotfix
 
 Branch from `master` as `hotfix/<short-name>` and open a PR to `master`. Add the
