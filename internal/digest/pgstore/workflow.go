@@ -31,6 +31,12 @@ type occurrenceSettings struct {
 }
 
 func (store *Store) Prepare(ctx context.Context, occurrenceID string, now time.Time) error {
+	return retrySerializable(ctx, func() error {
+		return store.prepare(ctx, occurrenceID, now)
+	})
+}
+
+func (store *Store) prepare(ctx context.Context, occurrenceID string, now time.Time) error {
 	transaction, err := store.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
 		return fmt.Errorf("begin daily digest preparation: %w", err)
@@ -124,6 +130,12 @@ func (store *Store) Prepare(ctx context.Context, occurrenceID string, now time.T
 }
 
 func (store *Store) Finalize(ctx context.Context, occurrenceID string, now time.Time) error {
+	return retrySerializable(ctx, func() error {
+		return store.finalize(ctx, occurrenceID, now)
+	})
+}
+
+func (store *Store) finalize(ctx context.Context, occurrenceID string, now time.Time) error {
 	transaction, err := store.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
 		return fmt.Errorf("begin daily digest finalization: %w", err)

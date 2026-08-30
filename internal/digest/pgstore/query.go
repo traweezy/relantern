@@ -103,6 +103,12 @@ func scanDigest(row digestScanner) (digest.DigestRecord, error) {
 }
 
 func (store *Store) Retry(ctx context.Context, userID string, digestID string, now time.Time) (digest.DigestRecord, error) {
+	return retrySerializableValue(ctx, func() (digest.DigestRecord, error) {
+		return store.retry(ctx, userID, digestID, now)
+	})
+}
+
+func (store *Store) retry(ctx context.Context, userID string, digestID string, now time.Time) (digest.DigestRecord, error) {
 	transaction, err := store.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
 		return digest.DigestRecord{}, fmt.Errorf("begin digest retry: %w", err)

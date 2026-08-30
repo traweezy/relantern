@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/traweezy/relantern/internal/digest"
 	"github.com/traweezy/relantern/internal/jobqueue"
@@ -26,6 +27,12 @@ func New(pool *pgxpool.Pool, jobs *jobqueue.Inserter) (*Store, error) {
 }
 
 func (store *Store) QueueOccurrence(ctx context.Context, occurrenceID string) error {
+	return retrySerializable(ctx, func() error {
+		return store.queueOccurrence(ctx, occurrenceID)
+	})
+}
+
+func (store *Store) queueOccurrence(ctx context.Context, occurrenceID string) error {
 	transaction, err := store.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
 		return fmt.Errorf("begin digest occurrence handoff: %w", err)
@@ -68,7 +75,58 @@ func (store *Store) QueueOccurrence(ctx context.Context, occurrenceID string) er
 	return nil
 }
 
+const (
+	serializableAttempts = 5
+	serializableBackoff  = 5 * time.Millisecond
+)
+
+func retrySerializable(ctx context.Context, operation func() error) error {
+	_, err := retrySerializableValue(ctx, func() (struct{}, error) {
+		return struct{}{}, operation()
+	})
+	return err
+}
+
+func retrySerializableValue[T any](ctx context.Context, operation func() (T, error)) (T, error) {
+	var value T
+	var err error
+	for attempt := 0; attempt < serializableAttempts; attempt++ {
+		value, err = operation()
+		if !retryableTransactionError(err) {
+			return value, err
+		}
+		if attempt == serializableAttempts-1 {
+			break
+		}
+		timer := time.NewTimer(serializableBackoff << attempt)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			return value, fmt.Errorf("wait to retry digest transaction: %w", ctx.Err())
+		case <-timer.C:
+		}
+	}
+	return value, err
+}
+
+func retryableTransactionError(err error) bool {
+	var postgresError *pgconn.PgError
+	return errors.As(err, &postgresError) &&
+		(postgresError.Code == "40001" || postgresError.Code == "40P01")
+}
+
 func (store *Store) Preflight(ctx context.Context, occurrenceID string, now time.Time) error {
+	return retrySerializable(ctx, func() error {
+		return store.preflight(ctx, occurrenceID, now)
+	})
+}
+
+func (store *Store) preflight(ctx context.Context, occurrenceID string, now time.Time) error {
 	transaction, err := store.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
 		return fmt.Errorf("begin digest preflight: %w", err)

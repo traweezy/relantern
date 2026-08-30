@@ -13,6 +13,12 @@ import (
 )
 
 func (store *Store) BeginDelivery(ctx context.Context, digestID string, now time.Time) (*digest.Delivery, error) {
+	return retrySerializableValue(ctx, func() (*digest.Delivery, error) {
+		return store.beginDelivery(ctx, digestID, now)
+	})
+}
+
+func (store *Store) beginDelivery(ctx context.Context, digestID string, now time.Time) (*digest.Delivery, error) {
 	transaction, err := store.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
 		return nil, fmt.Errorf("begin digest delivery: %w", err)
@@ -86,6 +92,17 @@ func (store *Store) CompleteDelivery(
 	if providerID == "" || len(providerID) > 255 {
 		return fmt.Errorf("%w: provider receipt ID is invalid", digest.ErrInvalid)
 	}
+	return retrySerializable(ctx, func() error {
+		return store.completeDelivery(ctx, digestID, providerID, now)
+	})
+}
+
+func (store *Store) completeDelivery(
+	ctx context.Context,
+	digestID string,
+	providerID string,
+	now time.Time,
+) error {
 	transaction, err := store.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
 		return fmt.Errorf("begin digest delivery completion: %w", err)
