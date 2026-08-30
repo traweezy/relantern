@@ -39,6 +39,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/digests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List immutable owner digest payloads and delivery states */
+        get: operations["list-digests"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/digests/{digestId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get one immutable owner digest and its selected evidence */
+        get: operations["get-digest"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/digests/{digestId}/retry-delivery": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Retry a failed external delivery without regenerating its payload */
+        post: operations["retry-digest-delivery"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/exports/markdown": {
         parameters: {
             query?: never;
@@ -913,6 +964,98 @@ export interface components {
             gitSha: string;
             version: string;
         };
+        DigestCandidate: {
+            action: string;
+            appPath: string;
+            category: string;
+            evidence: {
+                [key: string]: unknown;
+            };
+            headline: string;
+            id: string;
+            itemId?: string;
+            /** Format: date-time */
+            observedAt: string;
+            radarId?: string;
+            reason: string;
+            /** Format: double */
+            score: number;
+            signal: string;
+            sourceUrl: string;
+            storyId?: string;
+            summary: string;
+            type: string;
+        };
+        DigestPayload: {
+            channel: string;
+            executiveSummary: string;
+            /** Format: date-time */
+            generatedAt: string;
+            items: components["schemas"]["DigestRenderedItem"][] | null;
+            localDate: string;
+            title: string;
+            /** Format: date-time */
+            windowEnd: string;
+            /** Format: date-time */
+            windowStart: string;
+        };
+        DigestRecord: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/DigestRecord.json
+             */
+            readonly $schema?: string;
+            /** Format: int64 */
+            attemptCount: number;
+            channel: string;
+            /** Format: date-time */
+            completedAt?: string;
+            emptyBehavior: string;
+            errorCode?: string;
+            executiveSummary: string;
+            /** Format: date-time */
+            generatedAt: string;
+            id: string;
+            /** Format: int64 */
+            itemLimit: number;
+            items: components["schemas"]["DigestCandidate"][] | null;
+            localDate: string;
+            /** Format: double */
+            minimumScore: number;
+            occurrenceId: string;
+            providerIdempotencyKey: string;
+            rendered: components["schemas"]["DigestPayload"];
+            state: string;
+            /** Format: date-time */
+            windowEnd: string;
+            /** Format: date-time */
+            windowStart: string;
+        };
+        DigestRenderedItem: {
+            action: string;
+            appPath: string;
+            headline: string;
+            id: string;
+            reason: string;
+            /** Format: double */
+            score: number;
+            signal: string;
+            sourceUrl: string;
+            summary: string;
+            type: string;
+        };
+        DigestSnapshot: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/DigestSnapshot.json
+             */
+            readonly $schema?: string;
+            digests: components["schemas"]["DigestRecord"][] | null;
+            /** Format: date-time */
+            generatedAt: string;
+        };
         DiscoveryRun: {
             /**
              * Format: uri
@@ -1393,6 +1536,7 @@ export interface components {
             readonly $schema?: string;
             /** @enum {string} */
             action: "pause" | "resume" | "run_now" | "skip_next";
+            deliver?: boolean;
             idempotencyKey?: string;
             /** Format: date-time */
             pausedUntil?: string;
@@ -2029,6 +2173,106 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Collection"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "list-digests": {
+        parameters: {
+            query?: never;
+            header?: {
+                Authorization?: string;
+                "X-Relantern-User-ID"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DigestSnapshot"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-digest": {
+        parameters: {
+            query?: never;
+            header?: {
+                Authorization?: string;
+                "X-Relantern-User-ID"?: string;
+            };
+            path: {
+                digestId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DigestRecord"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "retry-digest-delivery": {
+        parameters: {
+            query?: never;
+            header?: {
+                Authorization?: string;
+                "X-Relantern-User-ID"?: string;
+            };
+            path: {
+                digestId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DigestRecord"];
                 };
             };
             /** @description Error */
@@ -3601,6 +3845,7 @@ export interface operations {
             query?: never;
             header?: {
                 Authorization?: string;
+                "X-Relantern-User-ID"?: string;
             };
             path?: never;
             cookie?: never;

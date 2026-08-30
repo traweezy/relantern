@@ -79,6 +79,7 @@ export const scheduleCommandSchema = z
 export const scheduleActionCommandSchema = z
   .object({
     action: z.enum(["pause", "resume", "run_now", "skip_next"]),
+    deliver: z.boolean().optional(),
     idempotencyKey: z.string().min(16).max(200).optional(),
     pausedUntil: z.iso.datetime({ offset: true }).optional(),
     reason: z.string().trim().min(3).max(1000),

@@ -1,9 +1,11 @@
 import type { Metadata } from "next";
 import { DigestQuickControls } from "@/features/control-plane/digest-quick-controls";
+import { DigestHistory } from "@/features/digest/digest-history";
 import { EmptyState } from "@/features/intelligence/empty-state";
 import { TriageCollection } from "@/features/reading-state/triage-collection";
 import { requireOwnerSession } from "@/server/auth/session";
 import { getSettings } from "@/server/controlplane/client";
+import { getDigests } from "@/server/digest/client";
 import { getTodaySnapshot } from "@/server/intelligence/client";
 import { getStoryStates, getTags } from "@/server/reading-state/client";
 
@@ -24,9 +26,10 @@ const formatCoverage = (start: string, end: string, timezone: string): string =>
 
 const TodayPage = async () => {
   const owner = await requireOwnerSession();
-  const [snapshot, settings] = await Promise.all([
-    getTodaySnapshot().catch(() => null),
+  const [snapshot, settings, digestSnapshot] = await Promise.all([
+    getTodaySnapshot(owner.userID).catch(() => null),
     getSettings(owner.userID).catch(() => null),
+    getDigests(owner.userID).catch(() => null),
   ]);
 
   if (snapshot === null) {
@@ -88,7 +91,7 @@ const TodayPage = async () => {
           <p className="eyebrow">Today · Private brief</p>
           <h1>Signal for the work ahead.</h1>
           <p>
-            {activeStories.length} evidence-backed stories across the last 24 hours, ordered for
+            {activeStories.length} evidence-backed stories across this briefing window, ordered for
             action rather than attention.
           </p>
         </div>
@@ -156,6 +159,7 @@ const TodayPage = async () => {
           />
         )}
       </section>
+      <DigestHistory initialDigests={digestSnapshot?.digests ?? []} timezone={owner.timezone} />
     </>
   );
 };

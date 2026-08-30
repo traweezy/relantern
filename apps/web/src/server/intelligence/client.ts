@@ -20,13 +20,18 @@ export class IntelligenceResponseError extends Error {
   }
 }
 
-const request = async <T>(path: string, parse: (value: unknown) => T): Promise<T> => {
+const request = async <T>(
+  path: string,
+  parse: (value: unknown) => T,
+  userID?: string,
+): Promise<T> => {
   const configuration = getIntelligenceAPIConfiguration();
   const response = await fetch(new URL(path, configuration.baseURL), {
     cache: "no-store",
     headers: {
       accept: "application/json",
       authorization: `Bearer ${configuration.serviceToken}`,
+      ...(userID === undefined ? {} : { "x-relantern-user-id": userID }),
     },
     signal: AbortSignal.timeout(5_000),
   });
@@ -50,8 +55,8 @@ const request = async <T>(path: string, parse: (value: unknown) => T): Promise<T
   return parse(decoded);
 };
 
-export const getTodaySnapshot = (): Promise<TodaySnapshot> =>
-  request("/api/v1/today", parseTodaySnapshot);
+export const getTodaySnapshot = (userID: string): Promise<TodaySnapshot> =>
+  request("/api/v1/today", parseTodaySnapshot, userID);
 
 export const getLiveSnapshot = (): Promise<LiveSnapshot> =>
   request("/api/v1/live", parseLiveSnapshot);

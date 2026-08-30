@@ -35,7 +35,9 @@ const DigestQuickControlsComponent = ({ scheduleID }: DigestQuickControlsProps) 
     })
       .then((response) => decode<SchedulePreview>(response, parseSchedulePreview))
       .then((result) => {
-        setNotice(`${result.candidateCount} eligible stories · no delivery`);
+        setNotice(
+          `${result.candidateCount} eligible stories · ${result.externalDelivery ? "external channels configured" : "dashboard only"}`,
+        );
       })
       .catch((error: unknown) => {
         setNotice(error instanceof Error ? error.message : "Preview failed.");
@@ -48,8 +50,9 @@ const DigestQuickControlsComponent = ({ scheduleID }: DigestQuickControlsProps) 
     void fetch(`/api/control-plane/settings/schedules/${scheduleID}/actions`, {
       body: JSON.stringify({
         action: "run_now",
+        deliver: false,
         idempotencyKey: runKey,
-        reason: "Owner requested Today run-now preview",
+        reason: "Owner requested an immediate Today digest",
       }),
       headers: { accept: "application/json", "content-type": "application/json" },
       method: "POST",
@@ -72,7 +75,7 @@ const DigestQuickControlsComponent = ({ scheduleID }: DigestQuickControlsProps) 
         Preview digest
       </button>
       <button disabled={pending} onClick={runNow} type="button">
-        Run now preview
+        Run digest now
       </button>
       <Link href={"/settings" as Route}>Schedule settings</Link>
       {notice !== "" && <span aria-live="polite">{notice}</span>}

@@ -49,7 +49,7 @@ const OperationsDashboardComponent = ({ operations, timezone }: OperationsDashbo
         <article>
           <span>Delivery attempts</span>
           <strong>{operations.deliveryAttempts}</strong>
-          <p>Delivery ledger activates in PR17</p>
+          <p>Immutable channel attempts recorded</p>
         </article>
       </section>
 

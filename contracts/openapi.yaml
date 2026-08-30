@@ -472,6 +472,229 @@ components:
         - version
         - gitSha
       type: object
+    DigestCandidate:
+      additionalProperties: false
+      properties:
+        action:
+          type: string
+        appPath:
+          type: string
+        category:
+          type: string
+        evidence:
+          additionalProperties: {}
+          type: object
+        headline:
+          type: string
+        id:
+          type: string
+        itemId:
+          type: string
+        observedAt:
+          format: date-time
+          type: string
+        radarId:
+          type: string
+        reason:
+          type: string
+        score:
+          format: double
+          type: number
+        signal:
+          type: string
+        sourceUrl:
+          type: string
+        storyId:
+          type: string
+        summary:
+          type: string
+        type:
+          type: string
+      required:
+        - type
+        - id
+        - headline
+        - summary
+        - action
+        - signal
+        - category
+        - reason
+        - appPath
+        - sourceUrl
+        - score
+        - observedAt
+        - evidence
+      type: object
+    DigestPayload:
+      additionalProperties: false
+      properties:
+        channel:
+          type: string
+        executiveSummary:
+          type: string
+        generatedAt:
+          format: date-time
+          type: string
+        items:
+          items:
+            $ref: "#/components/schemas/DigestRenderedItem"
+          type:
+            - array
+            - "null"
+        localDate:
+          type: string
+        title:
+          type: string
+        windowEnd:
+          format: date-time
+          type: string
+        windowStart:
+          format: date-time
+          type: string
+      required:
+        - channel
+        - title
+        - executiveSummary
+        - localDate
+        - windowStart
+        - windowEnd
+        - generatedAt
+        - items
+      type: object
+    DigestRecord:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/DigestRecord.json
+          format: uri
+          readOnly: true
+          type: string
+        attemptCount:
+          format: int64
+          type: integer
+        channel:
+          type: string
+        completedAt:
+          format: date-time
+          type: string
+        emptyBehavior:
+          type: string
+        errorCode:
+          type: string
+        executiveSummary:
+          type: string
+        generatedAt:
+          format: date-time
+          type: string
+        id:
+          type: string
+        itemLimit:
+          format: int64
+          type: integer
+        items:
+          items:
+            $ref: "#/components/schemas/DigestCandidate"
+          type:
+            - array
+            - "null"
+        localDate:
+          type: string
+        minimumScore:
+          format: double
+          type: number
+        occurrenceId:
+          type: string
+        providerIdempotencyKey:
+          type: string
+        rendered:
+          $ref: "#/components/schemas/DigestPayload"
+        state:
+          type: string
+        windowEnd:
+          format: date-time
+          type: string
+        windowStart:
+          format: date-time
+          type: string
+      required:
+        - id
+        - occurrenceId
+        - localDate
+        - windowStart
+        - windowEnd
+        - channel
+        - state
+        - itemLimit
+        - minimumScore
+        - emptyBehavior
+        - executiveSummary
+        - rendered
+        - providerIdempotencyKey
+        - generatedAt
+        - attemptCount
+        - items
+      type: object
+    DigestRenderedItem:
+      additionalProperties: false
+      properties:
+        action:
+          type: string
+        appPath:
+          type: string
+        headline:
+          type: string
+        id:
+          type: string
+        reason:
+          type: string
+        score:
+          format: double
+          type: number
+        signal:
+          type: string
+        sourceUrl:
+          type: string
+        summary:
+          type: string
+        type:
+          type: string
+      required:
+        - type
+        - id
+        - headline
+        - summary
+        - action
+        - signal
+        - reason
+        - appPath
+        - sourceUrl
+        - score
+      type: object
+    DigestSnapshot:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/DigestSnapshot.json
+          format: uri
+          readOnly: true
+          type: string
+        digests:
+          items:
+            $ref: "#/components/schemas/DigestRecord"
+          type:
+            - array
+            - "null"
+        generatedAt:
+          format: date-time
+          type: string
+      required:
+        - generatedAt
+        - digests
+      type: object
     DiscoveryRun:
       additionalProperties: false
       properties:
@@ -1539,6 +1762,8 @@ components:
             - run_now
             - skip_next
           type: string
+        deliver:
+          type: boolean
         idempotencyKey:
           maxLength: 200
           type: string
@@ -2976,6 +3201,110 @@ paths:
       summary: Get the owner archive reading collection
       tags:
         - reading-state
+  /api/v1/digests:
+    get:
+      operationId: list-digests
+      parameters:
+        - in: header
+          name: Authorization
+          schema:
+            type: string
+        - in: header
+          name: X-Relantern-User-ID
+          schema:
+            maxLength: 36
+            minLength: 36
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DigestSnapshot"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: List immutable owner digest payloads and delivery states
+      tags:
+        - digests
+  /api/v1/digests/{digestId}:
+    get:
+      operationId: get-digest
+      parameters:
+        - in: header
+          name: Authorization
+          schema:
+            type: string
+        - in: header
+          name: X-Relantern-User-ID
+          schema:
+            maxLength: 36
+            minLength: 36
+            type: string
+        - in: path
+          name: digestId
+          required: true
+          schema:
+            maxLength: 36
+            minLength: 36
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DigestRecord"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Get one immutable owner digest and its selected evidence
+      tags:
+        - digests
+  /api/v1/digests/{digestId}/retry-delivery:
+    post:
+      operationId: retry-digest-delivery
+      parameters:
+        - in: header
+          name: Authorization
+          schema:
+            type: string
+        - in: header
+          name: X-Relantern-User-ID
+          schema:
+            maxLength: 36
+            minLength: 36
+            type: string
+        - in: path
+          name: digestId
+          required: true
+          schema:
+            maxLength: 36
+            minLength: 36
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DigestRecord"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Retry a failed external delivery without regenerating its payload
+      tags:
+        - digests
   /api/v1/exports/markdown:
     post:
       operationId: export-markdown
@@ -4692,6 +5021,12 @@ paths:
         - in: header
           name: Authorization
           schema:
+            type: string
+        - in: header
+          name: X-Relantern-User-ID
+          schema:
+            maxLength: 36
+            minLength: 36
             type: string
       responses:
         "200":

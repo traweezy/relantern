@@ -502,7 +502,7 @@ const ScheduleCardComponent = ({ onChange, schedule }: ScheduleCardProps) => {
       setActionPending(true);
       const command = {
         action,
-        ...(action === "run_now" ? { idempotencyKey: runKey } : {}),
+        ...(action === "run_now" ? { deliver: false, idempotencyKey: runKey } : {}),
         ...(pausedUntilValue === undefined ? {} : { pausedUntil: pausedUntilValue }),
         reason: `Owner requested ${action.replace("_", " ")} from Settings`,
       };
@@ -712,7 +712,7 @@ const ScheduleCardComponent = ({ onChange, schedule }: ScheduleCardProps) => {
                   value={field.state.value}
                 />
                 <small id={`${schedule.id}-channel-help`}>
-                  dashboard, discord, email. External delivery starts in PR17.
+                  dashboard, discord, email. External channels require the hosted delivery fuse.
                 </small>
               </label>
             )}

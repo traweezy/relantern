@@ -602,6 +602,77 @@ export type RadarSnapshot = Readonly<{
   states: readonly RadarState[];
 }>;
 
+export type DigestChannel = "dashboard" | "discord" | "email";
+
+export type DigestCandidate = Readonly<{
+  action: string;
+  appPath: string;
+  category: "coming_soon" | "general" | "later" | "radar" | "release" | "security";
+  evidence: Readonly<Record<string, unknown>>;
+  headline: string;
+  id: string;
+  itemId?: string | undefined;
+  observedAt: string;
+  radarId?: string | undefined;
+  reason: string;
+  score: number;
+  signal: string;
+  sourceUrl: string;
+  storyId?: string | undefined;
+  summary: string;
+  type: "radar" | "story";
+}>;
+
+export type DigestRenderedItem = Readonly<{
+  action: string;
+  appPath: string;
+  headline: string;
+  id: string;
+  reason: string;
+  score: number;
+  signal: string;
+  sourceUrl: string;
+  summary: string;
+  type: "radar" | "story";
+}>;
+
+export type DigestPayload = Readonly<{
+  channel: DigestChannel;
+  executiveSummary: string;
+  generatedAt: string;
+  items: readonly DigestRenderedItem[];
+  localDate: string;
+  title: string;
+  windowEnd: string;
+  windowStart: string;
+}>;
+
+export type DigestRecord = Readonly<{
+  attemptCount: number;
+  channel: DigestChannel;
+  completedAt?: string | undefined;
+  emptyBehavior: "all_clear" | "dashboard_only" | "send_nothing";
+  errorCode?: string | undefined;
+  executiveSummary: string;
+  generatedAt: string;
+  id: string;
+  itemLimit: number;
+  items: readonly DigestCandidate[];
+  localDate: string;
+  minimumScore: number;
+  occurrenceId: string;
+  providerIdempotencyKey: string;
+  rendered: DigestPayload;
+  state: "delivered" | "delivering" | "failed" | "ready" | "skipped";
+  windowEnd: string;
+  windowStart: string;
+}>;
+
+export type DigestSnapshot = Readonly<{
+  digests: readonly DigestRecord[];
+  generatedAt: string;
+}>;
+
 export type ItemState = Readonly<{
   isRead: boolean;
   location: ReadingLocation;

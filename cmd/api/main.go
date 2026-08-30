@@ -19,6 +19,8 @@ import (
 	"github.com/traweezy/relantern/internal/controlplane"
 	controlplanestore "github.com/traweezy/relantern/internal/controlplane/pgstore"
 	"github.com/traweezy/relantern/internal/database"
+	"github.com/traweezy/relantern/internal/digest"
+	digeststore "github.com/traweezy/relantern/internal/digest/pgstore"
 	"github.com/traweezy/relantern/internal/discovery"
 	discoverystore "github.com/traweezy/relantern/internal/discovery/pgstore"
 	"github.com/traweezy/relantern/internal/embedding"
@@ -125,7 +127,7 @@ func run(arguments []string, logger *slog.Logger) error {
 	if err != nil {
 		return fmt.Errorf("create discovery service: %w", err)
 	}
-	controlPlaneStore, err := controlplanestore.New(pool)
+	controlPlaneStore, err := controlplanestore.New(pool, inserter)
 	if err != nil {
 		return fmt.Errorf("create control-plane store: %w", err)
 	}
@@ -145,6 +147,14 @@ func run(arguments []string, logger *slog.Logger) error {
 	if err != nil {
 		return fmt.Errorf("create Radar service: %w", err)
 	}
+	digestStore, err := digeststore.New(pool, inserter)
+	if err != nil {
+		return fmt.Errorf("create digest store: %w", err)
+	}
+	digestService, err := digest.NewService(digestStore)
+	if err != nil {
+		return fmt.Errorf("create digest service: %w", err)
+	}
 	application := api.New(logger, api.Info{Version: common.Version, GitSHA: common.GitSHA}, func(ctx context.Context) error {
 		pingContext, cancel := context.WithTimeout(ctx, 2*time.Second)
 		defer cancel()
@@ -155,6 +165,7 @@ func run(arguments []string, logger *slog.Logger) error {
 		api.WithDiscovery(discoveryService, webhookConfig.ServiceToken),
 		api.WithControlPlane(controlPlaneService, webhookConfig.ServiceToken),
 		api.WithRadar(radarService, webhookConfig.ServiceToken),
+		api.WithDigest(digestService, webhookConfig.ServiceToken),
 		api.WithOpenAIWebhook(webhookHandler),
 	)
 

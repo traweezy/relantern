@@ -14,6 +14,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/traweezy/relantern/internal/controlplane"
+	"github.com/traweezy/relantern/internal/digest"
 	"github.com/traweezy/relantern/internal/discovery"
 	"github.com/traweezy/relantern/internal/httpx"
 	"github.com/traweezy/relantern/internal/intelligence"
@@ -72,6 +73,7 @@ type options struct {
 	discovery     *discovery.Service
 	controlPlane  *controlplane.Service
 	radar         *radar.Service
+	digest        *digest.Service
 	serviceToken  string
 	openAIWebhook http.Handler
 }
@@ -115,6 +117,13 @@ func WithControlPlane(service *controlplane.Service, serviceToken string) Option
 func WithRadar(service *radar.Service, serviceToken string) Option {
 	return func(configuration *options) {
 		configuration.radar = service
+		configuration.serviceToken = serviceToken
+	}
+}
+
+func WithDigest(service *digest.Service, serviceToken string) Option {
+	return func(configuration *options) {
+		configuration.digest = service
 		configuration.serviceToken = serviceToken
 	}
 }
@@ -188,6 +197,7 @@ func New(logger *slog.Logger, info Info, ready ReadyCheck, configuredOptions ...
 	registerDiscovery(api, configuration, logger)
 	registerControlPlane(api, configuration, logger)
 	registerRadar(api, configuration, logger)
+	registerDigest(api, configuration, logger)
 
 	return Application{Handler: router, API: api}
 }
@@ -199,11 +209,11 @@ func registerIntelligence(api huma.API, configuration options, logger *slog.Logg
 		Path:        "/api/v1/today",
 		Summary:     "Get the owner daily intelligence snapshot",
 		Tags:        []string{"intelligence"},
-	}, func(ctx context.Context, input *InternalInput) (*TodayOutput, error) {
+	}, func(ctx context.Context, input *OwnerInternalInput) (*TodayOutput, error) {
 		if err := authorizeInternal(input.Authorization, configuration, configuration.intelligence != nil); err != nil {
 			return nil, err
 		}
-		snapshot, err := configuration.intelligence.Today(ctx, configuration.clock().UTC())
+		snapshot, err := configuration.intelligence.Today(ctx, input.UserID, configuration.clock().UTC())
 		if err != nil {
 			logger.ErrorContext(ctx, "Today intelligence read failed", "error", err)
 			return nil, huma.Error500InternalServerError("The private intelligence snapshot is unavailable.")
