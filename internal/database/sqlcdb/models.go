@@ -407,6 +407,73 @@ type AppOwnerSetting struct {
 	UpdatedAt            pgtype.Timestamptz `json:"updated_at"`
 }
 
+type AppPackageCandidate struct {
+	ID               pgtype.UUID        `json:"id"`
+	UserID           pgtype.UUID        `json:"user_id"`
+	Ecosystem        string             `json:"ecosystem"`
+	PackageName      string             `json:"package_name"`
+	RepositoryUrl    string             `json:"repository_url"`
+	DiscoveredAt     pgtype.Timestamptz `json:"discovered_at"`
+	DiscoverySource  string             `json:"discovery_source"`
+	CurrentStatus    string             `json:"current_status"`
+	IncumbentPackage string             `json:"incumbent_package"`
+	ReviewAt         pgtype.Timestamptz `json:"review_at"`
+	Version          int64              `json:"version"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
+}
+
+type AppPackageCandidateEvidence struct {
+	ID                        pgtype.UUID        `json:"id"`
+	UserID                    pgtype.UUID        `json:"user_id"`
+	Ecosystem                 string             `json:"ecosystem"`
+	PackageName               string             `json:"package_name"`
+	RepositoryUrl             string             `json:"repository_url"`
+	DiscoverySource           string             `json:"discovery_source"`
+	IncumbentPackage          string             `json:"incumbent_package"`
+	StableRelease             string             `json:"stable_release"`
+	License                   string             `json:"license"`
+	ContributorCount          int32              `json:"contributor_count"`
+	ReleaseCadenceDays        pgtype.Int4        `json:"release_cadence_days"`
+	IssueResponseDays         pgtype.Int4        `json:"issue_response_days"`
+	SecurityResponseDays      pgtype.Int4        `json:"security_response_days"`
+	SecurityAdvisoryCount     int32              `json:"security_advisory_count"`
+	CriticalAdvisoryCount     int32              `json:"critical_advisory_count"`
+	ScorecardScore            pgtype.Numeric     `json:"scorecard_score"`
+	SignedReleases            bool               `json:"signed_releases"`
+	ProvenanceVerified        bool               `json:"provenance_verified"`
+	TypesSupported            bool               `json:"types_supported"`
+	BundleSizeBytes           pgtype.Int8        `json:"bundle_size_bytes"`
+	RuntimeCompatibility      []string           `json:"runtime_compatibility"`
+	ProjectTypes              []string           `json:"project_types"`
+	CompatibilityRequirements []string           `json:"compatibility_requirements"`
+	ExitConditions            []string           `json:"exit_conditions"`
+	MaintenanceSignals        []byte             `json:"maintenance_signals"`
+	SecuritySignals           []byte             `json:"security_signals"`
+	PopularitySignals         []byte             `json:"popularity_signals"`
+	EvidenceLinks             []byte             `json:"evidence_links"`
+	ObservedAt                pgtype.Timestamptz `json:"observed_at"`
+	ProcessedAt               pgtype.Timestamptz `json:"processed_at"`
+	CreatedAt                 pgtype.Timestamptz `json:"created_at"`
+}
+
+type AppPackageMetric struct {
+	ID                   pgtype.UUID        `json:"id"`
+	CandidateID          pgtype.UUID        `json:"candidate_id"`
+	EvidenceID           pgtype.UUID        `json:"evidence_id"`
+	ObservedAt           pgtype.Timestamptz `json:"observed_at"`
+	ReleaseVersion       string             `json:"release_version"`
+	License              string             `json:"license"`
+	ContributorCount     int32              `json:"contributor_count"`
+	RuntimeCompatibility []string           `json:"runtime_compatibility"`
+	TypesSupported       bool               `json:"types_supported"`
+	BundleSizeBytes      pgtype.Int8        `json:"bundle_size_bytes"`
+	MaintenanceMetrics   []byte             `json:"maintenance_metrics"`
+	SecurityMetrics      []byte             `json:"security_metrics"`
+	PopularityMetrics    []byte             `json:"popularity_metrics"`
+	ProvenanceMetrics    []byte             `json:"provenance_metrics"`
+}
+
 type AppPromptVersion struct {
 	ID              pgtype.UUID        `json:"id"`
 	Purpose         string             `json:"purpose"`
@@ -416,6 +483,50 @@ type AppPromptVersion struct {
 	SchemaSha256    []byte             `json:"schema_sha256"`
 	Active          bool               `json:"active"`
 	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+}
+
+type AppRadarComparison struct {
+	ID             pgtype.UUID        `json:"id"`
+	CandidateID    pgtype.UUID        `json:"candidate_id"`
+	MetricID       pgtype.UUID        `json:"metric_id"`
+	SuggestedState string             `json:"suggested_state"`
+	Confidence     pgtype.Numeric     `json:"confidence"`
+	Misleading     bool               `json:"misleading"`
+	Dimensions     []byte             `json:"dimensions"`
+	EvidenceLinks  []byte             `json:"evidence_links"`
+	AssessedAt     pgtype.Timestamptz `json:"assessed_at"`
+}
+
+type AppRadarDecision struct {
+	ID                        pgtype.UUID        `json:"id"`
+	CandidateID               pgtype.UUID        `json:"candidate_id"`
+	OwnerUserID               pgtype.UUID        `json:"owner_user_id"`
+	State                     string             `json:"state"`
+	DecisionSource            string             `json:"decision_source"`
+	Rationale                 string             `json:"rationale"`
+	Evidence                  []byte             `json:"evidence"`
+	DecidedAt                 pgtype.Timestamptz `json:"decided_at"`
+	ReviewAt                  pgtype.Timestamptz `json:"review_at"`
+	ApplicableProjectTypes    []string           `json:"applicable_project_types"`
+	CompatibilityRequirements []string           `json:"compatibility_requirements"`
+	ExitConditions            []string           `json:"exit_conditions"`
+	CreatedAt                 pgtype.Timestamptz `json:"created_at"`
+}
+
+type AppRadarDiscoveryRun struct {
+	ID              pgtype.UUID        `json:"id"`
+	UserID          pgtype.UUID        `json:"user_id"`
+	TriggerType     string             `json:"trigger_type"`
+	State           string             `json:"state"`
+	IdempotencyKey  string             `json:"idempotency_key"`
+	EvidenceCount   int32              `json:"evidence_count"`
+	CandidateCount  int32              `json:"candidate_count"`
+	MisleadingCount int32              `json:"misleading_count"`
+	ErrorCode       pgtype.Text        `json:"error_code"`
+	RequestedAt     pgtype.Timestamptz `json:"requested_at"`
+	StartedAt       pgtype.Timestamptz `json:"started_at"`
+	CompletedAt     pgtype.Timestamptz `json:"completed_at"`
+	RiverJobID      pgtype.Int8        `json:"river_job_id"`
 }
 
 type AppRawDocument struct {

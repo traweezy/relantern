@@ -25,6 +25,8 @@ import (
 	intelligencepgstore "github.com/traweezy/relantern/internal/intelligence/pgstore"
 	"github.com/traweezy/relantern/internal/jobqueue"
 	"github.com/traweezy/relantern/internal/openaiwebhook"
+	"github.com/traweezy/relantern/internal/radar"
+	radarstore "github.com/traweezy/relantern/internal/radar/pgstore"
 	readingstatepgstore "github.com/traweezy/relantern/internal/readingstate/pgstore"
 	searchstore "github.com/traweezy/relantern/internal/search/pgstore"
 	"github.com/traweezy/relantern/internal/service"
@@ -135,6 +137,14 @@ func run(arguments []string, logger *slog.Logger) error {
 	if err != nil {
 		return fmt.Errorf("create control-plane service: %w", err)
 	}
+	radarStore, err := radarstore.New(pool, inserter)
+	if err != nil {
+		return fmt.Errorf("create Radar store: %w", err)
+	}
+	radarService, err := radar.NewService(radarStore)
+	if err != nil {
+		return fmt.Errorf("create Radar service: %w", err)
+	}
 	application := api.New(logger, api.Info{Version: common.Version, GitSHA: common.GitSHA}, func(ctx context.Context) error {
 		pingContext, cancel := context.WithTimeout(ctx, 2*time.Second)
 		defer cancel()
@@ -144,6 +154,7 @@ func run(arguments []string, logger *slog.Logger) error {
 		api.WithReadingState(readingStateStore, webhookConfig.ServiceToken),
 		api.WithDiscovery(discoveryService, webhookConfig.ServiceToken),
 		api.WithControlPlane(controlPlaneService, webhookConfig.ServiceToken),
+		api.WithRadar(radarService, webhookConfig.ServiceToken),
 		api.WithOpenAIWebhook(webhookHandler),
 	)
 

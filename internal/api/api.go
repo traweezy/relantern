@@ -17,6 +17,7 @@ import (
 	"github.com/traweezy/relantern/internal/discovery"
 	"github.com/traweezy/relantern/internal/httpx"
 	"github.com/traweezy/relantern/internal/intelligence"
+	"github.com/traweezy/relantern/internal/radar"
 	"github.com/traweezy/relantern/internal/readingstate"
 )
 
@@ -70,6 +71,7 @@ type options struct {
 	readingState  readingstate.Repository
 	discovery     *discovery.Service
 	controlPlane  *controlplane.Service
+	radar         *radar.Service
 	serviceToken  string
 	openAIWebhook http.Handler
 }
@@ -106,6 +108,13 @@ func WithDiscovery(service *discovery.Service, serviceToken string) Option {
 func WithControlPlane(service *controlplane.Service, serviceToken string) Option {
 	return func(configuration *options) {
 		configuration.controlPlane = service
+		configuration.serviceToken = serviceToken
+	}
+}
+
+func WithRadar(service *radar.Service, serviceToken string) Option {
+	return func(configuration *options) {
+		configuration.radar = service
 		configuration.serviceToken = serviceToken
 	}
 }
@@ -178,6 +187,7 @@ func New(logger *slog.Logger, info Info, ready ReadyCheck, configuredOptions ...
 	registerReadingState(api, configuration, logger)
 	registerDiscovery(api, configuration, logger)
 	registerControlPlane(api, configuration, logger)
+	registerRadar(api, configuration, logger)
 
 	return Application{Handler: router, API: api}
 }

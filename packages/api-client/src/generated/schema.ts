@@ -243,6 +243,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/radar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get owner Radar candidates, comparisons, decisions, and review dates */
+        get: operations["get-radar"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/radar/candidates/{candidateId}/decisions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Record the owner's explicit Radar decision and review contract */
+        post: operations["record-radar-decision"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/radar/discovery-runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Queue an owner-requested Radar discovery over ingested evidence */
+        post: operations["queue-radar-discovery"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/releases": {
         parameters: {
             query?: never;
@@ -754,6 +805,30 @@ export interface components {
             readonly $schema?: string;
             bulkId: string;
         };
+        Candidate: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/Candidate.json
+             */
+            readonly $schema?: string;
+            currentState: string;
+            decisions: components["schemas"]["Decision"][] | null;
+            /** Format: date-time */
+            discoveredAt: string;
+            discoverySource: string;
+            ecosystem: string;
+            id: string;
+            incumbentPackage: string;
+            latestComparison?: components["schemas"]["Comparison"];
+            latestMetric?: components["schemas"]["MetricSnapshot"];
+            packageName: string;
+            repositoryUrl: string;
+            /** Format: date-time */
+            reviewAt: string;
+            /** Format: int64 */
+            version: number;
+        };
         ClaimEvidence: {
             claim: string;
             material: boolean;
@@ -790,6 +865,40 @@ export interface components {
             /** Format: int64 */
             version: number;
         };
+        Comparison: {
+            /** Format: date-time */
+            assessedAt: string;
+            /** Format: double */
+            confidence: number;
+            dimensions: components["schemas"]["ComparisonDimension"][] | null;
+            evidence: components["schemas"]["EvidenceLink"][] | null;
+            id: string;
+            misleading: boolean;
+            suggestedState: string;
+        };
+        ComparisonDimension: {
+            candidate: string;
+            current: string;
+            evidence: components["schemas"]["EvidenceLink"][] | null;
+            name: string;
+            verdict: string;
+        };
+        Decision: {
+            applicableProjectTypes: string[] | null;
+            compatibilityRequirements: string[] | null;
+            /** Format: date-time */
+            decidedAt: string;
+            decisionSource: string;
+            evidence: {
+                [key: string]: unknown;
+            };
+            exitConditions: string[] | null;
+            id: string;
+            rationale: string;
+            /** Format: date-time */
+            reviewAt: string;
+            state: string;
+        };
         DeleteOutputBody: {
             /**
              * Format: uri
@@ -803,6 +912,30 @@ export interface components {
             environment: string;
             gitSha: string;
             version: string;
+        };
+        DiscoveryRun: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/DiscoveryRun.json
+             */
+            readonly $schema?: string;
+            /** Format: int64 */
+            candidateCount: number;
+            /** Format: date-time */
+            completedAt?: string;
+            errorCode?: string;
+            /** Format: int64 */
+            evidenceCount: number;
+            id: string;
+            /** Format: int64 */
+            misleadingCount: number;
+            /** Format: date-time */
+            requestedAt: string;
+            /** Format: date-time */
+            startedAt?: string;
+            state: string;
+            triggerType: string;
         };
         ErrorDetail: {
             /** @description Where the error occurred, e.g. 'body.items[3].tags' or 'path.thing-id' */
@@ -850,6 +983,11 @@ export interface components {
              * @example https://example.com/errors/example
              */
             type: string;
+        };
+        EvidenceLink: {
+            label: string;
+            sourceTier: string;
+            url: string;
         };
         Feedback: {
             /**
@@ -1037,6 +1175,31 @@ export interface components {
             readonly $schema?: string;
             storyIds: string[] | null;
         };
+        MetricSnapshot: {
+            /** Format: int64 */
+            bundleSizeBytes?: number;
+            /** Format: int64 */
+            contributorCount: number;
+            id: string;
+            license: string;
+            maintenance: {
+                [key: string]: unknown;
+            };
+            /** Format: date-time */
+            observedAt: string;
+            popularity: {
+                [key: string]: unknown;
+            };
+            provenance: {
+                [key: string]: unknown;
+            };
+            releaseVersion: string;
+            runtimeCompatibility: string[] | null;
+            security: {
+                [key: string]: unknown;
+            };
+            typesSupported: boolean;
+        };
         MutationResult: {
             /**
              * Format: uri
@@ -1123,6 +1286,36 @@ export interface components {
             running: number;
             /** Format: int64 */
             scheduled: number;
+        };
+        RadarDecisionBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/RadarDecisionBody.json
+             */
+            readonly $schema?: string;
+            applicableProjectTypes: string[] | null;
+            compatibilityRequirements: string[] | null;
+            evidence: {
+                [key: string]: unknown;
+            };
+            exitConditions: string[] | null;
+            /** Format: int64 */
+            expectedVersion: number;
+            rationale: string;
+            /** Format: date-time */
+            reviewAt: string;
+            /** @enum {string} */
+            state: "adopt" | "trial" | "assess" | "hold" | "reject";
+        };
+        RadarDiscoveryBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/RadarDiscoveryBody.json
+             */
+            readonly $schema?: string;
+            idempotencyKey: string;
         };
         ReleaseCatalog: {
             /**
@@ -1407,6 +1600,21 @@ export interface components {
             profile: components["schemas"]["InterestProfile"];
             schedules: components["schemas"]["ScheduleDefinition"][] | null;
             technologies: components["schemas"]["WatchedTechnology"][] | null;
+        };
+        Snapshot: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/Snapshot.json
+             */
+            readonly $schema?: string;
+            candidates: components["schemas"]["Candidate"][] | null;
+            /** Format: date-time */
+            generatedAt: string;
+            /** Format: int64 */
+            reviewDue: number;
+            runs: components["schemas"]["DiscoveryRun"][] | null;
+            states: string[] | null;
         };
         Source: {
             domain: string;
@@ -2235,6 +2443,112 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OperationsSnapshot"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-radar": {
+        parameters: {
+            query?: never;
+            header?: {
+                Authorization?: string;
+                "X-Relantern-User-ID"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Snapshot"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "record-radar-decision": {
+        parameters: {
+            query?: never;
+            header?: {
+                Authorization?: string;
+                "X-Relantern-User-ID"?: string;
+            };
+            path: {
+                candidateId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RadarDecisionBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Candidate"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "queue-radar-discovery": {
+        parameters: {
+            query?: never;
+            header?: {
+                Authorization?: string;
+                "X-Relantern-User-ID"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RadarDiscoveryBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiscoveryRun"];
                 };
             };
             /** @description Error */

@@ -75,8 +75,79 @@ func run(ctx context.Context) error {
 	if err := seedOwnerControlPlane(ctx, tx, userID, common.Clock.Now().UTC()); err != nil {
 		return err
 	}
+	if err := seedRadarEvidence(ctx, tx, userID, common.Clock.Now().UTC()); err != nil {
+		return err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit seed: %w", err)
+	}
+	return nil
+}
+
+func seedRadarEvidence(ctx context.Context, tx pgx.Tx, userID string, now time.Time) error {
+	type evidenceSeed struct {
+		name         string
+		incumbent    string
+		license      string
+		contributors int
+		advisories   int
+		critical     int
+		scorecard    string
+		signed       bool
+		provenance   bool
+		downloads    int
+	}
+	for _, evidence := range []evidenceSeed{
+		{
+			name: "@fixture/typed-client", incumbent: "undici", license: "MIT",
+			contributors: 12, scorecard: "8.7", signed: true, provenance: true,
+			downloads: 85_000,
+		},
+		{
+			name: "@fixture/solo-adapter", incumbent: "existing-adapter", license: "Apache-2.0",
+			contributors: 1, scorecard: "6.2", signed: false, provenance: false,
+			downloads: 18_000,
+		},
+		{
+			name: "@fixture/popular-risk", incumbent: "current-security-client", license: "UNKNOWN",
+			contributors: 24, advisories: 2, critical: 1, scorecard: "7.9",
+			signed: true, provenance: true, downloads: 12_000_000,
+		},
+	} {
+		if _, err := tx.Exec(ctx, `
+			insert into app.package_candidate_evidence (
+				user_id, ecosystem, package_name, repository_url, discovery_source,
+				incumbent_package, stable_release, license, contributor_count,
+				release_cadence_days, issue_response_days, security_response_days,
+				security_advisory_count, critical_advisory_count, scorecard_score,
+				signed_releases, provenance_verified, types_supported, bundle_size_bytes,
+				runtime_compatibility, project_types, compatibility_requirements,
+				exit_conditions, maintenance_signals, security_signals,
+				popularity_signals, evidence_links, observed_at
+			)
+			select
+				$1::uuid, 'npm', $2, 'https://fixtures.relantern.local/' || $2,
+				'local-reviewed-fixture', $3, '1.2.3', $4, $5, 30, 4, 2, $6, $7,
+				$8::numeric, $9, $10, true, 18000, array['Node 26', 'modern browsers'],
+				array['web', 'service'], array['ESM', 'Node 26'],
+				array['Retain the incumbent adapter', 'Rollback on measured regression'],
+				'{"releaseCadence":"monthly","maintainerIdentity":"fixture-org"}'::jsonb,
+				'{"osvChecked":true,"githubAdvisoriesChecked":true}'::jsonb,
+				jsonb_build_object('weeklyDownloads', $11::bigint),
+				'[{"label":"release","url":"https://fixtures.relantern.local/release","sourceTier":"T0"},{"label":"security","url":"https://fixtures.relantern.local/security","sourceTier":"T0"},{"label":"docs","url":"https://fixtures.relantern.local/docs","sourceTier":"T1"}]'::jsonb,
+				$12
+			where not exists (
+				select 1 from app.package_candidate_evidence
+				where user_id = $1::uuid and ecosystem = 'npm' and package_name = $2
+					and discovery_source = 'local-reviewed-fixture'
+			)`,
+			userID, evidence.name, evidence.incumbent, evidence.license,
+			evidence.contributors, evidence.advisories, evidence.critical,
+			evidence.scorecard, evidence.signed, evidence.provenance,
+			evidence.downloads, now,
+		); err != nil {
+			return fmt.Errorf("seed Radar evidence %q: %w", evidence.name, err)
+		}
 	}
 	return nil
 }

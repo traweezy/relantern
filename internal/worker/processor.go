@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/traweezy/relantern/internal/fakeprovider"
 	"github.com/traweezy/relantern/internal/jobqueue"
+	"github.com/traweezy/relantern/internal/radar"
 )
 
 var errOccurrenceNotFound = errors.New("schedule occurrence not found")
@@ -22,6 +23,19 @@ type Processor struct {
 	pool        *pgxpool.Pool
 	deliveryURL string
 	client      *http.Client
+	radar       scheduledRadar
+}
+
+type scheduledRadar interface {
+	QueueDiscovery(context.Context, radar.QueueDiscoveryRequest, time.Time) (radar.DiscoveryRun, error)
+}
+
+type ProcessorOption func(*Processor)
+
+func WithRadarScheduleHandoff(store scheduledRadar) ProcessorOption {
+	return func(processor *Processor) {
+		processor.radar = store
+	}
 }
 
 type occurrence struct {
@@ -29,14 +43,25 @@ type occurrence struct {
 	idempotencyKey string
 	localDate      time.Time
 	scheduledFor   time.Time
+	scheduleType   string
+	userID         string
 }
 
-func NewProcessor(pool *pgxpool.Pool, deliveryURL string, requestTimeout time.Duration) *Processor {
-	return &Processor{
+func NewProcessor(
+	pool *pgxpool.Pool,
+	deliveryURL string,
+	requestTimeout time.Duration,
+	options ...ProcessorOption,
+) *Processor {
+	processor := &Processor{
 		pool:        pool,
 		deliveryURL: deliveryURL,
 		client:      &http.Client{Timeout: requestTimeout},
 	}
+	for _, option := range options {
+		option(processor)
+	}
+	return processor
 }
 
 func (processor *Processor) Process(ctx context.Context, occurrenceID string) error {
@@ -51,8 +76,32 @@ func (processor *Processor) Process(ctx context.Context, occurrenceID string) er
 	if selected == nil {
 		return nil
 	}
+	if selected.scheduleType == "weekly_radar" {
+		if processor.radar == nil {
+			configurationErr := jobqueue.Permanent(errors.New("weekly Radar schedule handoff is not configured"))
+			if updateErr := processor.recordFailure(ctx, selected.id, "radar_handoff_unconfigured"); updateErr != nil {
+				return fmt.Errorf("weekly Radar handoff: %w; record failure: %v", configurationErr, updateErr)
+			}
+			return configurationErr
+		}
+		run, queueErr := processor.radar.QueueDiscovery(ctx, radar.QueueDiscoveryRequest{
+			UserID: selected.userID, TriggerType: "scheduled",
+			IdempotencyKey: "weekly-radar:" + selected.idempotencyKey,
+		}, selected.scheduledFor.UTC())
+		if queueErr != nil {
+			if updateErr := processor.recordFailure(ctx, selected.id, "radar_discovery_unavailable"); updateErr != nil {
+				return fmt.Errorf("queue Radar discovery: %w; record failure: %v", queueErr, updateErr)
+			}
+			return queueErr
+		}
+		return processor.recordRadarHandoff(ctx, selected.id, run.ID)
+	}
 	if err := processor.deliver(ctx, *selected); err != nil {
-		if updateErr := processor.recordFailure(ctx, selected.id, err); updateErr != nil {
+		errorCode := "fake_delivery_unavailable"
+		if jobqueue.IsPermanent(err) {
+			errorCode = "fake_delivery_rejected"
+		}
+		if updateErr := processor.recordFailure(ctx, selected.id, errorCode); updateErr != nil {
 			return fmt.Errorf("deliver occurrence: %w; record failure: %v", err, updateErr)
 		}
 		return err
@@ -73,15 +122,20 @@ func (processor *Processor) claim(ctx context.Context, occurrenceID string) (*oc
 	var selected occurrence
 	var state string
 	err = tx.QueryRow(ctx, `
-		select id::text, idempotency_key, local_date, scheduled_for, state
-		from app.schedule_occurrences
-		where id = $1::uuid
+		select occurrence.id::text, occurrence.idempotency_key, occurrence.local_date,
+			occurrence.scheduled_for, occurrence.state, schedule.schedule_type,
+			schedule.user_id::text
+		from app.schedule_occurrences occurrence
+		join app.schedule_definitions schedule on schedule.id = occurrence.schedule_id
+		where occurrence.id = $1::uuid
 		for update`, occurrenceID).Scan(
 		&selected.id,
 		&selected.idempotencyKey,
 		&selected.localDate,
 		&selected.scheduledFor,
 		&state,
+		&selected.scheduleType,
+		&selected.userID,
 	)
 	if err != nil {
 		if err == pgx.ErrNoRows {
@@ -165,11 +219,22 @@ func (processor *Processor) recordDelivery(ctx context.Context, id string) error
 	return nil
 }
 
-func (processor *Processor) recordFailure(ctx context.Context, id string, cause error) error {
-	errorCode := "fake_delivery_unavailable"
-	if jobqueue.IsPermanent(cause) {
-		errorCode = "fake_delivery_rejected"
+func (processor *Processor) recordRadarHandoff(ctx context.Context, id string, runID string) error {
+	result, err := processor.pool.Exec(ctx, `
+		update app.schedule_occurrences
+		set state = 'delivered', completed_at = now(), error_code = null,
+			metadata = jsonb_set(metadata, '{radarDiscoveryRunId}', to_jsonb($2::text), true)
+		where id = $1::uuid and state = 'delivering'`, id, runID)
+	if err != nil {
+		return fmt.Errorf("record occurrence %s Radar handoff: %w", id, err)
 	}
+	if result.RowsAffected() != 1 {
+		return fmt.Errorf("record occurrence %s Radar handoff: state changed", id)
+	}
+	return nil
+}
+
+func (processor *Processor) recordFailure(ctx context.Context, id string, errorCode string) error {
 	_, err := processor.pool.Exec(ctx, `
 		update app.schedule_occurrences
 		set state = 'failed', error_code = $2

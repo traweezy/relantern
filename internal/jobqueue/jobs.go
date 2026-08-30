@@ -25,6 +25,8 @@ const (
 	ReconcileOpenAIBackgroundKind = "reconcile_openai_background"
 	ReturnSnoozedItemsKind        = "return_snoozed_items"
 	ProcessManualCaptureKind      = "process_manual_capture"
+	RunWeeklyRadarDiscoveryKind   = "run_weekly_radar_discovery"
+	RefreshPackageMetricsKind     = "refresh_package_metrics"
 )
 
 const reconcileSchedulesPeriodicID = "reconcile-schedules-v1"
@@ -123,6 +125,48 @@ type ReturnSnoozedItemsArgs struct{}
 
 type ProcessManualCaptureArgs struct {
 	CaptureID string `json:"captureId" river:"unique"`
+}
+
+type RunWeeklyRadarDiscoveryArgs struct {
+	RunID  string `json:"runId" river:"unique"`
+	UserID string `json:"userId" river:"unique"`
+}
+
+func (RunWeeklyRadarDiscoveryArgs) Kind() string {
+	return RunWeeklyRadarDiscoveryKind
+}
+
+func (RunWeeklyRadarDiscoveryArgs) InsertOpts() river.InsertOpts {
+	return river.InsertOpts{
+		MaxAttempts: 5,
+		Priority:    2,
+		Queue:       QueueMaintenance,
+		Tags:        []string{"radar", "discovery", "evidence"},
+		UniqueOpts: river.UniqueOpts{
+			ByArgs: true, ByQueue: true, ByState: rivertype.JobStates(),
+		},
+	}
+}
+
+type RefreshPackageMetricsArgs struct {
+	CandidateID string `json:"candidateId" river:"unique"`
+	UserID      string `json:"userId" river:"unique"`
+}
+
+func (RefreshPackageMetricsArgs) Kind() string {
+	return RefreshPackageMetricsKind
+}
+
+func (RefreshPackageMetricsArgs) InsertOpts() river.InsertOpts {
+	return river.InsertOpts{
+		MaxAttempts: 5,
+		Priority:    3,
+		Queue:       QueueMaintenance,
+		Tags:        []string{"radar", "metrics", "evidence"},
+		UniqueOpts: river.UniqueOpts{
+			ByArgs: true, ByPeriod: time.Hour, ByQueue: true, ByState: rivertype.JobStates(),
+		},
+	}
 }
 
 func (ProcessManualCaptureArgs) Kind() string {

@@ -17,6 +17,7 @@ import (
 	"github.com/traweezy/relantern/internal/jobqueue"
 	"github.com/traweezy/relantern/internal/manualcapture"
 	"github.com/traweezy/relantern/internal/openaiwebhook"
+	"github.com/traweezy/relantern/internal/radar"
 	"github.com/traweezy/relantern/internal/reembedding"
 	"github.com/traweezy/relantern/internal/research"
 	"github.com/traweezy/relantern/internal/scheduler"
@@ -71,6 +72,74 @@ type extractItemWorker struct {
 type manualCaptureWorker struct {
 	river.WorkerDefaults[jobqueue.ProcessManualCaptureArgs]
 	processor *manualcapture.Processor
+}
+
+type radarProcessor interface {
+	ProcessDiscovery(context.Context, string, string, time.Time) (radar.DiscoveryResult, error)
+	RefreshCandidate(context.Context, string, string, time.Time) error
+}
+
+type runWeeklyRadarDiscoveryWorker struct {
+	river.WorkerDefaults[jobqueue.RunWeeklyRadarDiscoveryArgs]
+	clock     clock.Clock
+	logger    *slog.Logger
+	processor radarProcessor
+}
+
+func (worker *runWeeklyRadarDiscoveryWorker) Timeout(*river.Job[jobqueue.RunWeeklyRadarDiscoveryArgs]) time.Duration {
+	return 2 * time.Minute
+}
+
+func (worker *runWeeklyRadarDiscoveryWorker) Work(
+	ctx context.Context,
+	job *river.Job[jobqueue.RunWeeklyRadarDiscoveryArgs],
+) error {
+	result, err := worker.processor.ProcessDiscovery(
+		ctx,
+		job.Args.RunID,
+		job.Args.UserID,
+		worker.clock.Now().UTC(),
+	)
+	if errors.Is(err, radar.ErrNotFound) || errors.Is(err, radar.ErrInvalid) {
+		return river.JobCancel(err)
+	}
+	if err != nil {
+		return err
+	}
+	worker.logger.InfoContext(ctx, "weekly Radar discovery complete",
+		"job_id", job.ID,
+		"run_id", job.Args.RunID,
+		"evidence_count", result.EvidenceCount,
+		"candidate_count", result.CandidateCount,
+		"misleading_count", result.MisleadingCount,
+	)
+	return nil
+}
+
+type refreshPackageMetricsWorker struct {
+	river.WorkerDefaults[jobqueue.RefreshPackageMetricsArgs]
+	clock     clock.Clock
+	processor radarProcessor
+}
+
+func (worker *refreshPackageMetricsWorker) Timeout(*river.Job[jobqueue.RefreshPackageMetricsArgs]) time.Duration {
+	return 2 * time.Minute
+}
+
+func (worker *refreshPackageMetricsWorker) Work(
+	ctx context.Context,
+	job *river.Job[jobqueue.RefreshPackageMetricsArgs],
+) error {
+	err := worker.processor.RefreshCandidate(
+		ctx,
+		job.Args.CandidateID,
+		job.Args.UserID,
+		worker.clock.Now().UTC(),
+	)
+	if errors.Is(err, radar.ErrNotFound) || errors.Is(err, radar.ErrInvalid) {
+		return river.JobCancel(err)
+	}
+	return err
 }
 
 func (worker *manualCaptureWorker) Timeout(*river.Job[jobqueue.ProcessManualCaptureArgs]) time.Duration {
@@ -431,6 +500,18 @@ func NewRiverClient(
 			return nil, fmt.Errorf("register manual-capture worker: %w", err)
 		}
 	}
+	if configuration.radarProcessor != nil {
+		if err := river.AddWorkerSafely(workers, &runWeeklyRadarDiscoveryWorker{
+			clock: configuredClock, logger: logger, processor: configuration.radarProcessor,
+		}); err != nil {
+			return nil, fmt.Errorf("register Radar discovery worker: %w", err)
+		}
+		if err := river.AddWorkerSafely(workers, &refreshPackageMetricsWorker{
+			clock: configuredClock, processor: configuration.radarProcessor,
+		}); err != nil {
+			return nil, fmt.Errorf("register Radar metrics worker: %w", err)
+		}
+	}
 
 	var periodicJobs []*river.PeriodicJob
 	if enablePeriodicJobs {
@@ -477,6 +558,7 @@ type riverOptions struct {
 	snoozeReturner         snoozeReturner
 	queueConfigs           map[string]river.QueueConfig
 	manualCaptureProcessor *manualcapture.Processor
+	radarProcessor         radarProcessor
 }
 
 func WithSnoozeReturner(returner snoozeReturner) RiverOption {
@@ -488,6 +570,12 @@ func WithSnoozeReturner(returner snoozeReturner) RiverOption {
 func WithManualCaptureProcessor(processor *manualcapture.Processor) RiverOption {
 	return func(configuration *riverOptions) {
 		configuration.manualCaptureProcessor = processor
+	}
+}
+
+func WithRadarProcessor(processor radarProcessor) RiverOption {
+	return func(configuration *riverOptions) {
+		configuration.radarProcessor = processor
 	}
 }
 

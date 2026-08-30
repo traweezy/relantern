@@ -197,6 +197,62 @@ components:
       required:
         - bulkId
       type: object
+    Candidate:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/Candidate.json
+          format: uri
+          readOnly: true
+          type: string
+        currentState:
+          type: string
+        decisions:
+          items:
+            $ref: "#/components/schemas/Decision"
+          type:
+            - array
+            - "null"
+        discoveredAt:
+          format: date-time
+          type: string
+        discoverySource:
+          type: string
+        ecosystem:
+          type: string
+        id:
+          type: string
+        incumbentPackage:
+          type: string
+        latestComparison:
+          $ref: "#/components/schemas/Comparison"
+        latestMetric:
+          $ref: "#/components/schemas/MetricSnapshot"
+        packageName:
+          type: string
+        repositoryUrl:
+          type: string
+        reviewAt:
+          format: date-time
+          type: string
+        version:
+          format: int64
+          type: integer
+      required:
+        - id
+        - ecosystem
+        - packageName
+        - repositoryUrl
+        - discoveredAt
+        - discoverySource
+        - currentState
+        - incumbentPackage
+        - reviewAt
+        - version
+        - decisions
+      type: object
     ClaimEvidence:
       additionalProperties: false
       properties:
@@ -277,6 +333,116 @@ components:
         - version
         - idempotencyKey
       type: object
+    Comparison:
+      additionalProperties: false
+      properties:
+        assessedAt:
+          format: date-time
+          type: string
+        confidence:
+          format: double
+          type: number
+        dimensions:
+          items:
+            $ref: "#/components/schemas/ComparisonDimension"
+          type:
+            - array
+            - "null"
+        evidence:
+          items:
+            $ref: "#/components/schemas/EvidenceLink"
+          type:
+            - array
+            - "null"
+        id:
+          type: string
+        misleading:
+          type: boolean
+        suggestedState:
+          type: string
+      required:
+        - id
+        - suggestedState
+        - confidence
+        - misleading
+        - dimensions
+        - evidence
+        - assessedAt
+      type: object
+    ComparisonDimension:
+      additionalProperties: false
+      properties:
+        candidate:
+          type: string
+        current:
+          type: string
+        evidence:
+          items:
+            $ref: "#/components/schemas/EvidenceLink"
+          type:
+            - array
+            - "null"
+        name:
+          type: string
+        verdict:
+          type: string
+      required:
+        - name
+        - candidate
+        - current
+        - verdict
+        - evidence
+      type: object
+    Decision:
+      additionalProperties: false
+      properties:
+        applicableProjectTypes:
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        compatibilityRequirements:
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        decidedAt:
+          format: date-time
+          type: string
+        decisionSource:
+          type: string
+        evidence:
+          additionalProperties: {}
+          type: object
+        exitConditions:
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        id:
+          type: string
+        rationale:
+          type: string
+        reviewAt:
+          format: date-time
+          type: string
+        state:
+          type: string
+      required:
+        - id
+        - state
+        - decisionSource
+        - rationale
+        - evidence
+        - decidedAt
+        - reviewAt
+        - applicableProjectTypes
+        - compatibilityRequirements
+        - exitConditions
+      type: object
     DeleteOutputBody:
       additionalProperties: false
       properties:
@@ -305,6 +471,51 @@ components:
         - environment
         - version
         - gitSha
+      type: object
+    DiscoveryRun:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/DiscoveryRun.json
+          format: uri
+          readOnly: true
+          type: string
+        candidateCount:
+          format: int64
+          type: integer
+        completedAt:
+          format: date-time
+          type: string
+        errorCode:
+          type: string
+        evidenceCount:
+          format: int64
+          type: integer
+        id:
+          type: string
+        misleadingCount:
+          format: int64
+          type: integer
+        requestedAt:
+          format: date-time
+          type: string
+        startedAt:
+          format: date-time
+          type: string
+        state:
+          type: string
+        triggerType:
+          type: string
+      required:
+        - id
+        - triggerType
+        - state
+        - evidenceCount
+        - candidateCount
+        - misleadingCount
+        - requestedAt
       type: object
     ErrorDetail:
       additionalProperties: false
@@ -364,6 +575,20 @@ components:
             - https://example.com/errors/example
           format: uri
           type: string
+      type: object
+    EvidenceLink:
+      additionalProperties: false
+      properties:
+        label:
+          type: string
+        sourceTier:
+          type: string
+        url:
+          type: string
+      required:
+        - label
+        - url
+        - sourceTier
       type: object
     Feedback:
       additionalProperties: false
@@ -795,6 +1020,57 @@ components:
       required:
         - storyIds
       type: object
+    MetricSnapshot:
+      additionalProperties: false
+      properties:
+        bundleSizeBytes:
+          format: int64
+          type: integer
+        contributorCount:
+          format: int64
+          type: integer
+        id:
+          type: string
+        license:
+          type: string
+        maintenance:
+          additionalProperties: {}
+          type: object
+        observedAt:
+          format: date-time
+          type: string
+        popularity:
+          additionalProperties: {}
+          type: object
+        provenance:
+          additionalProperties: {}
+          type: object
+        releaseVersion:
+          type: string
+        runtimeCompatibility:
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        security:
+          additionalProperties: {}
+          type: object
+        typesSupported:
+          type: boolean
+      required:
+        - id
+        - observedAt
+        - releaseVersion
+        - license
+        - contributorCount
+        - runtimeCompatibility
+        - typesSupported
+        - maintenance
+        - security
+        - popularity
+        - provenance
+      type: object
     MutationResult:
       additionalProperties: false
       properties:
@@ -1001,6 +1277,91 @@ components:
         - completed
         - discarded
         - cancelled
+      type: object
+    RadarDecisionBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/RadarDecisionBody.json
+          format: uri
+          readOnly: true
+          type: string
+        applicableProjectTypes:
+          items:
+            type: string
+          maxItems: 20
+          minItems: 1
+          type:
+            - array
+            - "null"
+        compatibilityRequirements:
+          items:
+            type: string
+          maxItems: 50
+          minItems: 1
+          type:
+            - array
+            - "null"
+        evidence:
+          additionalProperties: {}
+          maxProperties: 50
+          minProperties: 1
+          type: object
+        exitConditions:
+          items:
+            type: string
+          maxItems: 50
+          minItems: 1
+          type:
+            - array
+            - "null"
+        expectedVersion:
+          format: int64
+          minimum: 1
+          type: integer
+        rationale:
+          maxLength: 4000
+          minLength: 3
+          type: string
+        reviewAt:
+          format: date-time
+          type: string
+        state:
+          enum:
+            - adopt
+            - trial
+            - assess
+            - hold
+            - reject
+          type: string
+      required:
+        - expectedVersion
+        - state
+        - rationale
+        - evidence
+        - reviewAt
+        - applicableProjectTypes
+        - compatibilityRequirements
+        - exitConditions
+      type: object
+    RadarDiscoveryBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/RadarDiscoveryBody.json
+          format: uri
+          readOnly: true
+          type: string
+        idempotencyKey:
+          maxLength: 200
+          minLength: 16
+          type: string
+      required:
+        - idempotencyKey
       type: object
     ReleaseCatalog:
       additionalProperties: false
@@ -1716,6 +2077,47 @@ components:
         - profile
         - technologies
         - schedules
+      type: object
+    Snapshot:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/Snapshot.json
+          format: uri
+          readOnly: true
+          type: string
+        candidates:
+          items:
+            $ref: "#/components/schemas/Candidate"
+          type:
+            - array
+            - "null"
+        generatedAt:
+          format: date-time
+          type: string
+        reviewDue:
+          format: int64
+          type: integer
+        runs:
+          items:
+            $ref: "#/components/schemas/DiscoveryRun"
+          type:
+            - array
+            - "null"
+        states:
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+      required:
+        - generatedAt
+        - states
+        - candidates
+        - runs
+        - reviewDue
       type: object
     Source:
       additionalProperties: false
@@ -3010,6 +3412,115 @@ paths:
       summary: Get bounded private queue, source, deployment, and schedule operations
       tags:
         - control-plane
+  /api/v1/radar:
+    get:
+      operationId: get-radar
+      parameters:
+        - in: header
+          name: Authorization
+          schema:
+            type: string
+        - in: header
+          name: X-Relantern-User-ID
+          schema:
+            maxLength: 36
+            minLength: 36
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Snapshot"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Get owner Radar candidates, comparisons, decisions, and review dates
+      tags:
+        - radar
+  /api/v1/radar/candidates/{candidateId}/decisions:
+    post:
+      operationId: record-radar-decision
+      parameters:
+        - in: header
+          name: Authorization
+          schema:
+            type: string
+        - in: header
+          name: X-Relantern-User-ID
+          schema:
+            maxLength: 36
+            minLength: 36
+            type: string
+        - in: path
+          name: candidateId
+          required: true
+          schema:
+            maxLength: 36
+            minLength: 36
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RadarDecisionBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Candidate"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Record the owner's explicit Radar decision and review contract
+      tags:
+        - radar
+  /api/v1/radar/discovery-runs:
+    post:
+      operationId: queue-radar-discovery
+      parameters:
+        - in: header
+          name: Authorization
+          schema:
+            type: string
+        - in: header
+          name: X-Relantern-User-ID
+          schema:
+            maxLength: 36
+            minLength: 36
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RadarDiscoveryBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DiscoveryRun"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Queue an owner-requested Radar discovery over ingested evidence
+      tags:
+        - radar
   /api/v1/releases:
     get:
       operationId: get-releases

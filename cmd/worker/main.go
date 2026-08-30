@@ -25,6 +25,7 @@ import (
 	"github.com/traweezy/relantern/internal/openaiwebhook"
 	"github.com/traweezy/relantern/internal/parsing"
 	parsingstore "github.com/traweezy/relantern/internal/parsing/pgstore"
+	radarstore "github.com/traweezy/relantern/internal/radar/pgstore"
 	readingstatestore "github.com/traweezy/relantern/internal/readingstate/pgstore"
 	"github.com/traweezy/relantern/internal/reembedding"
 	"github.com/traweezy/relantern/internal/research"
@@ -276,7 +277,6 @@ func run(arguments []string, logger *slog.Logger) error {
 		"relantern:schedule-reconciler:v1",
 		inserter,
 	)
-	processor := worker.NewProcessor(pool, workerConfig.DeliveryURL, workerConfig.RequestTimeout)
 	health := worker.NewSchedulerHealth(pool, clock.System{}, workerConfig.ReconcileInterval)
 	readingStateStore, err := readingstatestore.New(
 		pool,
@@ -285,7 +285,20 @@ func run(arguments []string, logger *slog.Logger) error {
 	if err != nil {
 		return fmt.Errorf("create reading-state worker store: %w", err)
 	}
-	riverOptions := []worker.RiverOption{worker.WithSnoozeReturner(readingStateStore)}
+	radarProcessor, err := radarstore.New(pool, inserter)
+	if err != nil {
+		return fmt.Errorf("create Radar worker store: %w", err)
+	}
+	processor := worker.NewProcessor(
+		pool,
+		workerConfig.DeliveryURL,
+		workerConfig.RequestTimeout,
+		worker.WithRadarScheduleHandoff(radarProcessor),
+	)
+	riverOptions := []worker.RiverOption{
+		worker.WithSnoozeReturner(readingStateStore),
+		worker.WithRadarProcessor(radarProcessor),
+	}
 	if manualCaptureProcessor != nil {
 		riverOptions = append(riverOptions, worker.WithManualCaptureProcessor(manualCaptureProcessor))
 	}

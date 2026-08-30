@@ -100,3 +100,27 @@ func (inserter *Inserter) EnqueuePollOpenAIBackground(
 	}
 	return result.Job.ID, !result.UniqueSkippedAsDuplicate, nil
 }
+
+func (inserter *Inserter) EnqueueRadarDiscovery(
+	ctx context.Context,
+	tx pgx.Tx,
+	arguments RunWeeklyRadarDiscoveryArgs,
+) (int64, bool, error) {
+	result, err := inserter.client.InsertTx(ctx, tx, arguments, nil)
+	if err != nil {
+		return 0, false, fmt.Errorf("enqueue Radar discovery %s: %w", arguments.RunID, err)
+	}
+	return result.Job.ID, !result.UniqueSkippedAsDuplicate, nil
+}
+
+func (inserter *Inserter) EnqueueRefreshPackageMetrics(
+	ctx context.Context,
+	tx pgx.Tx,
+	arguments RefreshPackageMetricsArgs,
+) (int64, bool, error) {
+	result, err := inserter.client.InsertTx(ctx, tx, arguments, nil)
+	if err != nil {
+		return 0, false, fmt.Errorf("enqueue Radar metrics refresh %s: %w", arguments.CandidateID, err)
+	}
+	return result.Job.ID, !result.UniqueSkippedAsDuplicate, nil
+}
