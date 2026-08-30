@@ -58,7 +58,7 @@ curl --fail --silent --show-error \
   --data '{"provider":"github","callbackURL":"/","errorCallbackURL":"/login"}' \
   "${base_url}/api/auth/sign-in/social" > "${auth_test_directory}/signin.json"
 
-docker compose exec -T web /nodejs/bin/node -e \
+bash scripts/pnpm-tool.sh exec node -e \
   'let body=""; process.stdin.on("data", chunk => body += chunk); process.stdin.on("end", () => process.stdout.write(JSON.parse(body).url));' \
   < "${auth_test_directory}/signin.json" > "${auth_test_directory}/authorize-url"
 

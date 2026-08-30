@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
+import { DigestQuickControls } from "@/features/control-plane/digest-quick-controls";
 import { EmptyState } from "@/features/intelligence/empty-state";
 import { TriageCollection } from "@/features/reading-state/triage-collection";
 import { requireOwnerSession } from "@/server/auth/session";
+import { getSettings } from "@/server/controlplane/client";
 import { getTodaySnapshot } from "@/server/intelligence/client";
 import { getStoryStates, getTags } from "@/server/reading-state/client";
 
@@ -22,7 +24,10 @@ const formatCoverage = (start: string, end: string, timezone: string): string =>
 
 const TodayPage = async () => {
   const owner = await requireOwnerSession();
-  const snapshot = await getTodaySnapshot().catch(() => null);
+  const [snapshot, settings] = await Promise.all([
+    getTodaySnapshot().catch(() => null),
+    getSettings(owner.userID).catch(() => null),
+  ]);
 
   if (snapshot === null) {
     return (
@@ -72,6 +77,9 @@ const TodayPage = async () => {
     }
     return [{ state, story }];
   });
+  const dailySchedule = settings?.schedules.find(
+    (schedule) => schedule.scheduleType === "daily_digest",
+  );
 
   return (
     <>
@@ -84,14 +92,7 @@ const TodayPage = async () => {
             action rather than attention.
           </p>
         </div>
-        <div className="header-actions">
-          <button disabled title="Delivery controls arrive in the delivery slice" type="button">
-            Preview digest
-          </button>
-          <button disabled title="Delivery controls arrive in the delivery slice" type="button">
-            Run now
-          </button>
-        </div>
+        {dailySchedule !== undefined && <DigestQuickControls scheduleID={dailySchedule.id} />}
       </header>
 
       <section aria-label="Daily intelligence status" className="brief-status-grid">

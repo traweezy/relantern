@@ -295,6 +295,215 @@ export type ImportCommitResult = Readonly<{
   pendingSourceIds: readonly string[];
 }>;
 
+export type SourcePreference = Readonly<{
+  excludeFromDigest: boolean;
+  muted: boolean;
+  relevanceAdjustment: number;
+  version: number;
+}>;
+
+export type SourceEndpointHealth = Readonly<{
+  connector: string;
+  healthState: string;
+  id: string;
+  lastAttemptAt?: string | undefined;
+  lastSuccessAt?: string | undefined;
+  latestErrorCode?: string | undefined;
+  latestStatusCode?: number | undefined;
+  nextPollAt?: string | undefined;
+  pollIntervalSeconds: number;
+  priority: string;
+  url: string;
+}>;
+
+export type SourceValidation = Readonly<{
+  checkCount: number;
+  completedAt: string;
+  explanation: string;
+  failedCheckCount: number;
+  id: string;
+  state: "failed" | "passed";
+}>;
+
+export type ManagedSource = Readonly<{
+  contentCount: number;
+  contentPolicy: string;
+  duplicateRate: number;
+  enabled: boolean;
+  endpoints: readonly SourceEndpointHealth[];
+  errorBudgetState: "exhausted" | "healthy" | "unknown" | "warning";
+  failureCount24h: number;
+  homepageUrl: string;
+  id: string;
+  latestValidation?: SourceValidation | undefined;
+  name: string;
+  origin: "owner" | "system";
+  owner: string;
+  pollingEnabled: boolean;
+  preference: SourcePreference;
+  reviewedAt?: string | undefined;
+  successCount24h: number;
+  topics: readonly string[];
+  trustTier: SourceTier;
+  validationState: "active" | "degraded" | "paused" | "pending" | "rejected";
+}>;
+
+export type SourcesSnapshot = Readonly<{
+  generatedAt: string;
+  sources: readonly ManagedSource[];
+}>;
+
+export type InterestTopic = Readonly<{
+  exclusions: readonly string[];
+  keywords: readonly string[];
+  priority: number;
+  topicId: string;
+  weight: number;
+}>;
+
+export type InterestProfile = Readonly<{
+  id: string;
+  name: string;
+  profileSummary: string;
+  topics: readonly InterestTopic[];
+  version: number;
+}>;
+
+export type WatchedTechnology = Readonly<{
+  currentVersion: string;
+  id: string;
+  lastVerifiedAt?: string | undefined;
+  packageName: string;
+  source: string;
+  status: "active" | "evaluating" | "legacy" | "planned";
+  technology: string;
+  versionConstraint: string;
+}>;
+
+export type OwnerSettings = Readonly<{
+  auditRetentionDays: number;
+  criticalAlertsBypass: boolean;
+  monthlyHardBudgetUsd: string;
+  monthlySoftBudgetUsd: string;
+  quietHoursEnd: string;
+  quietHoursStart: string;
+  rawRetentionDays: number;
+  timezone: string;
+  version: number;
+}>;
+
+export type ScheduleDefinition = Readonly<{
+  catchupGraceMinutes: number;
+  catchupPolicy: "catch_up" | "skip";
+  channels: readonly ("dashboard" | "discord" | "email")[];
+  daysOfWeek: readonly number[];
+  emptyBehavior: "all_clear" | "dashboard_only" | "send_nothing";
+  enabled: boolean;
+  id: string;
+  includeComingSoon: boolean;
+  includeLaterReminders: boolean;
+  includeRadarCandidates: boolean;
+  localTime: string;
+  maximumItems: 5 | 10 | 15 | 20;
+  minimumScore: number;
+  nextDueAt: string;
+  pausedAt?: string | undefined;
+  pausedUntil?: string | undefined;
+  scheduleType: "daily_digest" | "maintenance" | "weekly_radar";
+  skipNextAt?: string | undefined;
+  timezone: string;
+  version: number;
+  weekendMode: "normal" | "off" | "weekly_only";
+}>;
+
+export type SettingsSnapshot = Readonly<{
+  generatedAt: string;
+  owner: OwnerSettings;
+  profile: InterestProfile;
+  schedules: readonly ScheduleDefinition[];
+  technologies: readonly WatchedTechnology[];
+}>;
+
+export type SchedulePreview = Readonly<{
+  candidateCount: number;
+  explanation: string;
+  externalDelivery: boolean;
+  localDate: string;
+  maximumItems: number;
+  nextRunAt: string;
+  scheduleId: string;
+  scheduleType: string;
+}>;
+
+export type ScheduleActionResult = Readonly<{
+  message: string;
+  occurrenceId?: string | undefined;
+  schedule: ScheduleDefinition;
+}>;
+
+export type QueueDepth = Readonly<{
+  available: number;
+  cancelled: number;
+  completed: number;
+  discarded: number;
+  queue: string;
+  retryable: number;
+  running: number;
+  scheduled: number;
+}>;
+
+export type StuckJob = Readonly<{
+  attempt: number;
+  attemptedAt?: string | undefined;
+  id: number;
+  kind: string;
+  queue: string;
+}>;
+
+export type SourceErrorBudget = Readonly<{
+  attempts: number;
+  failureRate: number;
+  failures: number;
+  sourceId: string;
+  sourceName: string;
+  state: "exhausted" | "healthy" | "unknown" | "warning";
+}>;
+
+export type DeploymentMetadata = Readonly<{
+  environment: string;
+  gitSha: string;
+  version: string;
+}>;
+
+export type ScheduleOccurrence = Readonly<{
+  completedAt?: string | undefined;
+  errorCode?: string | undefined;
+  id: string;
+  idempotencyKey: string;
+  localDate: string;
+  scheduleId: string;
+  scheduleType: string;
+  scheduledFor: string;
+  startedAt?: string | undefined;
+  state: string;
+  triggerType: string;
+}>;
+
+export type OperationsSnapshot = Readonly<{
+  deliveryAttempts: number;
+  deployment: DeploymentMetadata;
+  generatedAt: string;
+  occurrences: readonly ScheduleOccurrence[];
+  oldestOverdueOccurrence?: string | undefined;
+  openaiBackgroundPending: number;
+  queues: readonly QueueDepth[];
+  restore: Readonly<{ explanation: string; state: string }>;
+  schedulerLastSuccess?: string | undefined;
+  schedules: readonly ScheduleDefinition[];
+  sourceErrorBudgets: readonly SourceErrorBudget[];
+  stuckJobs: readonly StuckJob[];
+}>;
+
 export type ItemState = Readonly<{
   isRead: boolean;
   location: ReadingLocation;

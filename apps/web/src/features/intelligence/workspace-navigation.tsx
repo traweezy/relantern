@@ -17,6 +17,7 @@ const desktopNavigation = [
   { href: "/radar", label: "Radar", shortLabel: "Radar" },
   { href: "/sources", label: "Sources", shortLabel: "Sources" },
   { href: "/ops", label: "Operations", shortLabel: "Ops" },
+  { href: "/settings", label: "Settings", shortLabel: "Settings" },
 ] as const;
 
 const mobileNavigation = [
@@ -41,7 +42,7 @@ const NavigationListComponent = ({ compact = false }: NavigationListProps) => {
           item.href === "/"
             ? pathname === "/" || pathname.startsWith("/story/")
             : pathname === item.href,
-        enabled: !["/radar", "/sources", "/ops"].includes(item.href),
+        enabled: item.href !== "/radar",
       })),
     [compact, pathname],
   );
