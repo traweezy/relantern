@@ -376,6 +376,7 @@ const TriageCollectionComponent = ({
   const [pending, setPending] = useState<ReadonlySet<string>>(() => new Set());
   const [activeIndex, setActiveIndex] = useState(0);
   const [notice, setNotice] = useState("");
+  const [exportPending, setExportPending] = useState(false);
   const [undo, setUndo] = useState<UndoState | null>(null);
   const [commandOpen, setCommandOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
@@ -728,6 +729,49 @@ const TriageCollectionComponent = ({
     [itemByID, selected],
   );
   const selectedIDs = useMemo(() => [...selected], [selected]);
+  const exportSelectedMarkdown = useCallback(() => {
+    if (selectedIDs.length < 1 || selectedIDs.length > 100 || exportPending) {
+      setNotice("Select between 1 and 100 stories for a Markdown export.");
+      return;
+    }
+    setExportPending(true);
+    setNotice(`Preparing a Markdown export for ${selectedIDs.length} stories…`);
+    void fetch("/api/discovery/exports/markdown", {
+      body: JSON.stringify({ storyIds: selectedIDs }),
+      headers: { accept: "text/markdown", "content-type": "application/json" },
+      method: "POST",
+      signal: AbortSignal.timeout(15_000),
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          const problem: unknown = await response.json().catch(() => null);
+          const detail =
+            typeof problem === "object" && problem !== null && "detail" in problem
+              ? String(problem.detail)
+              : "The Markdown export could not be prepared.";
+          throw new Error(detail);
+        }
+        if (!response.headers.get("content-type")?.startsWith("text/markdown")) {
+          throw new Error("The export response did not contain Markdown.");
+        }
+        const objectURL = URL.createObjectURL(await response.blob());
+        const link = document.createElement("a");
+        try {
+          link.download = "relantern-stories.md";
+          link.href = objectURL;
+          document.body.append(link);
+          link.click();
+          setNotice(`Markdown export prepared for ${selectedIDs.length} stories.`);
+        } finally {
+          link.remove();
+          URL.revokeObjectURL(objectURL);
+        }
+      })
+      .catch((error: unknown) => {
+        setNotice(error instanceof Error ? error.message : "The Markdown export failed.");
+      })
+      .finally(() => setExportPending(false));
+  }, [exportPending, selectedIDs]);
 
   const handleUndo = useCallback(() => {
     if (undo === null) {
@@ -964,6 +1008,14 @@ const TriageCollectionComponent = ({
           </button>
           <button disabled={selected.size === 0} onClick={executeSelectedDismiss} type="button">
             Dismiss
+          </button>
+          <button
+            disabled={selected.size === 0 || selected.size > 100 || exportPending}
+            onClick={exportSelectedMarkdown}
+            title="Export 1 through 100 selected stories with notes, highlights, and citations"
+            type="button"
+          >
+            {exportPending ? "Exporting…" : "Export Markdown"}
           </button>
           <button disabled={selected.size === items.length} onClick={selectVisible} type="button">
             Select {items.length} visible

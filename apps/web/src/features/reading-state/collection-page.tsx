@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import type { ReactNode } from "react";
 import { TriageCollection } from "@/features/reading-state/triage-collection";
 import { requireOwnerSession } from "@/server/auth/session";
 import { getReadingCollection, getTags } from "@/server/reading-state/client";
@@ -10,6 +11,7 @@ type ReadingCollectionPageProps = Readonly<{
   description: string;
   eyebrow: string;
   kind: CollectionKind;
+  lead?: ReactNode;
   title: string;
 }>;
 
@@ -22,6 +24,7 @@ export const ReadingCollectionPage = async ({
   description,
   eyebrow,
   kind,
+  lead,
   title,
 }: ReadingCollectionPageProps) => {
   const owner = await requireOwnerSession();
@@ -42,6 +45,7 @@ export const ReadingCollectionPage = async ({
           <span>stories</span>
         </div>
       </header>
+      {lead}
       <TriageCollection
         initialCollection={collection}
         kind={kind}

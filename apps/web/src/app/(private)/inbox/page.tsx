@@ -1,3 +1,4 @@
+import { CapturePanel } from "@/features/discovery/capture-panel";
 import {
   collectionMetadata,
   ReadingCollectionPage,
@@ -13,6 +14,7 @@ const InboxPage = async ({ searchParams }: PageProps) => (
     description="Published, unsnoozed evidence waiting for a deliberate triage decision."
     eyebrow="Active queue"
     kind="inbox"
+    lead={<CapturePanel />}
     title="Inbox"
   />
 );

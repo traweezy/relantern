@@ -13,6 +13,7 @@ const desktopNavigation = [
   { href: "/starred", label: "Starred", shortLabel: "Starred" },
   { href: "/snoozed", label: "Snoozed", shortLabel: "Snoozed" },
   { href: "/archive", label: "Archive", shortLabel: "Archive" },
+  { href: "/releases", label: "Releases", shortLabel: "Releases" },
   { href: "/radar", label: "Radar", shortLabel: "Radar" },
   { href: "/sources", label: "Sources", shortLabel: "Sources" },
   { href: "/ops", label: "Operations", shortLabel: "Ops" },
@@ -40,7 +41,7 @@ const NavigationListComponent = ({ compact = false }: NavigationListProps) => {
           item.href === "/"
             ? pathname === "/" || pathname.startsWith("/story/")
             : pathname === item.href,
-        enabled: !["/radar", "/sources", "/ops", "/search"].includes(item.href),
+        enabled: !["/radar", "/sources", "/ops"].includes(item.href),
       })),
     [compact, pathname],
   );
