@@ -36,8 +36,11 @@ the demo remains independent of auth, the database, APIs, SSE, and providers.
 PR 13 adds independent Inbox/Later/Archive state, Starred and Snoozed views,
 optimistic command triage, atomic bulk actions and Later ordering, server-backed
 ten-second Undo, owner tags, revision-bound notes and verified highlights, and
-state-aware Today filtering. The default local profile remains disconnected
-from live providers and delivery APIs.
+state-aware Today filtering. PR 14 adds authenticated hybrid Search with durable
+exact-filter shortcuts, source-verified Releases and Coming Soon, bounded URL
+capture through the normal ingestion pipeline, approval-gated OPML import, and
+OPML, JSON, CSV, and selected-story Markdown exports. The default local profile
+remains disconnected from live providers and delivery APIs.
 
 ## Safe local workflow
 
@@ -118,7 +121,11 @@ semantics and recovery are recorded in
 [ADR-018](docs/adr/018-independent-reading-state.md),
 [ADR-019](docs/adr/019-command-driven-triage-and-undo.md), and the
 [bulk mutation](docs/runbooks/bulk-state-mutation-recovery.md) and
-[snooze recovery](docs/runbooks/snoozed-item-not-returned.md) runbooks.
+[snooze recovery](docs/runbooks/snoozed-item-not-returned.md) runbooks. Manual
+capture and source-list recovery are covered by the
+[capture and OPML runbook](docs/runbooks/manual-capture-and-opml.md); migration
+ordering and rollback constraints are recorded in the
+[discovery portability migration notes](docs/migrations/000016-discovery-portability.md).
 
 `make reset` is destructive and requires confirmation. It targets only the
 validated Relantern Compose project and its volumes.

@@ -62,6 +62,14 @@ tie-breaks. Lifecycle, source-tier, and date predicates apply inside both
 candidate branches. The bounded candidate window is 50 to 500 rows and the
 store result limit is 1 to 100 rows.
 
+The authenticated product search enriches those candidates only through
+published story summaries. Exact topic, source-tier, lifecycle, recommended
+action, saved-state, date, and eventually Radar predicates apply before a
+result is exposed. Each result explains whether keyword, semantic, or both
+retrieval paths matched. Owner saved searches persist the query and exact
+filters as private database records; they do not cache results or bypass the
+current active model and publication gates.
+
 Embedding candidate clustering runs only within the 30-day story window and
 rejects conflicting package or version metadata. The promoted cosine threshold
 is `0.86`, selected by the reviewed labeled fixture at precision at least 0.98
@@ -110,7 +118,8 @@ swapping constraint names. Application rollback keeps these forward-compatible
 tables and stops enqueueing `ReembedEntity`; it does not delete vectors or
 search data. A model-quality rollback atomically reactivates a retained
 compatible model after evaluation. Production never runs the Goose down
-migration.
+migration. Migration 16 additively stores private saved queries; an application
+rollback retains those rows so a corrected release can restore the shortcuts.
 
 ## Consequences
 
