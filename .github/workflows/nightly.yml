@@ -1,0 +1,129 @@
+name: Nightly assurance
+
+on:
+  schedule:
+    - cron: "23 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-assurance
+  cancel-in-progress: false
+
+env:
+  CI: "true"
+  APP_ENV: test
+  ALLOW_LIVE_EXTERNAL_APIS: "false"
+  ALLOW_LIVE_DELIVERY: "false"
+
+jobs:
+  fuzz:
+    name: fuzz / ${{ matrix.fuzz }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - package: ./internal/fetcher
+            fuzz: FuzzPolicyURL
+          - package: ./internal/fetcher
+            fuzz: FuzzBoundedBodyDecoding
+          - package: ./internal/parsing
+            fuzz: FuzzFeedParser
+          - package: ./internal/parsing
+            fuzz: FuzzHTMLParser
+          - package: ./internal/parsing
+            fuzz: FuzzJSONParser
+          - package: ./internal/dedupe
+            fuzz: FuzzCanonicalizeURLIsIdempotent
+          - package: ./internal/dedupe
+            fuzz: FuzzSimHashAndMetadataAreDeterministic
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Go workspace
+        uses: ./.github/actions/setup
+        with:
+          node: "false"
+      - name: Run the bounded fuzz target
+        env:
+          FUZZ_PACKAGE: ${{ matrix.package }}
+          FUZZ_TARGET: ${{ matrix.fuzz }}
+        run: go test "${FUZZ_PACKAGE}" -run '^$' -fuzz="^${FUZZ_TARGET}$" -fuzztime=90s
+
+  extended-eval:
+    name: extended deterministic evaluations
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up repository toolchains
+        uses: ./.github/actions/setup
+      - name: Run deterministic intelligence and demo suites
+        run: |
+          make eval
+          make sources-verify
+          pnpm --filter @relantern/web test -- demo-sanitizer.test.ts route-policy.test.ts
+
+  supply-chain:
+    name: refreshed supply-chain analysis
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out complete source history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up repository and supply-chain tools
+        uses: ./.github/actions/setup
+        with:
+          ci-tools: supply-chain
+      - name: Run refreshed repository scans
+        run: |
+          make security-scan
+          go run github.com/zricethezav/gitleaks/v8@v8.30.1 git --redact --no-banner
+          pnpm audit --audit-level high
+      - name: Generate repository SPDX SBOM
+        run: make sbom
+      - name: Upload repository SBOM
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: repository-sbom-${{ github.sha }}
+          path: dist/sbom/repository.spdx.json
+          if-no-files-found: error
+          retention-days: 30
+
+  restore-drill:
+    name: isolated PostgreSQL restore drill
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Create local-only secrets
+        run: make secrets
+      - name: Start PostgreSQL and apply the exact migration stage
+        run: |
+          docker compose -f compose.yaml up -d --wait postgres
+          docker compose -f compose.yaml run --rm --build migrate up
+          docker compose -f compose.yaml run --rm seed
+      - name: Restore into an isolated temporary database
+        run: make restore-drill
+      - name: Upload RPO and RTO evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: restore-drill-${{ github.sha }}
+          path: dist/restore-drills/*.json
+          if-no-files-found: error
+          retention-days: 90

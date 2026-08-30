@@ -87,6 +87,33 @@ func TestIntelligenceEndpointsRequireInternalCredential(t *testing.T) {
 	}
 }
 
+func TestInternalServiceCredentialRotationRejectsPriorToken(t *testing.T) {
+	t.Parallel()
+	priorToken := strings.Repeat("p", 32)
+	rotatedToken := strings.Repeat("r", 32)
+
+	requestStatus := func(application api.Application, token string) int {
+		request := httptest.NewRequest(http.MethodGet, "/api/v1/live", nil)
+		request.Header.Set("Authorization", "Bearer "+token)
+		response := httptest.NewRecorder()
+		application.Handler.ServeHTTP(response, request)
+		return response.Code
+	}
+
+	beforeRotation := newIntelligenceApplication(priorToken)
+	if status := requestStatus(beforeRotation, priorToken); status != http.StatusOK {
+		t.Fatalf("prior credential before rotation status = %d, want %d", status, http.StatusOK)
+	}
+
+	afterRotation := newIntelligenceApplication(rotatedToken)
+	if status := requestStatus(afterRotation, priorToken); status != http.StatusUnauthorized {
+		t.Fatalf("prior credential after rotation status = %d, want %d", status, http.StatusUnauthorized)
+	}
+	if status := requestStatus(afterRotation, rotatedToken); status != http.StatusOK {
+		t.Fatalf("rotated credential status = %d, want %d", status, http.StatusOK)
+	}
+}
+
 func TestIntelligenceEndpointsReturnBoundedContracts(t *testing.T) {
 	t.Parallel()
 	token := strings.Repeat("s", 32)

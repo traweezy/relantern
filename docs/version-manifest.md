@@ -134,6 +134,10 @@ PostgreSQL `18.6` and vector extension `0.8.6`.
 | actionlint | 1.7.12 | Go module version pinned in the workflow lint target |
 | gitleaks | 8.30.1 | Go module version pinned in the security job |
 | govulncheck | 1.7.0 | Go module version pinned in the Go vulnerability job |
+| OSV-Scanner | 2.5.1 | Linux x86_64 binary pinned to SHA-256 `f9f25499a2c8cc367b3af45df2ea7eeca7fbccceab9c35079968f4b3652194be` |
+| Trivy | 0.74.0 | Linux x86_64 archive pinned to SHA-256 `2ae6fe3ee734b7fdf11335663e18c75ea12dccc76062f09f164a3b0f8be4371a` |
+| zizmor | 1.29.0 | Linux x86_64 archive pinned to SHA-256 `dd96df044a6e8538d5f423790f453bdd03d49e5b2bcc38214acc41a2f1297839` |
+| Syft | 1.51.0 | Linux x86_64 archive pinned to SHA-256 `2a2e837a2c8d59ec9af5472ee22d3b04ee463c4e44476ecf993fd1e5ab6ebc7f` |
 
 ## Compatibility holds and exceptions
 

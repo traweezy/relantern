@@ -377,7 +377,7 @@ jobs:
           go run ./cmd/migrate up
           go run ./cmd/seed
       - name: Verify database adapters
-        run: go test -p 1 ./internal/database/... ./internal/dedupe/... ./internal/embedding/... ./internal/extraction/... ./internal/fetcher/pgstore/... ./internal/jobqueue/... ./internal/openaiwebhook/... ./internal/parsing/pgstore/... ./internal/reembedding/... ./internal/research/... ./internal/scheduler/... ./internal/search/... ./internal/sources/... ./internal/worker/...
+        run: go test -p 1 ./internal/database/... ./internal/dedupe/... ./internal/embedding/... ./internal/extraction/... ./internal/fetcher/pgstore/... ./internal/jobqueue/... ./internal/openaiwebhook/... ./internal/operability/... ./internal/parsing/pgstore/... ./internal/reembedding/... ./internal/research/... ./internal/retention/... ./internal/scheduler/... ./internal/search/... ./internal/sources/... ./internal/worker/...
 
   contract-drift:
     name: contract-drift
@@ -428,8 +428,18 @@ jobs:
         uses: ./.github/actions/setup
         with:
           node: "false"
+          ci-tools: security
       - name: Scan Git history for secrets
         run: go run github.com/zricethezav/gitleaks/v8@v8.30.1 git --redact --no-banner
+      - name: Scan dependency manifests with OSV
+        run: osv-scanner scan source --no-call-analysis=go --recursive .
+      - name: Scan source and configuration with Trivy
+        run: >-
+          trivy filesystem --exit-code 1 --ignore-unfixed
+          --scanners vuln,misconfig --severity HIGH,CRITICAL
+          --skip-dirs .git .
+      - name: Audit workflow security with zizmor
+        run: zizmor --persona=regular --offline .github
 
   container-build-service:
     name: container / ${{ matrix.service }}
@@ -444,6 +454,12 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Install pinned supply-chain tools
+        uses: ./.github/actions/setup
+        with:
+          node: "false"
+          go: "false"
+          ci-tools: supply-chain
       - name: Configure Buildx
         uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
       - name: Build exact production stage
@@ -451,8 +467,31 @@ jobs:
         with:
           context: .
           file: deploy/docker/${{ matrix.service }}.Dockerfile
+          load: true
           push: false
+          tags: relantern/${{ matrix.service }}:${{ github.sha }}
           target: production
+      - name: Scan the exact production image
+        env:
+          IMAGE_NAME: relantern/${{ matrix.service }}:${{ github.sha }}
+        run: >-
+          trivy image --exit-code 1 --ignore-unfixed
+          --scanners vuln --severity HIGH,CRITICAL
+          "${IMAGE_NAME}"
+      - name: Generate the image SPDX SBOM
+        env:
+          IMAGE_NAME: relantern/${{ matrix.service }}:${{ github.sha }}
+          SBOM_PATH: dist/sbom/${{ matrix.service }}.spdx.json
+        run: |
+          mkdir -p dist/sbom
+          syft "${IMAGE_NAME}" -o "spdx-json=${SBOM_PATH}"
+      - name: Upload the image SBOM
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sbom-${{ matrix.service }}-${{ github.sha }}
+          path: dist/sbom/${{ matrix.service }}.spdx.json
+          if-no-files-found: error
+          retention-days: 30
 
   container-build:
     name: container-build

@@ -205,6 +205,13 @@ prepush: lint workflow-lint typecheck test generate-check config-check sources-v
 	$(GO) test -race ./...
 	$(PNPM) build
 
+security-scan: ## Run pinned zero-write repository security scanners
+	@test -x "$(CURDIR)/.local/bin/osv-scanner" || command -v osv-scanner >/dev/null 2>&1 || bash scripts/install-ci-tools.sh security
+	@PATH="$(CURDIR)/.local/bin:$${PATH}" osv-scanner scan source --no-call-analysis=go --recursive .
+	$(GO) run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...
+	@PATH="$(CURDIR)/.local/bin:$${PATH}" trivy filesystem --exit-code 1 --ignore-unfixed --scanners vuln,misconfig --severity HIGH,CRITICAL --skip-dirs .git .
+	@PATH="$(CURDIR)/.local/bin:$${PATH}" zizmor --persona=regular --offline .github
+
 prodlike: secrets ## Build and run the exact production Docker stages
 	$(COMPOSE_BASE) up --build --detach
 	bash scripts/stack-wait.sh
@@ -215,10 +222,10 @@ prodlike-smoke: prodlike ## Smoke test all production-like health surfaces
 	curl --fail --silent --show-error http://127.0.0.1:8092/healthz >/dev/null
 	$(MAKE) auth-smoke
 
-sbom: ## Require Syft before generating release SBOMs
-	@command -v syft >/dev/null 2>&1 || { printf 'Install pinned Syft before generating release SBOMs.\n' >&2; exit 1; }
+sbom: ## Generate the pinned SPDX repository SBOM
+	@test -x "$(CURDIR)/.local/bin/syft" || command -v syft >/dev/null 2>&1 || bash scripts/install-ci-tools.sh sbom
 	@mkdir -p dist/sbom
-	syft dir:. -o cyclonedx-json=dist/sbom/repository.cdx.json
+	@PATH="$(CURDIR)/.local/bin:$${PATH}" syft dir:. -o spdx-json=dist/sbom/repository.spdx.json
 
 clean: ## Remove build outputs while preserving local volumes
 	$(PNPM) exec rimraf apps/web/.next coverage dist 2>/dev/null || true

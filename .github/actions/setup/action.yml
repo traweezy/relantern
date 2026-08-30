@@ -24,7 +24,8 @@ runs:
       env:
         CI_TOOL_BIN_DIR: ${{ github.workspace }}/.local/bin
         CI_TOOL_SCOPE: ${{ inputs.ci-tools }}
-      run: |
+      # The checksum-verified fixed workspace path is controlled by this action.
+      run: | # zizmor: ignore[github-env]
         bash scripts/install-ci-tools.sh "${CI_TOOL_SCOPE}"
         printf '%s\n' "${CI_TOOL_BIN_DIR}" >>"${GITHUB_PATH}"
     - name: Set up pnpm

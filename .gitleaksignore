@@ -1,0 +1,13 @@
+# Synthetic delivery idempotency fixtures.
+2b84401be102652f20cdffd7e4a57adf817e7e71:internal/delivery/client_test.go:generic-api-key:51
+2b84401be102652f20cdffd7e4a57adf817e7e71:internal/delivery/client_test.go:generic-api-key:81
+
+# Synthetic API mutation idempotency fixtures.
+4c6c99a6758852f2fcc539c35403122917bc0baa:internal/api/discovery_test.go:generic-api-key:232
+4c6ac3521033dbc689a24228b7657118e245c173:internal/api/reading_state_test.go:generic-api-key:164
+4c6ac3521033dbc689a24228b7657118e245c173:internal/api/reading_state_test.go:generic-api-key:204
+
+# Synthetic disconnected provider credentials.
+6be6fbde17b1d495bda88bfb7a8d3997db296185:apps/web/src/app/api/webhooks/openai/route.test.ts:generic-api-key:7
+6be6fbde17b1d495bda88bfb7a8d3997db296185:apps/web/src/app/api/webhooks/openai/route.test.ts:generic-api-key:8
+7da61633d2c8b88960ca6f8906b6bd93d5757daa:internal/fakeprovider/oauth_test.go:generic-api-key:16

@@ -23,9 +23,9 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
-      actions: read
+      actions: read # Read workflow metadata required by CodeQL.
       contents: read
-      security-events: write
+      security-events: write # Publish code-scanning results.
     strategy:
       fail-fast: false
       matrix:
