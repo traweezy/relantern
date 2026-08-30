@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/mail"
 	"net/url"
 	"os"
 	"regexp"
@@ -48,8 +49,22 @@ type HTTP struct {
 }
 
 type Worker struct {
-	DeliveryURL       string
 	ReconcileInterval time.Duration
+	RequestTimeout    time.Duration
+}
+
+type Delivery struct {
+	Mode              string
+	AllowLive         bool
+	CaptureURL        string
+	DiscordEnabled    bool
+	DiscordWebhookURL string
+	ResendEnabled     bool
+	ResendAPIURL      string
+	ResendAPIKey      string
+	EmailFrom         string
+	EmailTo           string
+	PublicBaseURL     string
 	RequestTimeout    time.Duration
 }
 
@@ -219,18 +234,6 @@ func LoadLocalOAuthStub(environment Environment) (LocalOAuthStub, error) {
 }
 
 func LoadWorker() (Worker, error) {
-	deliveryURL := strings.TrimSpace(os.Getenv("FAKE_DELIVERY_URL"))
-	if deliveryURL == "" {
-		return Worker{}, errors.New("FAKE_DELIVERY_URL is required in the PR 0 safe profile")
-	}
-	parsedURL, err := url.Parse(deliveryURL)
-	if err != nil || parsedURL.Scheme != "http" || parsedURL.Host == "" {
-		return Worker{}, errors.New("FAKE_DELIVERY_URL must be an absolute HTTP URL")
-	}
-	if parsedURL.Hostname() != "fake-delivery" && parsedURL.Hostname() != "127.0.0.1" && parsedURL.Hostname() != "localhost" {
-		return Worker{}, errors.New("PR 0 delivery is restricted to the local fake-delivery service")
-	}
-
 	reconcileInterval, err := positiveDuration("SCHEDULER_RECONCILE_INTERVAL", "1m")
 	if err != nil {
 		return Worker{}, err
@@ -244,9 +247,103 @@ func LoadWorker() (Worker, error) {
 	}
 
 	return Worker{
-		DeliveryURL:       deliveryURL,
 		ReconcileInterval: reconcileInterval,
 		RequestTimeout:    requestTimeout,
+	}, nil
+}
+
+func LoadDelivery(environment Environment) (Delivery, error) {
+	local := environment == EnvironmentLocal || environment == EnvironmentTest
+	defaultMode := "disabled"
+	if local {
+		defaultMode = "log"
+	}
+	mode := valueOrDefault("DELIVERY_MODE", defaultMode)
+	if !stringAllowed(mode, "disabled", "log", "live") {
+		return Delivery{}, errors.New("DELIVERY_MODE must be disabled, log, or live")
+	}
+	allowLive, err := strconv.ParseBool(valueOrDefault("ALLOW_LIVE_DELIVERY", "false"))
+	if err != nil {
+		return Delivery{}, errors.New("ALLOW_LIVE_DELIVERY must be true or false")
+	}
+	if local && (mode == "live" || allowLive) {
+		return Delivery{}, errors.New("live delivery is forbidden in local and test environments")
+	}
+	if !local && mode == "log" {
+		return Delivery{}, errors.New("hosted environments may not use the local capture delivery mode")
+	}
+	if mode == "live" && !allowLive {
+		return Delivery{}, errors.New("DELIVERY_MODE=live requires ALLOW_LIVE_DELIVERY=true")
+	}
+
+	requestTimeout, err := positiveDuration("DELIVERY_REQUEST_TIMEOUT", "10s")
+	if err != nil || requestTimeout > 30*time.Second {
+		return Delivery{}, errors.New("DELIVERY_REQUEST_TIMEOUT must be positive and at most 30 seconds")
+	}
+	captureURL := strings.TrimSpace(os.Getenv("FAKE_DELIVERY_URL"))
+	if mode == "log" {
+		if err := validateLocalCaptureURL(captureURL); err != nil {
+			return Delivery{}, err
+		}
+	}
+
+	discordEnabled, err := strconv.ParseBool(valueOrDefault("DISCORD_ENABLED", "false"))
+	if err != nil {
+		return Delivery{}, errors.New("DISCORD_ENABLED must be true or false")
+	}
+	resendEnabled, err := strconv.ParseBool(valueOrDefault("RESEND_ENABLED", "false"))
+	if err != nil {
+		return Delivery{}, errors.New("RESEND_ENABLED must be true or false")
+	}
+	if mode != "live" && (discordEnabled || resendEnabled) {
+		return Delivery{}, errors.New("external delivery channels require DELIVERY_MODE=live")
+	}
+	if mode == "live" && !discordEnabled && !resendEnabled {
+		return Delivery{}, errors.New("live delivery requires at least one enabled external channel")
+	}
+
+	publicBaseURL := strings.TrimSpace(os.Getenv("PUBLIC_BASE_URL"))
+	if mode == "live" {
+		if err := validateHTTPSOrigin("PUBLIC_BASE_URL", publicBaseURL, ""); err != nil {
+			return Delivery{}, err
+		}
+	}
+	discordURL := ""
+	if discordEnabled {
+		discordURL, err = secretValue("DISCORD_WEBHOOK_URL", "DISCORD_WEBHOOK_URL_FILE")
+		if err != nil {
+			return Delivery{}, err
+		}
+		if err := validateDiscordWebhookURL(discordURL); err != nil {
+			return Delivery{}, err
+		}
+	}
+
+	resendURL := valueOrDefault("RESEND_API_URL", "https://api.resend.com/emails")
+	resendAPIKey := ""
+	emailFrom := ""
+	emailTo := ""
+	if resendEnabled {
+		if resendURL != "https://api.resend.com/emails" {
+			return Delivery{}, errors.New("RESEND_API_URL must be exactly https://api.resend.com/emails")
+		}
+		resendAPIKey, err = secretValue("RESEND_API_KEY", "RESEND_API_KEY_FILE")
+		if err != nil {
+			return Delivery{}, err
+		}
+		emailFrom = strings.TrimSpace(os.Getenv("DELIVERY_EMAIL_FROM"))
+		emailTo = strings.TrimSpace(os.Getenv("DELIVERY_EMAIL_TO"))
+		if resendAPIKey == "" || !validEmailAddress(emailFrom) || !validEmailAddress(emailTo) {
+			return Delivery{}, errors.New("Resend delivery requires an API key and valid DELIVERY_EMAIL_FROM and DELIVERY_EMAIL_TO values")
+		}
+	}
+
+	return Delivery{
+		Mode: mode, AllowLive: allowLive, CaptureURL: captureURL,
+		DiscordEnabled: discordEnabled, DiscordWebhookURL: discordURL,
+		ResendEnabled: resendEnabled, ResendAPIURL: resendURL, ResendAPIKey: resendAPIKey,
+		EmailFrom: emailFrom, EmailTo: emailTo, PublicBaseURL: strings.TrimSuffix(publicBaseURL, "/"),
+		RequestTimeout: requestTimeout,
 	}, nil
 }
 
@@ -566,6 +663,50 @@ func validateOpenAIBaseURL(value string, environment Environment) error {
 		return errors.New("hosted OpenAI traffic is restricted to https://api.openai.com")
 	}
 	return nil
+}
+
+func validateLocalCaptureURL(value string) error {
+	parsed, err := url.Parse(strings.TrimSpace(value))
+	if err != nil || parsed.Scheme != "http" || parsed.Host == "" || parsed.User != nil ||
+		parsed.RawQuery != "" || parsed.Fragment != "" || parsed.EscapedPath() != "/capture" {
+		return errors.New("FAKE_DELIVERY_URL must be an absolute local HTTP /capture URL")
+	}
+	hostname := strings.ToLower(parsed.Hostname())
+	parsedIP := net.ParseIP(hostname)
+	if hostname != "fake-delivery" && hostname != "localhost" && (parsedIP == nil || !parsedIP.IsLoopback()) {
+		return errors.New("FAKE_DELIVERY_URL is restricted to fake-delivery or loopback")
+	}
+	return nil
+}
+
+func validateDiscordWebhookURL(value string) error {
+	parsed, err := url.Parse(strings.TrimSpace(value))
+	if err != nil || parsed.Scheme != "https" || strings.ToLower(parsed.Hostname()) != "discord.com" ||
+		parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return errors.New("DISCORD_WEBHOOK_URL must be an HTTPS discord.com webhook URL")
+	}
+	parts := strings.Split(strings.Trim(parsed.EscapedPath(), "/"), "/")
+	if len(parts) != 4 || parts[0] != "api" || parts[1] != "webhooks" || parts[2] == "" || parts[3] == "" {
+		return errors.New("DISCORD_WEBHOOK_URL path must be /api/webhooks/{id}/{token}")
+	}
+	return nil
+}
+
+func validateHTTPSOrigin(name string, value string, expectedHost string) error {
+	parsed, err := url.Parse(strings.TrimSpace(value))
+	if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil ||
+		parsed.RawQuery != "" || parsed.Fragment != "" || strings.TrimSuffix(parsed.EscapedPath(), "/") != "" {
+		return fmt.Errorf("%s must be an absolute HTTPS origin", name)
+	}
+	if expectedHost != "" && !strings.EqualFold(parsed.Hostname(), expectedHost) {
+		return fmt.Errorf("%s must use host %s", name, expectedHost)
+	}
+	return nil
+}
+
+func validEmailAddress(value string) bool {
+	address, err := mail.ParseAddress(value)
+	return err == nil && address.Name == "" && strings.EqualFold(address.Address, value)
 }
 
 func validateEnvironment(environment Environment) error {

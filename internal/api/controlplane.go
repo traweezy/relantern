@@ -108,6 +108,7 @@ type ScheduleActionBody struct {
 	Action         string     `json:"action" enum:"pause,resume,run_now,skip_next"`
 	Reason         string     `json:"reason" minLength:"3" maxLength:"1000"`
 	IdempotencyKey string     `json:"idempotencyKey,omitempty" maxLength:"200"`
+	Deliver        bool       `json:"deliver,omitempty"`
 	PausedUntil    *time.Time `json:"pausedUntil,omitempty"`
 }
 
@@ -263,7 +264,8 @@ func registerControlPlane(api huma.API, configuration options, logger *slog.Logg
 		result, err := configuration.controlPlane.ActOnSchedule(ctx, controlplane.ScheduleActionRequest{
 			UserID: input.UserID, ScheduleID: input.ScheduleID,
 			Action: input.Body.Action, Reason: input.Body.Reason,
-			IdempotencyKey: input.Body.IdempotencyKey, PausedUntil: input.Body.PausedUntil,
+			IdempotencyKey: input.Body.IdempotencyKey, Deliver: input.Body.Deliver,
+			PausedUntil: input.Body.PausedUntil,
 		}, configuration.clock().UTC())
 		if err != nil {
 			return nil, mapControlPlaneError(ctx, logger, "act on schedule", err)

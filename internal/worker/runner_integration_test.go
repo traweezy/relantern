@@ -21,6 +21,8 @@ import (
 	"github.com/traweezy/relantern/internal/clock"
 	"github.com/traweezy/relantern/internal/config"
 	"github.com/traweezy/relantern/internal/database"
+	"github.com/traweezy/relantern/internal/delivery"
+	digeststore "github.com/traweezy/relantern/internal/digest/pgstore"
 	"github.com/traweezy/relantern/internal/fakeprovider"
 	"github.com/traweezy/relantern/internal/jobqueue"
 	"github.com/traweezy/relantern/internal/scheduler"
@@ -52,7 +54,21 @@ func TestRiverOneShotRunsReconciliationAndOccurrenceToCompletion(t *testing.T) {
 		inserter,
 		scheduler.WithScheduleIDs(scheduleID),
 	)
-	processor := NewProcessor(pool, server.URL+"/capture", 2*time.Second)
+	jobs, err := jobqueue.NewInserter()
+	if err != nil {
+		t.Fatal(err)
+	}
+	digests, err := digeststore.New(pool, jobs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sender, err := delivery.New(delivery.Config{
+		Mode: "log", CaptureURL: server.URL + "/capture", RequestTimeout: 2 * time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	processor := NewProcessor(pool, server.URL+"/capture", 2*time.Second, WithDigestScheduleHandoff(digests))
 	health := NewSchedulerHealth(pool, clock.NewFixed(now), time.Minute)
 	client, err := NewRiverClient(
 		pool,
@@ -67,9 +83,11 @@ func TestRiverOneShotRunsReconciliationAndOccurrenceToCompletion(t *testing.T) {
 		nil,
 		nil,
 		10*time.Minute,
+		WithDigestProcessor(digests, sender),
 		func(options *riverOptions) {
 			options.queueConfigs = map[string]river.QueueConfig{
-				testQueue: {MaxWorkers: 2},
+				testQueue:              {MaxWorkers: 2},
+				jobqueue.QueueDelivery: {MaxWorkers: 2},
 			}
 		},
 	)
@@ -353,10 +371,16 @@ func cleanupRunnerIntegration(
 		_, _ = pool.Exec(context.Background(), `
 			delete from river.river_job
 			where (kind = $1 and args ->> 'runId' = $2)
+				or args ->> 'occurrenceId' in (
+					select id::text from app.schedule_occurrences where schedule_id = $3::uuid
+				)
+				or args ->> 'digestId' in (
+					select id::text from app.digests where user_id = $4::uuid
+				)
 				or id in (
 					select river_job_id from app.schedule_occurrences
 					where schedule_id = $3::uuid and river_job_id is not null
-				)`, jobqueue.ReconcileSchedulesKind, runID, scheduleID)
+				)`, jobqueue.ReconcileSchedulesKind, runID, scheduleID, userID)
 		_, _ = pool.Exec(context.Background(), "delete from app.users where id = $1::uuid", userID)
 	})
 }

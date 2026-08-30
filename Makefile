@@ -60,7 +60,7 @@ test-integration: secrets ## Run database, object-storage, and worker integratio
 	$(COMPOSE_BASE) run --rm --build worker once
 	@IFS= read -r relantern_database_secret < .local/secrets/database_password; \
 		DATABASE_URL="postgres://relantern:$${relantern_database_secret}@127.0.0.1:5432/relantern?sslmode=disable" \
-		$(GO) test -p 1 ./internal/controlplane/pgstore ./internal/dedupe/pgstore ./internal/discovery/pgstore ./internal/embedding/pgstore ./internal/extraction/pgstore ./internal/fetcher/pgstore ./internal/jobqueue ./internal/openaiwebhook ./internal/parsing/pgstore ./internal/radar/pgstore ./internal/readingstate/pgstore ./internal/reembedding ./internal/research/pgstore ./internal/scheduler ./internal/search/pgstore ./internal/sources/pgstore ./internal/worker -count=1
+		$(GO) test -p 1 ./internal/controlplane/pgstore ./internal/dedupe/pgstore ./internal/digest/pgstore ./internal/discovery/pgstore ./internal/embedding/pgstore ./internal/extraction/pgstore ./internal/fetcher/pgstore ./internal/jobqueue ./internal/openaiwebhook ./internal/parsing/pgstore ./internal/radar/pgstore ./internal/readingstate/pgstore ./internal/reembedding ./internal/research/pgstore ./internal/scheduler ./internal/search/pgstore ./internal/sources/pgstore ./internal/worker -count=1
 	@IFS= read -r relantern_s3_access < .local/secrets/minio_access_key; \
 		IFS= read -r relantern_s3_secret < .local/secrets/minio_secret_key; \
 		S3_TEST_ENDPOINT=http://127.0.0.1:9000 \
@@ -141,12 +141,18 @@ test-research: ## Run bounded research, provenance, and webhook evaluations
 scheduler-tick: secrets ## Run one schedule reconciliation and capture pass
 	$(COMPOSE_BASE) run --rm worker once
 
-digest-preview: scheduler-tick ## Capture the deterministic local placeholder digest
-	@curl --fail --silent --show-error http://127.0.0.1:8092/captures
+digest-preview: secrets ## Render the next digest without persistence or delivery
+	$(COMPOSE_BASE) up -d --wait postgres
+	$(COMPOSE_BASE) build worker
+	$(COMPOSE_BASE) run --rm worker digest-preview $(if $(user_id),--user-id=$(user_id)) $(if $(schedule_id),--schedule-id=$(schedule_id))
 
-digest-run: ## Keep external delivery behind a later explicit fuse
-	@printf 'PR 0 supports fake digest-preview only; external delivery is disabled.\n' >&2
-	@exit 1
+digest-run: secrets ## Queue a local run-now preview; set deliver=true to use the configured safe sink
+	@test "$(deliver)" = "" || test "$(deliver)" = "false" || test "$(deliver)" = "true" || { printf 'deliver must be true or false\n' >&2; exit 1; }
+	$(COMPOSE_BASE) up -d --wait postgres minio fake-openai fake-delivery
+	$(COMPOSE_BASE) build worker
+	@occurrence_id="$$($(COMPOSE_BASE) run --rm worker digest-run --output=occurrence-id --deliver=$(if $(deliver),$(deliver),false) $(if $(user_id),--user-id=$(user_id)) $(if $(schedule_id),--schedule-id=$(schedule_id)))"; \
+		printf 'Queued digest occurrence %s\n' "$${occurrence_id}"; \
+		$(COMPOSE_BASE) run --rm worker once --occurrence-id "$${occurrence_id}"
 
 test-scheduler: ## Run scheduler unit and DST tests
 	$(GO) test ./internal/scheduler/... -count=1

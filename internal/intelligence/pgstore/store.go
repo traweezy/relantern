@@ -46,32 +46,39 @@ func New(pool *pgxpool.Pool) (*Store, error) {
 	return &Store{pool: pool}, nil
 }
 
-func (store *Store) Today(ctx context.Context, generatedAt time.Time) (intelligence.TodaySnapshot, error) {
-	stories, err := store.listStories(ctx, generatedAt.Add(-24*time.Hour), 24)
+func (store *Store) Today(ctx context.Context, userID string, generatedAt time.Time) (intelligence.TodaySnapshot, error) {
+	coverageStart := generatedAt.Add(-24 * time.Hour).UTC()
+	coverageEnd := generatedAt.UTC()
+	deliveryState := "unavailable"
+	storyIDs, digestStart, digestEnd, digestState, foundDigest, err := store.latestDashboardDigest(ctx, userID)
+	if err != nil {
+		return intelligence.TodaySnapshot{}, err
+	}
+	var stories []intelligence.StorySummary
+	if foundDigest {
+		coverageStart = digestStart
+		coverageEnd = digestEnd
+		if digestState == "delivered" {
+			deliveryState = "delivered"
+		} else {
+			deliveryState = "pending"
+		}
+		stories, err = store.listStoriesByID(ctx, storyIDs)
+	} else {
+		stories, err = store.listStories(ctx, coverageStart, 24)
+	}
 	if err != nil {
 		return intelligence.TodaySnapshot{}, err
 	}
 	snapshot := intelligence.TodaySnapshot{
-		CoverageEndAt: generatedAt.UTC(), CoverageStartAt: generatedAt.Add(-24 * time.Hour).UTC(),
-		DeliveryState: "unavailable", GeneratedAt: generatedAt.UTC(), Stories: stories,
+		CoverageEndAt: coverageEnd, CoverageStartAt: coverageStart,
+		DeliveryState: deliveryState, GeneratedAt: generatedAt.UTC(), Stories: stories,
 	}
 	var nextRunAt pgtype.Timestamptz
 	var activeSources int
 	var enabledSources int
 	err = store.pool.QueryRow(ctx, `
 		select
-			case coalesce((
-				select occurrence.state
-				from app.schedule_occurrences occurrence
-				join app.schedule_definitions schedule on schedule.id = occurrence.schedule_id
-				where schedule.schedule_type = 'daily_digest'
-				order by occurrence.scheduled_for desc
-				limit 1
-			), 'unavailable')
-				when 'delivered' then 'delivered'
-				when 'unavailable' then 'unavailable'
-				else 'pending'
-			end,
 			(
 				select min(next_due_at)
 				from app.schedule_definitions
@@ -85,7 +92,6 @@ func (store *Store) Today(ctx context.Context, generatedAt time.Time) (intellige
 				where started_at >= date_trunc('month', $1::timestamptz)
 			), '0.00000000'),
 			(select count(*) from app.ai_runs where state = 'needs_review')::integer`, generatedAt).Scan(
-		&snapshot.DeliveryState,
 		&nextRunAt,
 		&activeSources,
 		&enabledSources,
@@ -111,6 +117,34 @@ func (store *Store) Today(ctx context.Context, generatedAt time.Time) (intellige
 		}
 	}
 	return snapshot, nil
+}
+
+func (store *Store) latestDashboardDigest(
+	ctx context.Context,
+	userID string,
+) ([]string, time.Time, time.Time, string, bool, error) {
+	var storyIDs []string
+	var windowStart, windowEnd time.Time
+	var occurrenceState string
+	err := store.pool.QueryRow(ctx, `
+		select current_digest.window_start, current_digest.window_end, occurrence.state,
+			coalesce(array_agg(item.snapshot->>'storyId' order by item.sort_order)
+				filter (where item.candidate_type = 'story'), array[]::text[])
+		from app.digests current_digest
+		join app.schedule_occurrences occurrence on occurrence.id = current_digest.schedule_occurrence_id
+		left join app.digest_items item on item.digest_id = current_digest.id
+		where current_digest.user_id = $1::uuid
+			and current_digest.channel = 'dashboard' and current_digest.state = 'delivered'
+		group by current_digest.id, occurrence.state
+		order by current_digest.generated_at desc, current_digest.id desc
+		limit 1`, userID).Scan(&windowStart, &windowEnd, &occurrenceState, &storyIDs)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return []string{}, time.Time{}, time.Time{}, "", false, nil
+	}
+	if err != nil {
+		return nil, time.Time{}, time.Time{}, "", false, fmt.Errorf("select latest dashboard digest: %w", err)
+	}
+	return storyIDs, windowStart.UTC(), windowEnd.UTC(), occurrenceState, true, nil
 }
 
 func (store *Store) Live(ctx context.Context, generatedAt time.Time) (intelligence.LiveSnapshot, error) {
@@ -235,6 +269,36 @@ func (store *Store) listStories(
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate intelligence stories: %w", err)
+	}
+	return stories, nil
+}
+
+func (store *Store) listStoriesByID(ctx context.Context, storyIDs []string) ([]intelligence.StorySummary, error) {
+	if len(storyIDs) == 0 {
+		return []intelligence.StorySummary{}, nil
+	}
+	rows, err := store.pool.Query(ctx, storySummarySelect+`
+		and story_id = any($1::uuid[])`, storyIDs)
+	if err != nil {
+		return nil, fmt.Errorf("list digest intelligence stories: %w", err)
+	}
+	defer rows.Close()
+	byID := make(map[string]intelligence.StorySummary, len(storyIDs))
+	for rows.Next() {
+		story, _, scanErr := scanStory(rows)
+		if scanErr != nil {
+			return nil, fmt.Errorf("scan digest intelligence story: %w", scanErr)
+		}
+		byID[story.ID] = story
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate digest intelligence stories: %w", err)
+	}
+	stories := make([]intelligence.StorySummary, 0, len(storyIDs))
+	for _, storyID := range storyIDs {
+		if story, exists := byID[storyID]; exists {
+			stories = append(stories, story)
+		}
 	}
 	return stories, nil
 }

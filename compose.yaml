@@ -225,9 +225,14 @@ services:
         condition: service_completed_successfully
     environment:
       <<: *app-environment
+      AUTH_ALLOWED_GITHUB_USER_ID: "5276132"
       CLUSTER_MAX_AGE: 720h
       DEDUPE_EMBEDDING_THRESHOLD: "0.86"
       DEDUPE_SIMHASH_DISTANCE: "17"
+      ALLOW_LIVE_DELIVERY: "false"
+      DELIVERY_MODE: log
+      DELIVERY_REQUEST_TIMEOUT: 10s
+      DISCORD_ENABLED: "false"
       FAKE_DELIVERY_URL: http://fake-delivery:8092/capture
       FAKE_OPENAI_URL: http://fake-openai:8091
       HTTP_PORT: "8081"
@@ -256,6 +261,8 @@ services:
       OBJECT_STORAGE_REGION: us-east-1
       OBJECT_STORAGE_SECRET_KEY_FILE: /run/secrets/minio_secret_key
       PROVIDER_REQUEST_TIMEOUT: 5s
+      PUBLIC_BASE_URL: http://127.0.0.1:3000
+      RESEND_ENABLED: "false"
       RIVER_AI_TIMEOUT: 10m
       RIVER_RESEARCH_TIMEOUT: 30m
       SEARCH_HYBRID_ENABLED: "true"

@@ -27,6 +27,10 @@ const (
 	ProcessManualCaptureKind      = "process_manual_capture"
 	RunWeeklyRadarDiscoveryKind   = "run_weekly_radar_discovery"
 	RefreshPackageMetricsKind     = "refresh_package_metrics"
+	PreflightDigestSourcesKind    = "preflight_digest_sources"
+	PrepareDailyDigestKind        = "prepare_daily_digest"
+	FinalizeDailyDigestKind       = "finalize_daily_digest"
+	DeliverDigestKind             = "deliver_digest"
 )
 
 const reconcileSchedulesPeriodicID = "reconcile-schedules-v1"
@@ -59,6 +63,62 @@ func (ReconcileSchedulesArgs) InsertOpts() river.InsertOpts {
 type ScheduleOccurrenceArgs struct {
 	OccurrenceID string `json:"occurrenceId" river:"unique"`
 	RunID        string `json:"runId,omitempty"`
+}
+
+type PreflightDigestSourcesArgs struct {
+	OccurrenceID string `json:"occurrenceId" river:"unique"`
+}
+
+func (PreflightDigestSourcesArgs) Kind() string {
+	return PreflightDigestSourcesKind
+}
+
+func (PreflightDigestSourcesArgs) InsertOpts() river.InsertOpts {
+	return digestStageInsertOpts("preflight")
+}
+
+type PrepareDailyDigestArgs struct {
+	OccurrenceID string `json:"occurrenceId" river:"unique"`
+}
+
+func (PrepareDailyDigestArgs) Kind() string {
+	return PrepareDailyDigestKind
+}
+
+func (PrepareDailyDigestArgs) InsertOpts() river.InsertOpts {
+	return digestStageInsertOpts("prepare")
+}
+
+type FinalizeDailyDigestArgs struct {
+	OccurrenceID string `json:"occurrenceId" river:"unique"`
+}
+
+func (FinalizeDailyDigestArgs) Kind() string {
+	return FinalizeDailyDigestKind
+}
+
+func (FinalizeDailyDigestArgs) InsertOpts() river.InsertOpts {
+	return digestStageInsertOpts("finalize")
+}
+
+type DeliverDigestArgs struct {
+	DigestID string `json:"digestId" river:"unique"`
+}
+
+func (DeliverDigestArgs) Kind() string {
+	return DeliverDigestKind
+}
+
+func (DeliverDigestArgs) InsertOpts() river.InsertOpts {
+	return river.InsertOpts{
+		MaxAttempts: 8,
+		Priority:    1,
+		Queue:       QueueDelivery,
+		Tags:        []string{"digest", "delivery", "external"},
+		UniqueOpts: river.UniqueOpts{
+			ByArgs: true, ByQueue: true, ByState: activeJobStates(),
+		},
+	}
 }
 
 type ReembedEntityArgs struct {
@@ -264,6 +324,28 @@ func (ScheduleOccurrenceArgs) InsertOpts() river.InsertOpts {
 			ByQueue: true,
 			ByState: rivertype.JobStates(),
 		},
+	}
+}
+
+func digestStageInsertOpts(stage string) river.InsertOpts {
+	return river.InsertOpts{
+		MaxAttempts: 5,
+		Priority:    1,
+		Queue:       QueueDelivery,
+		Tags:        []string{"digest", stage, "deterministic"},
+		UniqueOpts: river.UniqueOpts{
+			ByArgs: true, ByQueue: true, ByState: rivertype.JobStates(),
+		},
+	}
+}
+
+func activeJobStates() []rivertype.JobState {
+	return []rivertype.JobState{
+		rivertype.JobStateAvailable,
+		rivertype.JobStatePending,
+		rivertype.JobStateRetryable,
+		rivertype.JobStateRunning,
+		rivertype.JobStateScheduled,
 	}
 }
 

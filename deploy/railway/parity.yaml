@@ -20,6 +20,20 @@ services:
     conditional_secrets:
       OPENAI_RESEARCH_ENABLED:
         - OPENAI_API_KEY
+      DISCORD_ENABLED:
+        - DISCORD_WEBHOOK_URL
+      RESEND_ENABLED:
+        - RESEND_API_KEY
+    conditional_configuration:
+      RESEND_ENABLED:
+        - DELIVERY_EMAIL_FROM
+        - DELIVERY_EMAIL_TO
+    required_configuration:
+      - ALLOW_LIVE_DELIVERY
+      - DELIVERY_MODE
+      - DISCORD_ENABLED
+      - PUBLIC_BASE_URL
+      - RESEND_ENABLED
   web:
     dockerfile: deploy/docker/web.Dockerfile
     target: production
@@ -58,3 +72,9 @@ openai_background:
   signature_verifier: official-openai-javascript-sdk
   reconciliation_interval: 15m
   result_fetcher: official-openai-go-sdk
+delivery:
+  default_mode: disabled
+  live_fuse: ALLOW_LIVE_DELIVERY
+  owner_date_channel_unique: true
+  retry_payload: immutable
+  staging_recipient_isolation: required

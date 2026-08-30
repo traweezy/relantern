@@ -14,6 +14,7 @@ import (
 	"github.com/traweezy/relantern/internal/controlplane"
 	controlplanestore "github.com/traweezy/relantern/internal/controlplane/pgstore"
 	"github.com/traweezy/relantern/internal/database"
+	"github.com/traweezy/relantern/internal/jobqueue"
 	"github.com/traweezy/relantern/internal/scheduler"
 )
 
@@ -23,7 +24,11 @@ func TestOwnerControlPlaneRoundTrip(t *testing.T) {
 	userID, scheduleID, sourceID := seedControlPlaneFixture(t, pool, now)
 	cleanupControlPlaneFixture(t, pool, userID)
 
-	store, err := controlplanestore.New(pool)
+	jobs, err := jobqueue.NewInserter()
+	if err != nil {
+		t.Fatalf("NewInserter() error = %v", err)
+	}
+	store, err := controlplanestore.New(pool, jobs)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -126,6 +131,15 @@ func TestOwnerControlPlaneRoundTrip(t *testing.T) {
 	}
 	if firstRun.OccurrenceID == "" || secondRun.OccurrenceID != firstRun.OccurrenceID {
 		t.Fatalf("run-now occurrences = %q and %q", firstRun.OccurrenceID, secondRun.OccurrenceID)
+	}
+	var externalDelivery bool
+	if err := pool.QueryRow(context.Background(), `
+		select coalesce((metadata->>'externalDelivery')::boolean, true)
+		from app.schedule_occurrences where id = $1::uuid`, firstRun.OccurrenceID).Scan(&externalDelivery); err != nil {
+		t.Fatal(err)
+	}
+	if externalDelivery {
+		t.Fatal("run-now preview enabled external delivery")
 	}
 	preview, err := service.PreviewSchedule(context.Background(), userID, schedule.ID, now)
 	if err != nil {
@@ -238,6 +252,11 @@ func seedControlPlaneFixture(
 func cleanupControlPlaneFixture(t *testing.T, pool *pgxpool.Pool, userID string) {
 	t.Helper()
 	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `delete from river.river_job where args->>'occurrenceId' in (
+			select occurrence.id::text from app.schedule_occurrences occurrence
+			join app.schedule_definitions schedule on schedule.id = occurrence.schedule_id
+			where schedule.user_id = $1::uuid
+		)`, userID)
 		_, _ = pool.Exec(context.Background(), `delete from app.audit_events where actor_id = $1`, userID)
 		_, _ = pool.Exec(context.Background(), `delete from app.outbox_events where aggregate_id = $1::uuid`, userID)
 		_, _ = pool.Exec(context.Background(), `delete from app.users where id = $1::uuid`, userID)

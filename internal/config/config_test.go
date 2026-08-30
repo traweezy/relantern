@@ -80,11 +80,70 @@ func TestLoadLocalOAuthStubRejectsWeakOrMalformedIdentity(t *testing.T) {
 }
 
 func TestLoadWorkerRequiresOneMinuteReconciliation(t *testing.T) {
-	t.Setenv("FAKE_DELIVERY_URL", "http://127.0.0.1:8092/capture")
 	t.Setenv("SCHEDULER_RECONCILE_INTERVAL", "5s")
 
 	if _, err := config.LoadWorker(); err == nil {
 		t.Fatal("LoadWorker() accepted a non-minute reconciliation interval")
+	}
+}
+
+func TestLoadDeliveryDefaultsToLocalCapture(t *testing.T) {
+	t.Setenv("FAKE_DELIVERY_URL", "http://127.0.0.1:8092/capture")
+	settings, err := config.LoadDelivery(config.EnvironmentTest)
+	if err != nil {
+		t.Fatalf("LoadDelivery() error = %v", err)
+	}
+	if settings.Mode != "log" || settings.AllowLive || settings.CaptureURL != "http://127.0.0.1:8092/capture" ||
+		settings.DiscordEnabled || settings.ResendEnabled || settings.RequestTimeout != 10*time.Second {
+		t.Fatalf("LoadDelivery() = %+v", settings)
+	}
+}
+
+func TestLoadDeliveryIsFailClosedAcrossEnvironments(t *testing.T) {
+	t.Run("local live is forbidden", func(t *testing.T) {
+		t.Setenv("DELIVERY_MODE", "live")
+		t.Setenv("ALLOW_LIVE_DELIVERY", "true")
+		if _, err := config.LoadDelivery(config.EnvironmentLocal); err == nil {
+			t.Fatal("LoadDelivery() accepted local live delivery")
+		}
+	})
+	t.Run("hosted defaults disabled without secrets", func(t *testing.T) {
+		settings, err := config.LoadDelivery(config.EnvironmentStaging)
+		if err != nil || settings.Mode != "disabled" || settings.AllowLive {
+			t.Fatalf("LoadDelivery() = %+v, %v", settings, err)
+		}
+	})
+	t.Run("live requires the fuse", func(t *testing.T) {
+		t.Setenv("DELIVERY_MODE", "live")
+		t.Setenv("DISCORD_ENABLED", "true")
+		if _, err := config.LoadDelivery(config.EnvironmentProduction); err == nil {
+			t.Fatal("LoadDelivery() accepted live delivery without the fuse")
+		}
+	})
+	t.Run("Discord is host allowlisted", func(t *testing.T) {
+		t.Setenv("DELIVERY_MODE", "live")
+		t.Setenv("ALLOW_LIVE_DELIVERY", "true")
+		t.Setenv("DISCORD_ENABLED", "true")
+		t.Setenv("PUBLIC_BASE_URL", "https://app.relantern.example")
+		t.Setenv("DISCORD_WEBHOOK_URL", "https://example.com/api/webhooks/123/token")
+		if _, err := config.LoadDelivery(config.EnvironmentStaging); err == nil {
+			t.Fatal("LoadDelivery() accepted an untrusted Discord host")
+		}
+	})
+}
+
+func TestLoadDeliveryAcceptsExplicitHostedDiscord(t *testing.T) {
+	t.Setenv("DELIVERY_MODE", "live")
+	t.Setenv("ALLOW_LIVE_DELIVERY", "true")
+	t.Setenv("DISCORD_ENABLED", "true")
+	t.Setenv("PUBLIC_BASE_URL", "https://app.relantern.example")
+	t.Setenv("DISCORD_WEBHOOK_URL", "https://discord.com/api/webhooks/123/token")
+	settings, err := config.LoadDelivery(config.EnvironmentStaging)
+	if err != nil {
+		t.Fatalf("LoadDelivery() error = %v", err)
+	}
+	if !settings.DiscordEnabled || settings.DiscordWebhookURL == "" || settings.Mode != "live" {
+		t.Fatalf("LoadDelivery() = %+v", settings)
 	}
 }
 

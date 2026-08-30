@@ -18,7 +18,7 @@ const storyID = "01991234-5678-7abc-8def-0123456789ab"
 
 type fixtureReader struct{}
 
-func (fixtureReader) Today(_ context.Context, generatedAt time.Time) (intelligence.TodaySnapshot, error) {
+func (fixtureReader) Today(_ context.Context, _ string, generatedAt time.Time) (intelligence.TodaySnapshot, error) {
 	return intelligence.TodaySnapshot{
 		CoverageEndAt: generatedAt, CoverageStartAt: generatedAt.Add(-24 * time.Hour),
 		DeliveryState: "pending", GeneratedAt: generatedAt, Stories: []intelligence.StorySummary{},
@@ -71,6 +71,7 @@ func TestIntelligenceEndpointsRequireInternalCredential(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			request := httptest.NewRequest(http.MethodGet, "/api/v1/today", nil)
+			request.Header.Set("X-Relantern-User-ID", storyID)
 			if authorization != "" {
 				request.Header.Set("Authorization", authorization)
 			}
@@ -93,6 +94,9 @@ func TestIntelligenceEndpointsReturnBoundedContracts(t *testing.T) {
 	for _, path := range []string{"/api/v1/today", "/api/v1/live", "/api/v1/stories/" + storyID} {
 		request := httptest.NewRequest(http.MethodGet, path, nil)
 		request.Header.Set("Authorization", "Bearer "+token)
+		if path == "/api/v1/today" {
+			request.Header.Set("X-Relantern-User-ID", storyID)
+		}
 		response := httptest.NewRecorder()
 		application.Handler.ServeHTTP(response, request)
 		if response.Code != http.StatusOK {

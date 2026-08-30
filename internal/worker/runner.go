@@ -63,10 +63,17 @@ func NewRunner(
 }
 
 func (runner *Runner) Once(ctx context.Context, logger *slog.Logger) error {
-	return runner.once(ctx, logger, runner.newRunID())
+	return runner.once(ctx, logger, runner.newRunID(), "")
 }
 
-func (runner *Runner) once(ctx context.Context, logger *slog.Logger, runID string) error {
+func (runner *Runner) OnceOccurrence(ctx context.Context, logger *slog.Logger, occurrenceID string) error {
+	if _, err := uuid.Parse(occurrenceID); err != nil {
+		return errors.New("one-shot occurrence ID must be a UUID")
+	}
+	return runner.once(ctx, logger, runner.newRunID(), occurrenceID)
+}
+
+func (runner *Runner) once(ctx context.Context, logger *slog.Logger, runID string, occurrenceID string) error {
 	arguments := jobqueue.ReconcileSchedulesArgs{RunID: runID}
 	var insertOptions *river.InsertOpts
 	if runner.reconcileQueue != "" {
@@ -86,7 +93,7 @@ func (runner *Runner) once(ctx context.Context, logger *slog.Logger, runID strin
 		return fmt.Errorf("start one-shot River client: %w", err)
 	}
 
-	cycleErr := runner.waitForCycle(ctx, result.Job.ID, runID)
+	cycleErr := runner.waitForCycle(ctx, result.Job.ID, runID, occurrenceID)
 	stopContext, cancelStop := context.WithTimeout(context.WithoutCancel(ctx), runner.shutdownTimeout)
 	defer cancelStop()
 	if stopErr := runner.client.Stop(stopContext); stopErr != nil {
@@ -138,7 +145,12 @@ func (runner *Runner) Run(ctx context.Context, logger *slog.Logger, port uint16)
 	return <-serverError
 }
 
-func (runner *Runner) waitForCycle(ctx context.Context, reconcileJobID int64, runID string) error {
+func (runner *Runner) waitForCycle(
+	ctx context.Context,
+	reconcileJobID int64,
+	runID string,
+	occurrenceID string,
+) error {
 	ticker := time.NewTicker(25 * time.Millisecond)
 	defer ticker.Stop()
 	for {
@@ -146,16 +158,37 @@ func (runner *Runner) waitForCycle(ctx context.Context, reconcileJobID int64, ru
 		var activeCount int64
 		var failedCount int64
 		err := runner.pool.QueryRow(ctx, `
+			with cycle_occurrences as (
+				select args ->> 'occurrenceId' as occurrence_id
+				from river.river_job
+				where kind = $3 and args ->> 'runId' = $2
+				union
+				select $4 where $4 <> ''
+			), cycle_jobs as (
+				select job.id, job.state
+				from river.river_job job
+				where job.id = $1
+					or (job.kind = $3 and job.args ->> 'runId' = $2)
+					or job.args ->> 'occurrenceId' in (
+						select occurrence_id from cycle_occurrences
+					)
+					or job.args ->> 'digestId' in (
+						select current_digest.id::text
+						from app.digests current_digest
+						where current_digest.schedule_occurrence_id::text in (
+							select occurrence_id from cycle_occurrences
+						)
+					)
+			)
 			select
 				(select state::text from river.river_job where id = $1),
 				count(*) filter (where state not in ('cancelled', 'completed', 'discarded')),
 				count(*) filter (where state in ('cancelled', 'discarded'))
-			from river.river_job
-		where id = $1
-			or (kind = $3 and args ->> 'runId' = $2)`,
+			from cycle_jobs`,
 			reconcileJobID,
 			runID,
 			jobqueue.ScheduleOccurrenceKind,
+			occurrenceID,
 		).Scan(&reconcileState, &activeCount, &failedCount)
 		if err != nil {
 			return fmt.Errorf("inspect one-shot River cycle: %w", err)

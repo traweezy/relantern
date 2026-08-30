@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/rivertype"
 	"github.com/traweezy/relantern/internal/clock"
 	"github.com/traweezy/relantern/internal/jobqueue"
@@ -52,6 +53,26 @@ func TestScheduleJobOptionsAreBoundedAndUnique(t *testing.T) {
 	occurrenceOptions := (jobqueue.ScheduleOccurrenceArgs{}).InsertOpts()
 	if occurrenceOptions.MaxAttempts != 5 || !occurrenceOptions.UniqueOpts.ByArgs {
 		t.Fatalf("occurrence options = %+v", occurrenceOptions)
+	}
+}
+
+func TestDigestJobsAreBoundedAndRetryableWithoutDuplicateActiveWork(t *testing.T) {
+	t.Parallel()
+	stages := []river.JobArgs{
+		jobqueue.PreflightDigestSourcesArgs{},
+		jobqueue.PrepareDailyDigestArgs{},
+		jobqueue.FinalizeDailyDigestArgs{},
+	}
+	for _, stage := range stages {
+		options := stage.(interface{ InsertOpts() river.InsertOpts }).InsertOpts()
+		if options.Queue != jobqueue.QueueDelivery || options.MaxAttempts != 5 || !options.UniqueOpts.ByArgs {
+			t.Fatalf("digest stage %q options = %+v", stage.Kind(), options)
+		}
+	}
+	deliveryOptions := (jobqueue.DeliverDigestArgs{}).InsertOpts()
+	if deliveryOptions.Queue != jobqueue.QueueDelivery || deliveryOptions.MaxAttempts != 8 ||
+		!deliveryOptions.UniqueOpts.ByArgs || len(deliveryOptions.UniqueOpts.ByState) != 5 {
+		t.Fatalf("digest delivery options = %+v", deliveryOptions)
 	}
 }
 

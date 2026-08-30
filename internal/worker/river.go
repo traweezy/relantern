@@ -13,6 +13,8 @@ import (
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 	"github.com/riverqueue/river/rivertype"
 	"github.com/traweezy/relantern/internal/clock"
+	"github.com/traweezy/relantern/internal/delivery"
+	"github.com/traweezy/relantern/internal/digest"
 	"github.com/traweezy/relantern/internal/extraction"
 	"github.com/traweezy/relantern/internal/jobqueue"
 	"github.com/traweezy/relantern/internal/manualcapture"
@@ -54,6 +56,101 @@ func (worker *reconcileSchedulesWorker) Work(
 type scheduleOccurrenceWorker struct {
 	river.WorkerDefaults[jobqueue.ScheduleOccurrenceArgs]
 	processor *Processor
+}
+
+type digestWorkflow interface {
+	Preflight(context.Context, string, time.Time) error
+	Prepare(context.Context, string, time.Time) error
+	Finalize(context.Context, string, time.Time) error
+	BeginDelivery(context.Context, string, time.Time) (*digest.Delivery, error)
+	CompleteDelivery(context.Context, string, digest.Receipt, time.Time) error
+	FailDelivery(context.Context, string, string, time.Time) error
+}
+
+type digestSender interface {
+	Send(context.Context, digest.Delivery) (digest.Receipt, error)
+}
+
+type preflightDigestSourcesWorker struct {
+	river.WorkerDefaults[jobqueue.PreflightDigestSourcesArgs]
+	clock     clock.Clock
+	processor digestWorkflow
+}
+
+func (worker *preflightDigestSourcesWorker) Work(
+	ctx context.Context,
+	job *river.Job[jobqueue.PreflightDigestSourcesArgs],
+) error {
+	return mapDigestWorkflowError(worker.processor.Preflight(ctx, job.Args.OccurrenceID, worker.clock.Now().UTC()))
+}
+
+type prepareDailyDigestWorker struct {
+	river.WorkerDefaults[jobqueue.PrepareDailyDigestArgs]
+	clock     clock.Clock
+	processor digestWorkflow
+}
+
+func (worker *prepareDailyDigestWorker) Work(
+	ctx context.Context,
+	job *river.Job[jobqueue.PrepareDailyDigestArgs],
+) error {
+	return mapDigestWorkflowError(worker.processor.Prepare(ctx, job.Args.OccurrenceID, worker.clock.Now().UTC()))
+}
+
+type finalizeDailyDigestWorker struct {
+	river.WorkerDefaults[jobqueue.FinalizeDailyDigestArgs]
+	clock     clock.Clock
+	processor digestWorkflow
+}
+
+func (worker *finalizeDailyDigestWorker) Work(
+	ctx context.Context,
+	job *river.Job[jobqueue.FinalizeDailyDigestArgs],
+) error {
+	return mapDigestWorkflowError(worker.processor.Finalize(ctx, job.Args.OccurrenceID, worker.clock.Now().UTC()))
+}
+
+type deliverDigestWorker struct {
+	river.WorkerDefaults[jobqueue.DeliverDigestArgs]
+	clock     clock.Clock
+	processor digestWorkflow
+	sender    digestSender
+}
+
+func (worker *deliverDigestWorker) Work(
+	ctx context.Context,
+	job *river.Job[jobqueue.DeliverDigestArgs],
+) error {
+	now := worker.clock.Now().UTC()
+	request, err := worker.processor.BeginDelivery(ctx, job.Args.DigestID, now)
+	if err != nil {
+		return mapDigestWorkflowError(err)
+	}
+	if request == nil {
+		return nil
+	}
+	receipt, err := worker.sender.Send(ctx, *request)
+	if err != nil {
+		errorCode := "delivery_provider_unavailable"
+		if delivery.Permanent(err) {
+			errorCode = "delivery_provider_rejected"
+		}
+		if recordErr := worker.processor.FailDelivery(ctx, request.DigestID, errorCode, worker.clock.Now().UTC()); recordErr != nil {
+			return fmt.Errorf("send digest: %w; record failure: %v", err, recordErr)
+		}
+		if delivery.Permanent(err) {
+			return river.JobCancel(err)
+		}
+		return err
+	}
+	return worker.processor.CompleteDelivery(ctx, request.DigestID, receipt, worker.clock.Now().UTC())
+}
+
+func mapDigestWorkflowError(err error) error {
+	if errors.Is(err, digest.ErrInvalid) || errors.Is(err, digest.ErrNotFound) || errors.Is(err, digest.ErrConflict) {
+		return river.JobCancel(err)
+	}
+	return err
 }
 
 type reembedEntityWorker struct {
@@ -512,6 +609,32 @@ func NewRiverClient(
 			return nil, fmt.Errorf("register Radar metrics worker: %w", err)
 		}
 	}
+	if configuration.digestProcessor != nil {
+		if configuration.digestSender == nil {
+			return nil, errors.New("digest workers require a delivery sender")
+		}
+		if err := river.AddWorkerSafely(workers, &preflightDigestSourcesWorker{
+			clock: configuredClock, processor: configuration.digestProcessor,
+		}); err != nil {
+			return nil, fmt.Errorf("register digest preflight worker: %w", err)
+		}
+		if err := river.AddWorkerSafely(workers, &prepareDailyDigestWorker{
+			clock: configuredClock, processor: configuration.digestProcessor,
+		}); err != nil {
+			return nil, fmt.Errorf("register digest preparation worker: %w", err)
+		}
+		if err := river.AddWorkerSafely(workers, &finalizeDailyDigestWorker{
+			clock: configuredClock, processor: configuration.digestProcessor,
+		}); err != nil {
+			return nil, fmt.Errorf("register digest finalization worker: %w", err)
+		}
+		if err := river.AddWorkerSafely(workers, &deliverDigestWorker{
+			clock: configuredClock, processor: configuration.digestProcessor,
+			sender: configuration.digestSender,
+		}); err != nil {
+			return nil, fmt.Errorf("register digest delivery worker: %w", err)
+		}
+	}
 
 	var periodicJobs []*river.PeriodicJob
 	if enablePeriodicJobs {
@@ -559,6 +682,8 @@ type riverOptions struct {
 	queueConfigs           map[string]river.QueueConfig
 	manualCaptureProcessor *manualcapture.Processor
 	radarProcessor         radarProcessor
+	digestProcessor        digestWorkflow
+	digestSender           digestSender
 }
 
 func WithSnoozeReturner(returner snoozeReturner) RiverOption {
@@ -576,6 +701,13 @@ func WithManualCaptureProcessor(processor *manualcapture.Processor) RiverOption 
 func WithRadarProcessor(processor radarProcessor) RiverOption {
 	return func(configuration *riverOptions) {
 		configuration.radarProcessor = processor
+	}
+}
+
+func WithDigestProcessor(processor digestWorkflow, sender digestSender) RiverOption {
+	return func(configuration *riverOptions) {
+		configuration.digestProcessor = processor
+		configuration.digestSender = sender
 	}
 }
 

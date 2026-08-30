@@ -8,17 +8,23 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/traweezy/relantern/internal/jobqueue"
 )
 
 type Store struct {
 	pool *pgxpool.Pool
+	jobs *jobqueue.Inserter
 }
 
-func New(pool *pgxpool.Pool) (*Store, error) {
+func New(pool *pgxpool.Pool, configuredJobs ...*jobqueue.Inserter) (*Store, error) {
 	if pool == nil {
 		return nil, errors.New("control-plane database pool is required")
 	}
-	return &Store{pool: pool}, nil
+	var jobs *jobqueue.Inserter
+	if len(configuredJobs) > 0 {
+		jobs = configuredJobs[0]
+	}
+	return &Store{pool: pool, jobs: jobs}, nil
 }
 
 func recordMutation(

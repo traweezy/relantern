@@ -191,6 +191,7 @@ type ScheduleActionRequest struct {
 	Action         string
 	Reason         string
 	IdempotencyKey string
+	Deliver        bool
 	PausedUntil    *time.Time
 	NextDueAt      *time.Time
 }

@@ -186,6 +186,68 @@ type AppDedupeDecision struct {
 	CreatedAt       pgtype.Timestamptz `json:"created_at"`
 }
 
+type AppDeliveryAttempt struct {
+	ID             int64              `json:"id"`
+	DigestID       pgtype.UUID        `json:"digest_id"`
+	Channel        string             `json:"channel"`
+	ProviderID     pgtype.Text        `json:"provider_id"`
+	IdempotencyKey string             `json:"idempotency_key"`
+	State          string             `json:"state"`
+	AttemptCount   int32              `json:"attempt_count"`
+	PayloadSha256  []byte             `json:"payload_sha256"`
+	AttemptedAt    pgtype.Timestamptz `json:"attempted_at"`
+	CompletedAt    pgtype.Timestamptz `json:"completed_at"`
+	ErrorCode      pgtype.Text        `json:"error_code"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+}
+
+type AppDigest struct {
+	ID                     pgtype.UUID        `json:"id"`
+	UserID                 pgtype.UUID        `json:"user_id"`
+	ScheduleOccurrenceID   pgtype.UUID        `json:"schedule_occurrence_id"`
+	LocalDigestDate        pgtype.Date        `json:"local_digest_date"`
+	WindowStart            pgtype.Timestamptz `json:"window_start"`
+	WindowEnd              pgtype.Timestamptz `json:"window_end"`
+	Channel                string             `json:"channel"`
+	State                  string             `json:"state"`
+	ItemLimit              int32              `json:"item_limit"`
+	MinimumScore           pgtype.Numeric     `json:"minimum_score"`
+	EmptyBehavior          string             `json:"empty_behavior"`
+	ExecutiveSummary       string             `json:"executive_summary"`
+	RenderedPayload        []byte             `json:"rendered_payload"`
+	PayloadSha256          []byte             `json:"payload_sha256"`
+	ProviderIdempotencyKey string             `json:"provider_idempotency_key"`
+	GeneratedAt            pgtype.Timestamptz `json:"generated_at"`
+	CompletedAt            pgtype.Timestamptz `json:"completed_at"`
+	ErrorCode              pgtype.Text        `json:"error_code"`
+}
+
+type AppDigestCandidate struct {
+	OccurrenceID     pgtype.UUID        `json:"occurrence_id"`
+	CandidateType    string             `json:"candidate_type"`
+	CandidateID      pgtype.UUID        `json:"candidate_id"`
+	StoryID          pgtype.UUID        `json:"story_id"`
+	ItemID           pgtype.UUID        `json:"item_id"`
+	RadarCandidateID pgtype.UUID        `json:"radar_candidate_id"`
+	Score            pgtype.Numeric     `json:"score"`
+	Category         string             `json:"category"`
+	Reason           string             `json:"reason"`
+	Snapshot         []byte             `json:"snapshot"`
+	CapturedAt       pgtype.Timestamptz `json:"captured_at"`
+}
+
+type AppDigestItem struct {
+	DigestID      pgtype.UUID    `json:"digest_id"`
+	CandidateType string         `json:"candidate_type"`
+	CandidateID   pgtype.UUID    `json:"candidate_id"`
+	SortOrder     int32          `json:"sort_order"`
+	Score         pgtype.Numeric `json:"score"`
+	Category      string         `json:"category"`
+	Reason        string         `json:"reason"`
+	Snapshot      []byte         `json:"snapshot"`
+}
+
 type AppEmbedding struct {
 	ID            pgtype.UUID        `json:"id"`
 	EntityType    string             `json:"entity_type"`

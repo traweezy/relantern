@@ -41,6 +41,51 @@ func (inserter *Inserter) EnqueueScheduleOccurrence(
 	return result.Job.ID, !result.UniqueSkippedAsDuplicate, nil
 }
 
+func (inserter *Inserter) EnqueuePreflightDigestSources(
+	ctx context.Context,
+	tx pgx.Tx,
+	arguments PreflightDigestSourcesArgs,
+) (int64, bool, error) {
+	return inserter.enqueueDigestJob(ctx, tx, arguments, arguments.OccurrenceID)
+}
+
+func (inserter *Inserter) EnqueuePrepareDailyDigest(
+	ctx context.Context,
+	tx pgx.Tx,
+	arguments PrepareDailyDigestArgs,
+) (int64, bool, error) {
+	return inserter.enqueueDigestJob(ctx, tx, arguments, arguments.OccurrenceID)
+}
+
+func (inserter *Inserter) EnqueueFinalizeDailyDigest(
+	ctx context.Context,
+	tx pgx.Tx,
+	arguments FinalizeDailyDigestArgs,
+) (int64, bool, error) {
+	return inserter.enqueueDigestJob(ctx, tx, arguments, arguments.OccurrenceID)
+}
+
+func (inserter *Inserter) EnqueueDeliverDigest(
+	ctx context.Context,
+	tx pgx.Tx,
+	arguments DeliverDigestArgs,
+) (int64, bool, error) {
+	return inserter.enqueueDigestJob(ctx, tx, arguments, arguments.DigestID)
+}
+
+func (inserter *Inserter) enqueueDigestJob(
+	ctx context.Context,
+	tx pgx.Tx,
+	arguments river.JobArgs,
+	identifier string,
+) (int64, bool, error) {
+	result, err := inserter.client.InsertTx(ctx, tx, arguments, nil)
+	if err != nil {
+		return 0, false, fmt.Errorf("enqueue digest work for %s: %w", identifier, err)
+	}
+	return result.Job.ID, !result.UniqueSkippedAsDuplicate, nil
+}
+
 func (inserter *Inserter) EnqueueReembedEntity(
 	ctx context.Context,
 	tx pgx.Tx,

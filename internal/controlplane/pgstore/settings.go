@@ -2,8 +2,10 @@ package pgstore
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -502,6 +504,9 @@ func (store *Store) ActOnSchedule(
 		}
 		result.Message = "The schedule resumed with a newly calculated future occurrence."
 	case "run_now":
+		if store.jobs == nil {
+			return result, errors.New("run-now scheduling requires the durable job queue")
+		}
 		location, loadErr := time.LoadLocation(timezone)
 		if loadErr != nil {
 			return result, fmt.Errorf("load run-now timezone: %w", loadErr)
@@ -509,14 +514,20 @@ func (store *Store) ActOnSchedule(
 		localized := now.In(location)
 		_, offsetSeconds := localized.Zone()
 		ledgerKey := "run-now:" + request.ScheduleID + ":" + request.IdempotencyKey
+		metadata, marshalErr := json.Marshal(map[string]any{
+			"externalDelivery": request.Deliver,
+			"ownerRequested":   true,
+		})
+		if marshalErr != nil {
+			return result, fmt.Errorf("encode run-now occurrence metadata: %w", marshalErr)
+		}
 		if err := transaction.QueryRow(ctx, `
 			with inserted as (
 				insert into app.schedule_occurrences (
 					schedule_id, scheduled_for, local_date, local_offset_seconds,
 					state, trigger_type, idempotency_key, metadata
 				) values (
-					$1::uuid, $2, $3, $4, 'ready', 'run_now', $5,
-					'{"previewOnly":true,"externalDelivery":false}'::jsonb
+					$1::uuid, $2, $3, $4, 'enqueued', 'run_now', $5, $6::jsonb
 				)
 				on conflict (idempotency_key) do nothing
 				returning id::text
@@ -533,12 +544,25 @@ func (store *Store) ActOnSchedule(
 			localized.Format(time.DateOnly),
 			offsetSeconds,
 			ledgerKey,
+			metadata,
 		).Scan(&result.OccurrenceID); errors.Is(err, pgx.ErrNoRows) {
 			return result, controlplane.ErrConflict
 		} else if err != nil {
-			return result, fmt.Errorf("create run-now preview occurrence: %w", err)
+			return result, fmt.Errorf("create run-now occurrence: %w", err)
 		}
-		result.Message = "A preview-only run-now occurrence is ready; external delivery remains disabled until PR17."
+		if _, _, err := store.jobs.EnqueueScheduleOccurrence(
+			ctx,
+			transaction,
+			result.OccurrenceID,
+			"owner-run-now:"+request.IdempotencyKey,
+		); err != nil {
+			return result, err
+		}
+		if request.Deliver {
+			result.Message = "The digest run is queued for configured channels; environment delivery fuses still apply."
+		} else {
+			result.Message = "The dashboard-only digest preview is queued; no external channel will be contacted."
+		}
 	}
 	if err := recordMutation(ctx, transaction, request.UserID, "schedule_"+request.Action, "schedule", request.ScheduleID, map[string]any{
 		"occurrenceId": result.OccurrenceID,
@@ -584,7 +608,7 @@ func (store *Store) PreviewSchedule(
 		NextRunAt:        schedule.NextDueAt,
 		CandidateCount:   candidateCount,
 		MaximumItems:     schedule.MaximumItems,
-		ExternalDelivery: false,
-		Explanation:      "Preview counts currently published, evidence-backed briefs in the bounded 36-hour window. No provider call or delivery occurs.",
+		ExternalDelivery: slices.Contains(schedule.Channels, "discord") || slices.Contains(schedule.Channels, "email"),
+		Explanation:      "Preview counts currently published, evidence-backed briefs in the bounded 36-hour window. Preview never renders a payload or contacts a provider.",
 	}, nil
 }

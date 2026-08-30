@@ -81,5 +81,5 @@ type LiveSnapshot struct {
 type Reader interface {
 	Live(context.Context, time.Time) (LiveSnapshot, error)
 	Story(context.Context, string) (StoryDetail, error)
-	Today(context.Context, time.Time) (TodaySnapshot, error)
+	Today(context.Context, string, time.Time) (TodaySnapshot, error)
 }

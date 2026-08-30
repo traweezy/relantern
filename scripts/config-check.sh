@@ -37,10 +37,26 @@ rg -q 'AUTH_PROVIDER_MODE: fixture' compose.yaml
 rg -q 'BETTER_AUTH_URL: http://127.0.0.1:3000' compose.yaml
 rg -q 'INTERNAL_API_URL: http://api:8080' compose.yaml
 rg -q 'PUBLIC_BASE_URL: http://127.0.0.1:3000' compose.yaml
+rg -q 'DELIVERY_MODE: log' compose.yaml
+rg -q 'ALLOW_LIVE_DELIVERY: "false"' compose.yaml
+rg -q 'DISCORD_ENABLED: "false"' compose.yaml
+rg -q 'RESEND_ENABLED: "false"' compose.yaml
 rg -q '^INTERNAL_API_URL=http://127.0.0.1:8080$' .env.local.example
 rg -q '^PUBLIC_BASE_URL=http://127.0.0.1:3000$' .env.local.example
+rg -q '^DELIVERY_MODE=log$' .env.local.example
+rg -q '^ALLOW_LIVE_DELIVERY=false$' .env.local.example
+rg -q '^DISCORD_ENABLED=false$' .env.local.example
+rg -q '^RESEND_ENABLED=false$' .env.local.example
 rg -q '      - INTERNAL_API_URL' deploy/railway/parity.yaml
 rg -q '      - PUBLIC_BASE_URL' deploy/railway/parity.yaml
+rg -q 'live_fuse: ALLOW_LIVE_DELIVERY' deploy/railway/parity.yaml
+rg -q 'owner_date_channel_unique: true' deploy/railway/parity.yaml
+for secret in DISCORD_WEBHOOK_URL RESEND_API_KEY; do
+  rg -q "        - ${secret}" deploy/railway/parity.yaml || {
+    printf 'Railway delivery parity is missing %s.\n' "${secret}" >&2
+    exit 1
+  }
+done
 rg -q 'LOCAL_OAUTH_STUB_SECRET_FILE: /run/secrets/local_oauth_stub_secret' compose.yaml
 test "$(rg -c 'DATABASE_PASSWORD_FILE: /run/secrets/database_password' compose.yaml)" -ge 2
 for secret in BETTER_AUTH_SECRET DATABASE_URL GITHUB_OAUTH_CLIENT_SECRET; do

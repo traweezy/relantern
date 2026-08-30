@@ -2,10 +2,12 @@ package fakeprovider
 
 import (
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"hash/fnv"
+	"html/template"
 	"log/slog"
 	"math"
 	"net/http"
@@ -38,7 +40,7 @@ const (
 
 type captureStore struct {
 	mu       sync.RWMutex
-	keys     map[string]struct{}
+	keys     map[string]int
 	captures []Capture
 }
 
@@ -105,23 +107,30 @@ func NewWithOptions(kind Kind, logger *slog.Logger, options Options) (http.Handl
 }
 
 func registerDelivery(mux *http.ServeMux) {
-	store := &captureStore{keys: make(map[string]struct{})}
+	store := &captureStore{keys: make(map[string]int)}
 	mux.HandleFunc("POST /capture", func(response http.ResponseWriter, request *http.Request) {
 		defer request.Body.Close()
 		var payload Capture
 		decoder := json.NewDecoder(http.MaxBytesReader(response, request.Body, 64<<10))
 		decoder.DisallowUnknownFields()
-		if err := decoder.Decode(&payload); err != nil || payload.IdempotencyKey == "" || payload.LocalDate == "" || payload.Message == "" || payload.ScheduledFor.IsZero() {
+		if err := decoder.Decode(&payload); err != nil || !validCapture(payload) {
 			httpx.WriteProblem(response, request, http.StatusBadRequest, "Invalid capture", "The capture body must be valid JSON.")
 			return
 		}
+		payload.Headers = map[string]string{
+			"Content-Type":    request.Header.Get("Content-Type"),
+			"Idempotency-Key": request.Header.Get("Idempotency-Key"),
+		}
+		payload.ReceivedAt = time.Now().UTC()
 		store.mu.Lock()
 		if _, exists := store.keys[payload.IdempotencyKey]; !exists {
-			store.keys[payload.IdempotencyKey] = struct{}{}
+			store.keys[payload.IdempotencyKey] = len(store.captures)
 			store.captures = append(store.captures, payload)
 		}
 		store.mu.Unlock()
-		httpx.WriteJSON(response, http.StatusAccepted, map[string]string{"status": "captured"})
+		httpx.WriteJSON(response, http.StatusAccepted, map[string]string{
+			"id": "capture:" + payload.DigestID, "status": "captured",
+		})
 	})
 	mux.HandleFunc("GET /captures", func(response http.ResponseWriter, _ *http.Request) {
 		store.mu.RLock()
@@ -129,6 +138,43 @@ func registerDelivery(mux *http.ServeMux) {
 		store.mu.RUnlock()
 		httpx.WriteJSON(response, http.StatusOK, map[string]any{"count": len(captures), "captures": captures})
 	})
+	mux.HandleFunc("GET /", func(response http.ResponseWriter, _ *http.Request) {
+		store.mu.RLock()
+		captures := append([]Capture{}, store.captures...)
+		store.mu.RUnlock()
+		response.Header().Set("Content-Type", "text/html; charset=utf-8")
+		if err := deliveryViewer.Execute(response, captures); err != nil {
+			http.Error(response, "render capture viewer", http.StatusInternalServerError)
+		}
+	})
+}
+
+var deliveryViewer = template.Must(template.New("delivery-viewer").Parse(`<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Relantern delivery captures</title><style>
+body{font:16px system-ui,sans-serif;max-width:76rem;margin:0 auto;padding:2rem;background:#111827;color:#f9fafb}
+table{border-collapse:collapse;width:100%}caption{text-align:left;font-size:1.5rem;font-weight:700;margin-bottom:1rem}
+th,td{text-align:left;vertical-align:top;padding:.75rem;border-bottom:1px solid #374151}th{color:#d1d5db}
+code{overflow-wrap:anywhere;color:#a7f3d0}.empty{padding:2rem;border:1px dashed #4b5563;border-radius:.75rem}
+</style></head><body><main>{{if .}}<table><caption>Captured digest deliveries</caption><thead><tr>
+<th>Received</th><th>Channel</th><th>Digest</th><th>Attempt</th><th>Payload SHA-256</th></tr></thead><tbody>
+{{range .}}<tr><td>{{.ReceivedAt}}</td><td>{{.Channel}}</td><td><code>{{.DigestID}}</code></td><td>{{.Attempt}}</td><td><code>{{.PayloadSHA256}}</code></td></tr>{{end}}
+</tbody></table>{{else}}<section class="empty"><h1>No delivery captures</h1><p>The local delivery sink is ready.</p></section>{{end}}</main></body></html>`))
+
+func validCapture(payload Capture) bool {
+	if payload.Attempt < 1 || (payload.Channel != "discord" && payload.Channel != "email") ||
+		strings.TrimSpace(payload.DigestID) == "" || strings.TrimSpace(payload.IdempotencyKey) == "" ||
+		strings.TrimSpace(payload.LocalDate) == "" || len(payload.PayloadSHA256) != 64 || payload.ScheduledFor.IsZero() {
+		return false
+	}
+	if _, err := time.Parse(time.DateOnly, payload.LocalDate); err != nil {
+		return false
+	}
+	if _, err := hex.DecodeString(payload.PayloadSHA256); err != nil {
+		return false
+	}
+	var decoded map[string]any
+	return len(payload.Payload) > 1 && len(payload.Payload) <= 64<<10 && json.Unmarshal(payload.Payload, &decoded) == nil && decoded != nil
 }
 
 func registerOpenAI(mux *http.ServeMux) {
@@ -588,8 +634,14 @@ func registerSource(mux *http.ServeMux) {
 }
 
 type Capture struct {
-	IdempotencyKey string    `json:"idempotencyKey"`
-	LocalDate      string    `json:"localDate"`
-	Message        string    `json:"message"`
-	ScheduledFor   time.Time `json:"scheduledFor"`
+	Attempt        int               `json:"attempt"`
+	Channel        string            `json:"channel"`
+	DigestID       string            `json:"digestId"`
+	Headers        map[string]string `json:"headers,omitempty"`
+	IdempotencyKey string            `json:"idempotencyKey"`
+	LocalDate      string            `json:"localDate"`
+	Payload        json.RawMessage   `json:"payload"`
+	PayloadSHA256  string            `json:"payloadSha256"`
+	ReceivedAt     time.Time         `json:"receivedAt,omitempty"`
+	ScheduledFor   time.Time         `json:"scheduledFor"`
 }

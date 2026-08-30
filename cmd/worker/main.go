@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -15,6 +16,8 @@ import (
 	"github.com/traweezy/relantern/internal/database"
 	"github.com/traweezy/relantern/internal/dedupe"
 	dedupestore "github.com/traweezy/relantern/internal/dedupe/pgstore"
+	deliveryclient "github.com/traweezy/relantern/internal/delivery"
+	digeststore "github.com/traweezy/relantern/internal/digest/pgstore"
 	"github.com/traweezy/relantern/internal/embedding"
 	embeddingstore "github.com/traweezy/relantern/internal/embedding/pgstore"
 	"github.com/traweezy/relantern/internal/extraction"
@@ -56,6 +59,9 @@ func run(arguments []string, logger *slog.Logger) error {
 	if len(arguments) > 0 && (arguments[0] == "dead-letters" || arguments[0] == "retry-job") {
 		return runJobOperation(arguments, logger)
 	}
+	if len(arguments) > 0 && (arguments[0] == "digest-preview" || arguments[0] == "digest-run") {
+		return runDigestOperation(arguments)
+	}
 	common, err := config.LoadCommon()
 	if err != nil {
 		return fmt.Errorf("load common configuration: %w", err)
@@ -67,6 +73,10 @@ func run(arguments []string, logger *slog.Logger) error {
 	workerConfig, err := config.LoadWorker()
 	if err != nil {
 		return fmt.Errorf("load worker configuration: %w", err)
+	}
+	deliveryConfig, err := config.LoadDelivery(common.Environment)
+	if err != nil {
+		return fmt.Errorf("load delivery configuration: %w", err)
 	}
 	objectStorageConfig, err := config.LoadObjectStorage(common.Environment)
 	if err != nil {
@@ -195,6 +205,20 @@ func run(arguments []string, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	digestStore, err := digeststore.New(pool, inserter)
+	if err != nil {
+		return fmt.Errorf("create digest store: %w", err)
+	}
+	digestSender, err := deliveryclient.New(deliveryclient.Config{
+		Mode: deliveryConfig.Mode, CaptureURL: deliveryConfig.CaptureURL,
+		DiscordURL: deliveryConfig.DiscordWebhookURL, ResendURL: deliveryConfig.ResendAPIURL,
+		ResendAPIKey: deliveryConfig.ResendAPIKey, EmailFrom: deliveryConfig.EmailFrom,
+		EmailTo: deliveryConfig.EmailTo, PublicBaseURL: deliveryConfig.PublicBaseURL,
+		RequestTimeout: deliveryConfig.RequestTimeout,
+	})
+	if err != nil {
+		return fmt.Errorf("create digest delivery client: %w", err)
+	}
 	var manualCaptureProcessor *manualcapture.Processor
 	if embeddingClient != nil {
 		dedupeStore, storeError := dedupestore.New(pool, common.Clock, dedupe.Config{
@@ -291,13 +315,15 @@ func run(arguments []string, logger *slog.Logger) error {
 	}
 	processor := worker.NewProcessor(
 		pool,
-		workerConfig.DeliveryURL,
+		deliveryConfig.CaptureURL,
 		workerConfig.RequestTimeout,
+		worker.WithDigestScheduleHandoff(digestStore),
 		worker.WithRadarScheduleHandoff(radarProcessor),
 	)
 	riverOptions := []worker.RiverOption{
 		worker.WithSnoozeReturner(readingStateStore),
 		worker.WithRadarProcessor(radarProcessor),
+		worker.WithDigestProcessor(digestStore, digestSender),
 	}
 	if manualCaptureProcessor != nil {
 		riverOptions = append(riverOptions, worker.WithManualCaptureProcessor(manualCaptureProcessor))
@@ -329,6 +355,12 @@ func run(arguments []string, logger *slog.Logger) error {
 	}
 	runner := worker.NewRunner(riverClient, pool, health, httpConfig.ShutdownTimeout)
 	if len(arguments) > 0 && arguments[0] == "once" {
+		if len(arguments) == 3 && arguments[1] == "--occurrence-id" {
+			return runner.OnceOccurrence(rootContext, logger, arguments[2])
+		}
+		if len(arguments) != 1 {
+			return errors.New("usage: worker once [--occurrence-id UUID]")
+		}
 		return runner.Once(rootContext, logger)
 	}
 	return runner.Run(rootContext, logger, httpConfig.Port)

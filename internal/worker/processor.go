@@ -1,18 +1,15 @@
 package worker
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/traweezy/relantern/internal/fakeprovider"
+	"github.com/traweezy/relantern/internal/digest"
 	"github.com/traweezy/relantern/internal/jobqueue"
 	"github.com/traweezy/relantern/internal/radar"
 )
@@ -20,10 +17,13 @@ import (
 var errOccurrenceNotFound = errors.New("schedule occurrence not found")
 
 type Processor struct {
-	pool        *pgxpool.Pool
-	deliveryURL string
-	client      *http.Client
-	radar       scheduledRadar
+	pool   *pgxpool.Pool
+	digest scheduledDigest
+	radar  scheduledRadar
+}
+
+type scheduledDigest interface {
+	QueueOccurrence(context.Context, string) error
 }
 
 type scheduledRadar interface {
@@ -38,6 +38,12 @@ func WithRadarScheduleHandoff(store scheduledRadar) ProcessorOption {
 	}
 }
 
+func WithDigestScheduleHandoff(store scheduledDigest) ProcessorOption {
+	return func(processor *Processor) {
+		processor.digest = store
+	}
+}
+
 type occurrence struct {
 	id             string
 	idempotencyKey string
@@ -49,15 +55,11 @@ type occurrence struct {
 
 func NewProcessor(
 	pool *pgxpool.Pool,
-	deliveryURL string,
-	requestTimeout time.Duration,
+	_ string,
+	_ time.Duration,
 	options ...ProcessorOption,
 ) *Processor {
-	processor := &Processor{
-		pool:        pool,
-		deliveryURL: deliveryURL,
-		client:      &http.Client{Timeout: requestTimeout},
-	}
+	processor := &Processor{pool: pool}
 	for _, option := range options {
 		option(processor)
 	}
@@ -69,12 +71,35 @@ func (processor *Processor) Process(ctx context.Context, occurrenceID string) er
 		return jobqueue.Permanent(fmt.Errorf("invalid occurrence ID: %w", err))
 	}
 
-	selected, err := processor.claim(ctx, occurrenceID)
+	selected, err := processor.lookup(ctx, occurrenceID)
 	if err != nil {
 		return err
 	}
 	if selected == nil {
 		return nil
+	}
+	if selected.scheduleType == "daily_digest" {
+		if processor.digest == nil {
+			configurationErr := jobqueue.Permanent(errors.New("daily digest schedule handoff is not configured"))
+			if updateErr := processor.recordFailure(ctx, selected.id, "digest_handoff_unconfigured"); updateErr != nil {
+				return fmt.Errorf("daily digest handoff: %w; record failure: %v", configurationErr, updateErr)
+			}
+			return configurationErr
+		}
+		if queueErr := processor.digest.QueueOccurrence(ctx, selected.id); queueErr != nil {
+			if errors.Is(queueErr, digest.ErrInvalid) || errors.Is(queueErr, digest.ErrNotFound) {
+				queueErr = jobqueue.Permanent(queueErr)
+			}
+			if updateErr := processor.recordFailure(ctx, selected.id, "digest_handoff_unavailable"); updateErr != nil {
+				return fmt.Errorf("queue daily digest: %w; record failure: %v", queueErr, updateErr)
+			}
+			return queueErr
+		}
+		return nil
+	}
+	selected, err = processor.claim(ctx, occurrenceID)
+	if err != nil || selected == nil {
+		return err
 	}
 	if selected.scheduleType == "weekly_radar" {
 		if processor.radar == nil {
@@ -96,20 +121,39 @@ func (processor *Processor) Process(ctx context.Context, occurrenceID string) er
 		}
 		return processor.recordRadarHandoff(ctx, selected.id, run.ID)
 	}
-	if err := processor.deliver(ctx, *selected); err != nil {
-		errorCode := "fake_delivery_unavailable"
-		if jobqueue.IsPermanent(err) {
-			errorCode = "fake_delivery_rejected"
-		}
-		if updateErr := processor.recordFailure(ctx, selected.id, errorCode); updateErr != nil {
-			return fmt.Errorf("deliver occurrence: %w; record failure: %v", err, updateErr)
-		}
-		return err
+	if selected.scheduleType == "maintenance" {
+		return processor.recordDelivery(ctx, selected.id)
 	}
-	if err := processor.recordDelivery(ctx, selected.id); err != nil {
-		return err
+	unsupportedErr := jobqueue.Permanent(fmt.Errorf("unsupported schedule type %q", selected.scheduleType))
+	if updateErr := processor.recordFailure(ctx, selected.id, "schedule_type_unsupported"); updateErr != nil {
+		return fmt.Errorf("unsupported schedule: %w; record failure: %v", unsupportedErr, updateErr)
 	}
-	return nil
+	return unsupportedErr
+}
+
+func (processor *Processor) lookup(ctx context.Context, occurrenceID string) (*occurrence, error) {
+	var selected occurrence
+	var state string
+	err := processor.pool.QueryRow(ctx, `
+		select occurrence.id::text, occurrence.idempotency_key, occurrence.local_date,
+			occurrence.scheduled_for, occurrence.state, schedule.schedule_type,
+			schedule.user_id::text
+		from app.schedule_occurrences occurrence
+		join app.schedule_definitions schedule on schedule.id = occurrence.schedule_id
+		where occurrence.id = $1::uuid`, occurrenceID).Scan(
+		&selected.id, &selected.idempotencyKey, &selected.localDate, &selected.scheduledFor,
+		&state, &selected.scheduleType, &selected.userID,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, jobqueue.Permanent(errOccurrenceNotFound)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("select occurrence: %w", err)
+	}
+	if state == "delivered" || state == "skipped" || state == "missed" {
+		return nil, nil
+	}
+	return &selected, nil
 }
 
 func (processor *Processor) claim(ctx context.Context, occurrenceID string) (*occurrence, error) {
@@ -162,42 +206,6 @@ func (processor *Processor) claim(ctx context.Context, occurrenceID string) (*oc
 	return &selected, nil
 }
 
-func (processor *Processor) deliver(ctx context.Context, selected occurrence) error {
-	payload := fakeprovider.Capture{
-		IdempotencyKey: selected.idempotencyKey,
-		LocalDate:      selected.localDate.Format(time.DateOnly),
-		Message:        "Relantern PR 0 deterministic digest: no eligible stories; live providers are disabled.",
-		ScheduledFor:   selected.scheduledFor.UTC(),
-	}
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return fmt.Errorf("encode occurrence %s: %w", selected.id, err)
-	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, processor.deliveryURL, bytes.NewReader(body))
-	if err != nil {
-		return fmt.Errorf("create delivery request: %w", err)
-	}
-	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set("Idempotency-Key", selected.idempotencyKey)
-	response, err := processor.client.Do(request)
-	if err != nil {
-		return fmt.Errorf("send occurrence %s: %w", selected.id, err)
-	}
-	defer response.Body.Close()
-	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
-		deliveryError := fmt.Errorf("fake delivery returned status %d", response.StatusCode)
-		if response.StatusCode >= http.StatusBadRequest &&
-			response.StatusCode < http.StatusInternalServerError &&
-			response.StatusCode != http.StatusRequestTimeout &&
-			response.StatusCode != http.StatusTooEarly &&
-			response.StatusCode != http.StatusTooManyRequests {
-			return jobqueue.Permanent(deliveryError)
-		}
-		return deliveryError
-	}
-	return nil
-}
-
 func (processor *Processor) recordDelivery(ctx context.Context, id string) error {
 	result, err := processor.pool.Exec(ctx, `
 		update app.schedule_occurrences
@@ -238,7 +246,7 @@ func (processor *Processor) recordFailure(ctx context.Context, id string, errorC
 	_, err := processor.pool.Exec(ctx, `
 		update app.schedule_occurrences
 		set state = 'failed', error_code = $2
-		where id = $1::uuid and state = 'delivering'`, id, errorCode)
+		where id = $1::uuid and state not in ('delivered', 'skipped', 'missed')`, id, errorCode)
 	if err != nil {
 		return fmt.Errorf("record occurrence %s failure: %w", id, err)
 	}

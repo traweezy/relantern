@@ -2,12 +2,7 @@ package worker_test
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
-	"log/slog"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"testing"
 	"time"
@@ -15,29 +10,21 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/traweezy/relantern/internal/config"
 	"github.com/traweezy/relantern/internal/database"
-	"github.com/traweezy/relantern/internal/fakeprovider"
+	digeststore "github.com/traweezy/relantern/internal/digest/pgstore"
 	"github.com/traweezy/relantern/internal/jobqueue"
 	radarstore "github.com/traweezy/relantern/internal/radar/pgstore"
 	"github.com/traweezy/relantern/internal/worker"
 )
 
-func TestProcessorMakesOccurrenceDeliveryIdempotent(t *testing.T) {
+func TestProcessorMakesDailyDigestHandoffIdempotent(t *testing.T) {
 	pool := openWorkerIntegrationPool(t)
-	handler, err := fakeprovider.New(
-		fakeprovider.KindDelivery,
-		slog.New(slog.NewTextHandler(io.Discard, nil)),
-	)
-	if err != nil {
-		t.Fatalf("fakeprovider.New() error = %v", err)
-	}
-	server := httptest.NewServer(handler)
-	t.Cleanup(server.Close)
-
 	userID, occurrenceID := insertWorkerOccurrence(t, pool, "enqueued")
 	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `delete from river.river_job where args->>'occurrenceId' = $1`, occurrenceID)
 		_, _ = pool.Exec(context.Background(), "delete from app.users where id = $1::uuid", userID)
 	})
-	processor := worker.NewProcessor(pool, server.URL+"/capture", 2*time.Second)
+	digests := newDigestHandoff(t, pool)
+	processor := worker.NewProcessor(pool, "", 2*time.Second, worker.WithDigestScheduleHandoff(digests))
 	if err := processor.Process(context.Background(), occurrenceID); err != nil {
 		t.Fatalf("first Process() error = %v", err)
 	}
@@ -45,47 +32,33 @@ func TestProcessorMakesOccurrenceDeliveryIdempotent(t *testing.T) {
 		t.Fatalf("second Process() error = %v", err)
 	}
 
-	response, err := http.Get(server.URL + "/captures")
-	if err != nil {
-		t.Fatalf("get captures: %v", err)
-	}
-	defer response.Body.Close()
-	var captures struct {
-		Count int `json:"count"`
-	}
-	if err := json.NewDecoder(response.Body).Decode(&captures); err != nil {
-		t.Fatalf("decode captures: %v", err)
-	}
-	if captures.Count != 1 {
-		t.Fatalf("capture count = %d, want 1", captures.Count)
-	}
 	var state string
 	if err := pool.QueryRow(context.Background(), `
 		select state from app.schedule_occurrences where id = $1::uuid`, occurrenceID).Scan(&state); err != nil {
 		t.Fatalf("inspect delivered occurrence: %v", err)
 	}
-	if state != "delivered" {
-		t.Fatalf("occurrence state = %q, want delivered", state)
+	if state != "preparing" {
+		t.Fatalf("occurrence state = %q, want preparing", state)
+	}
+	var jobs int
+	if err := pool.QueryRow(context.Background(), `
+		select count(*)::integer from river.river_job
+		where kind = 'preflight_digest_sources' and args->>'occurrenceId' = $1`, occurrenceID).Scan(&jobs); err != nil {
+		t.Fatal(err)
+	}
+	if jobs != 1 {
+		t.Fatalf("preflight jobs = %d, want 1", jobs)
 	}
 }
 
-func TestProcessorResumesOccurrenceLeftDeliveringByRestart(t *testing.T) {
+func TestProcessorResumesDailyDigestHandoffAfterRestart(t *testing.T) {
 	pool := openWorkerIntegrationPool(t)
-	handler, err := fakeprovider.New(
-		fakeprovider.KindDelivery,
-		slog.New(slog.NewTextHandler(io.Discard, nil)),
-	)
-	if err != nil {
-		t.Fatalf("fakeprovider.New() error = %v", err)
-	}
-	server := httptest.NewServer(handler)
-	t.Cleanup(server.Close)
-
 	userID, occurrenceID := insertWorkerOccurrence(t, pool, "delivering")
 	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `delete from river.river_job where args->>'occurrenceId' = $1`, occurrenceID)
 		_, _ = pool.Exec(context.Background(), "delete from app.users where id = $1::uuid", userID)
 	})
-	processor := worker.NewProcessor(pool, server.URL+"/capture", 2*time.Second)
+	processor := worker.NewProcessor(pool, "", 2*time.Second, worker.WithDigestScheduleHandoff(newDigestHandoff(t, pool)))
 	if err := processor.Process(context.Background(), occurrenceID); err != nil {
 		t.Fatalf("Process() error = %v", err)
 	}
@@ -94,22 +67,13 @@ func TestProcessorResumesOccurrenceLeftDeliveringByRestart(t *testing.T) {
 		select state from app.schedule_occurrences where id = $1::uuid`, occurrenceID).Scan(&state); err != nil {
 		t.Fatalf("inspect resumed occurrence: %v", err)
 	}
-	if state != "delivered" {
-		t.Fatalf("resumed occurrence state = %q, want delivered", state)
+	if state != "preparing" {
+		t.Fatalf("resumed occurrence state = %q, want preparing", state)
 	}
 }
 
 func TestProcessorHandsWeeklyRadarOccurrenceToDurableDiscovery(t *testing.T) {
 	pool := openWorkerIntegrationPool(t)
-	handler, err := fakeprovider.New(
-		fakeprovider.KindDelivery,
-		slog.New(slog.NewTextHandler(io.Discard, nil)),
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	server := httptest.NewServer(handler)
-	t.Cleanup(server.Close)
 	userID, occurrenceID := insertWorkerOccurrence(t, pool, "enqueued", "weekly_radar")
 	t.Cleanup(func() {
 		ctx := context.Background()
@@ -133,7 +97,7 @@ func TestProcessorHandsWeeklyRadarOccurrenceToDurableDiscovery(t *testing.T) {
 	}
 	processor := worker.NewProcessor(
 		pool,
-		server.URL+"/capture",
+		"",
 		2*time.Second,
 		worker.WithRadarScheduleHandoff(radar),
 	)
@@ -167,70 +131,25 @@ func TestProcessorHandsWeeklyRadarOccurrenceToDurableDiscovery(t *testing.T) {
 	if runs != 1 || jobsQueued != 1 {
 		t.Fatalf("Radar handoff = %d runs, %d jobs", runs, jobsQueued)
 	}
-	response, err := http.Get(server.URL + "/captures")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer response.Body.Close()
-	var captures struct {
-		Count int `json:"count"`
-	}
-	if err := json.NewDecoder(response.Body).Decode(&captures); err != nil {
-		t.Fatal(err)
-	}
-	if captures.Count != 0 {
-		t.Fatalf("weekly Radar produced %d delivery captures", captures.Count)
-	}
 }
 
-func TestProcessorClassifiesProviderFailures(t *testing.T) {
-	tests := []struct {
-		name          string
-		status        int
-		wantPermanent bool
-		wantCode      string
-	}{
-		{
-			name:     "retry server failure",
-			status:   http.StatusServiceUnavailable,
-			wantCode: "fake_delivery_unavailable",
-		},
-		{
-			name:          "cancel invalid request",
-			status:        http.StatusBadRequest,
-			wantPermanent: true,
-			wantCode:      "fake_delivery_rejected",
-		},
+func TestProcessorFailsClosedWithoutDigestHandoff(t *testing.T) {
+	pool := openWorkerIntegrationPool(t)
+	userID, occurrenceID := insertWorkerOccurrence(t, pool, "enqueued")
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), "delete from app.users where id = $1::uuid", userID)
+	})
+	err := worker.NewProcessor(pool, "", 2*time.Second).Process(context.Background(), occurrenceID)
+	if !jobqueue.IsPermanent(err) {
+		t.Fatalf("Process() error = %v, want permanent configuration failure", err)
 	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			pool := openWorkerIntegrationPool(t)
-			server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
-				response.WriteHeader(test.status)
-			}))
-			t.Cleanup(server.Close)
-			userID, occurrenceID := insertWorkerOccurrence(t, pool, "enqueued")
-			t.Cleanup(func() {
-				_, _ = pool.Exec(context.Background(), "delete from app.users where id = $1::uuid", userID)
-			})
-
-			processor := worker.NewProcessor(pool, server.URL, 2*time.Second)
-			err := processor.Process(context.Background(), occurrenceID)
-			if err == nil || jobqueue.IsPermanent(err) != test.wantPermanent {
-				t.Fatalf("Process() error = %v, permanent = %t", err, jobqueue.IsPermanent(err))
-			}
-			var state string
-			var errorCode string
-			if queryErr := pool.QueryRow(context.Background(), `
-				select state, error_code
-				from app.schedule_occurrences
-				where id = $1::uuid`, occurrenceID).Scan(&state, &errorCode); queryErr != nil {
-				t.Fatalf("inspect failed occurrence: %v", queryErr)
-			}
-			if state != "failed" || errorCode != test.wantCode {
-				t.Fatalf("failed occurrence = state %q, code %q", state, errorCode)
-			}
-		})
+	var state, errorCode string
+	if err := pool.QueryRow(context.Background(), `
+		select state, error_code from app.schedule_occurrences where id = $1::uuid`, occurrenceID).Scan(&state, &errorCode); err != nil {
+		t.Fatal(err)
+	}
+	if state != "failed" || errorCode != "digest_handoff_unconfigured" {
+		t.Fatalf("failed occurrence = %q/%q", state, errorCode)
 	}
 }
 
@@ -260,6 +179,19 @@ func openWorkerIntegrationPool(t *testing.T) *pgxpool.Pool {
 	}
 	t.Cleanup(pool.Close)
 	return pool
+}
+
+func newDigestHandoff(t *testing.T, pool *pgxpool.Pool) *digeststore.Store {
+	t.Helper()
+	jobs, err := jobqueue.NewInserter()
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := digeststore.New(pool, jobs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return store
 }
 
 func insertWorkerOccurrence(
