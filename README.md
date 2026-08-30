@@ -54,8 +54,11 @@ isolated restore drills, a reviewed threat model, and complete Version 1
 incident runbooks. PR 19 adds pinned typed Railway infrastructure, isolated
 staging/production fuses, a destructive-drift-rejecting read-only plan, and a
 strict evidence-bound 14-day soak ledger. The hosted project remains empty and
-the soak has not started; deployment remains intentionally withheld until the
-staging soak and release-evidence phases pass.
+the soak has not started. PR 20 adds exact staging-source and tree proofs,
+strict hashed release evidence, immutable source/SBOM/provenance bundles,
+signed-tag verification, and continuous master-integrity checks. Deployment
+remains intentionally withheld until the staging soak and release evidence
+pass.
 
 ## Safe local workflow
 
@@ -87,6 +90,7 @@ make retention-run
 make railway-check
 make railway-plan environment=staging
 make soak-status
+make release-check
 make prepush
 make prodlike-smoke
 make stop
@@ -172,6 +176,15 @@ After an attended staging provision, use `make railway-readiness` with the
 frozen full SHA and follow the
 [staging soak procedure](docs/operations/staging-soak.md). The committed soak
 template always reports `in_progress` and cannot satisfy a release gate.
+
+Release promotion is documented in the
+[production release procedure](docs/operations/production-release.md). The
+committed release template cannot pass. Release automation builds from the
+approved Git archive, publishes checksummed SBOM and provenance evidence, and
+creates a signed tag only after an eligible `staging` to `master` merge. The
+attended production authorization requires the exact tag, full SHA, and typed
+`DEPLOY_PRODUCTION`, then stops without reading production secrets or
+deploying.
 
 `make reset` is destructive and requires confirmation. It targets only the
 validated Relantern Compose project and its volumes.
