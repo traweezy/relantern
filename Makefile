@@ -6,7 +6,7 @@ COMPOSE_DEV := docker compose -f compose.yaml -f compose.dev.yaml
 GO := bash scripts/go-tool.sh
 PNPM := bash scripts/pnpm-tool.sh
 
-.PHONY: help doctor secrets bootstrap dev dev-live ps logs stop watch test test-unit test-integration test-e2e auth-smoke lint workflow-lint typecheck format generate generate-check migrate migration seed sources-verify fixtures-record eval test-dedupe test-search test-extraction test-research scheduler-tick digest-preview digest-run retention-run test-scheduler test-dst time-travel time-travel-clean backup restore-drill observability config-check demo demo-audit security-scan prepush prodlike prodlike-smoke sbom clean reset
+.PHONY: help doctor secrets bootstrap dev dev-live ps logs stop watch test test-unit test-integration test-e2e auth-smoke lint workflow-lint typecheck format generate generate-check migrate migration seed sources-verify fixtures-record eval test-dedupe test-search test-extraction test-research scheduler-tick digest-preview digest-run retention-run test-scheduler test-dst time-travel time-travel-clean backup restore-drill observability config-check railway-check railway-plan railway-readiness soak-status soak-validate release-check release-evidence release-tree release-build demo demo-audit security-scan prepush prodlike prodlike-smoke sbom clean reset
 
 help:
 	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z0-9_-]+:.*## / {printf "%-22s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -206,6 +206,23 @@ soak-status: ## Report a staging soak ledger without requiring PASS
 soak-validate: ## Require a completed PASS staging soak ledger
 	@test -n "$(file)" || { printf 'Usage: make soak-validate file=<ledger.json>\n' >&2; exit 1; }
 	$(GO) run ./cmd/soakctl --file "$(file)" --require-pass
+
+release-check: ## Validate release tooling and workflow policy without a release
+	$(GO) test -race ./internal/release ./cmd/releasectl
+	bash -n scripts/release-manifest.sh scripts/release-build.sh
+	$(MAKE) workflow-lint
+
+release-evidence: ## Validate a completed release manifest (file=required)
+	@test -n "$(file)" || { printf 'Usage: make release-evidence file=docs/evidence/releases/vX.Y.Z.json\n' >&2; exit 1; }
+	$(GO) run ./cmd/releasectl evidence --manifest "$(file)" --repository-root .
+
+release-tree: ## Prove an approved release tree (file/staging_sha/candidate_sha required)
+	@test -n "$(file)" && test -n "$(staging_sha)" && test -n "$(candidate_sha)" || { printf 'Usage: make release-tree file=<manifest> staging_sha=<full-sha> candidate_sha=<full-sha>\n' >&2; exit 1; }
+	$(GO) run ./cmd/releasectl tree --manifest "$(file)" --staging-commit "$(staging_sha)" --candidate-commit "$(candidate_sha)" --repository-root .
+
+release-build: ## Build immutable evidence bundle after every release gate passes
+	@test -n "$(file)" && test -n "$(repository)" && test -n "$(builder_id)" && test -n "$(invocation_id)" || { printf 'Usage: make release-build file=<manifest> repository=<owner/repo> builder_id=<id> invocation_id=<id>\n' >&2; exit 1; }
+	bash scripts/release-build.sh "$(file)" "$(if $(output),$(output),dist/releases/manual)" "$(repository)" "$(builder_id)" "$(invocation_id)"
 
 demo: dev ## Open the isolated anonymous fixture demonstration
 	@printf 'Open http://127.0.0.1:3000/demo\n'

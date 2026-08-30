@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "tag": "v0.0.0",
+  "approvedReleaseSha": "",
+  "approvedTreeSha": "",
+  "sourceBranch": "staging",
+  "decision": "pending",
+  "decidedAt": "",
+  "soakLedger": {
+    "path": "",
+    "sha256": ""
+  },
+  "restoreDrill": {
+    "path": "",
+    "sha256": ""
+  },
+  "securityGate": {
+    "path": "",
+    "sha256": ""
+  },
+  "prepushGate": {
+    "path": "",
+    "sha256": ""
+  }
+}
