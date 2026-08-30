@@ -1,0 +1,79 @@
+name: Master integrity
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+    inputs:
+      commit_sha:
+        description: Full master commit SHA to audit
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: master-integrity-${{ inputs.commit_sha || github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  master-integrity:
+    name: master-integrity
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out complete master history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up the pinned Go toolchain
+        uses: ./.github/actions/setup
+        with:
+          node: "false"
+      - name: Resolve commits contained by master
+        env:
+          DISPATCH_SHA: ${{ inputs.commit_sha }}
+          EVENT_BEFORE: ${{ github.event.before }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_SHA: ${{ github.sha }}
+          WORKFLOW_REF: ${{ github.ref }}
+        run: |
+          commit_sha="${EVENT_SHA}"
+          if [[ "${EVENT_NAME}" == "workflow_dispatch" ]]; then
+            test "${WORKFLOW_REF}" = "refs/heads/master"
+            commit_sha="${DISPATCH_SHA}"
+          fi
+          [[ "${commit_sha}" =~ ^[0-9a-f]{40}([0-9a-f]{24})?$ ]]
+          git fetch --force origin master
+          git cat-file -e "${commit_sha}^{commit}"
+          git merge-base --is-ancestor "${commit_sha}" origin/master
+          if [[ "${EVENT_NAME}" == "workflow_dispatch" ]]; then
+            printf '%s\n' "${commit_sha}" >"${RUNNER_TEMP}/master-commits.txt"
+          else
+            [[ "${EVENT_BEFORE}" =~ ^[0-9a-f]{40}([0-9a-f]{24})?$ ]]
+            test "${EVENT_BEFORE}" != "0000000000000000000000000000000000000000"
+            git cat-file -e "${EVENT_BEFORE}^{commit}"
+            git merge-base --is-ancestor "${EVENT_BEFORE}" "${commit_sha}"
+            git rev-list --first-parent "${commit_sha}" | grep --fixed-strings --line-regexp --quiet "${EVENT_BEFORE}"
+            git rev-list --first-parent --reverse "${EVENT_BEFORE}..${commit_sha}" >"${RUNNER_TEMP}/master-commits.txt"
+            test -s "${RUNNER_TEMP}/master-commits.txt"
+          fi
+      - name: Verify every associated release or hotfix pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          while IFS= read -r commit_sha; do
+            gh api \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              "/repos/${REPOSITORY}/commits/${commit_sha}/pulls" >"${RUNNER_TEMP}/pulls-${commit_sha}.json"
+            go run ./cmd/releasectl integrity \
+              --pulls "${RUNNER_TEMP}/pulls-${commit_sha}.json" \
+              --repository "${REPOSITORY}" \
+              --commit "${commit_sha}" \
+              --repository-root .
+          done <"${RUNNER_TEMP}/master-commits.txt"

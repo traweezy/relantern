@@ -1,0 +1,127 @@
+name: Production authorization
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Exact signed stable release tag
+        required: true
+        type: string
+      release_sha:
+        description: Exact full master commit SHA
+        required: true
+        type: string
+      confirmation:
+        description: Type DEPLOY_PRODUCTION
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: production-authorization
+  cancel-in-progress: false
+
+jobs:
+  authorize-production:
+    name: authorize-production
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      manifest: ${{ steps.release.outputs.manifest }}
+      release_sha: ${{ steps.release.outputs.release_sha }}
+      release_tag: ${{ steps.release.outputs.release_tag }}
+    steps:
+      - name: Check out complete master and tag history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up the pinned Go toolchain
+        uses: ./.github/actions/setup
+        with:
+          node: "false"
+      - name: Require attended exact inputs from master
+        env:
+          CONFIRMATION: ${{ inputs.confirmation }}
+          RELEASE_SHA: ${{ inputs.release_sha }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          WORKFLOW_REF: ${{ github.ref }}
+        run: |
+          test "${WORKFLOW_REF}" = "refs/heads/master"
+          test "${CONFIRMATION}" = "DEPLOY_PRODUCTION"
+          [[ "${RELEASE_SHA}" =~ ^[0-9a-f]{40}([0-9a-f]{24})?$ ]]
+          [[ "${RELEASE_TAG}" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          git fetch --force --tags origin master
+          git cat-file -e "${RELEASE_SHA}^{commit}"
+          git merge-base --is-ancestor "${RELEASE_SHA}" origin/master
+          git checkout --detach "${RELEASE_SHA}"
+      - name: Revalidate the master promotion path
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ inputs.release_sha }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          gh api \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "/repos/${REPOSITORY}/commits/${RELEASE_SHA}/pulls" >"${RUNNER_TEMP}/pulls.json"
+          go run ./cmd/releasectl integrity \
+            --pulls "${RUNNER_TEMP}/pulls.json" \
+            --repository "${REPOSITORY}" \
+            --commit "${RELEASE_SHA}" \
+            --repository-root .
+      - name: Verify GitHub's signed annotated tag result
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ inputs.release_sha }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          gh api \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "/repos/${REPOSITORY}/git/ref/tags/${RELEASE_TAG}" >"${RUNNER_TEMP}/tag-ref.json"
+          tag_object_sha="$(gh api \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "/repos/${REPOSITORY}/git/ref/tags/${RELEASE_TAG}" --jq '.object.sha')"
+          [[ "${tag_object_sha}" =~ ^[0-9a-f]{40}([0-9a-f]{24})?$ ]]
+          gh api \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "/repos/${REPOSITORY}/git/tags/${tag_object_sha}" >"${RUNNER_TEMP}/tag-object.json"
+          go run ./cmd/releasectl tag \
+            --reference "${RUNNER_TEMP}/tag-ref.json" \
+            --tag-object "${RUNNER_TEMP}/tag-object.json" \
+            --tag "${RELEASE_TAG}" \
+            --commit "${RELEASE_SHA}"
+      - name: Revalidate the exact release evidence and tree
+        id: release
+        env:
+          RELEASE_SHA: ${{ inputs.release_sha }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          base_sha="$(git rev-parse "${RELEASE_SHA}^1")"
+          manifest="$(bash scripts/release-manifest.sh "${base_sha}" "${RELEASE_SHA}")"
+          test "${manifest}" = "docs/evidence/releases/${RELEASE_TAG}.json"
+          go run ./cmd/releasectl evidence --manifest "${manifest}" --repository-root .
+          go run ./cmd/releasectl tree \
+            --manifest "${manifest}" \
+            --staging-commit "${RELEASE_SHA}" \
+            --candidate-commit "${RELEASE_SHA}" \
+            --repository-root .
+          {
+            printf 'manifest=%s\n' "${manifest}"
+            printf 'release_sha=%s\n' "${RELEASE_SHA}"
+            printf 'release_tag=%s\n' "${RELEASE_TAG}"
+          } >>"${GITHUB_OUTPUT}"
+      - name: Preserve the no-deploy boundary
+        run: >-
+          printf '%s\n'
+          'Authorization inputs and evidence passed. This workflow does not read production secrets or deploy.'

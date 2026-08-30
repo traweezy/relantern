@@ -1,0 +1,285 @@
+name: Release evidence
+
+on:
+  pull_request:
+    branches: [master]
+    types: [opened, reopened, synchronize, ready_for_review]
+  push:
+    branches: [master]
+  workflow_dispatch:
+    inputs:
+      release_sha:
+        description: Full master commit SHA to rebuild and sign
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.event.pull_request.number || inputs.release_sha || github.sha }}
+  cancel-in-progress: false
+
+env:
+  CI: "true"
+  APP_ENV: test
+  ALLOW_LIVE_EXTERNAL_APIS: "false"
+  ALLOW_LIVE_DELIVERY: "false"
+
+jobs:
+  release-source:
+    name: release-source
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    outputs:
+      manifest: ${{ steps.manifest.outputs.path }}
+    steps:
+      - name: Check out complete promotion history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up the pinned Go toolchain
+        uses: ./.github/actions/setup
+        with:
+          node: "false"
+      - name: Require the same-repository staging source
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          BASE_REPOSITORY: ${{ github.event.pull_request.base.repo.full_name }}
+          DRAFT: ${{ github.event.pull_request.draft }}
+          HEAD_REF: ${{ github.head_ref }}
+          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+        run: >-
+          go run ./cmd/releasectl source
+          --event-name pull_request
+          --base-ref "${BASE_REF}"
+          --head-ref "${HEAD_REF}"
+          --base-repository "${BASE_REPOSITORY}"
+          --head-repository "${HEAD_REPOSITORY}"
+          --draft="${DRAFT}"
+      - name: Discover exactly one stable release manifest
+        id: manifest
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          manifest="$(bash scripts/release-manifest.sh "${BASE_SHA}" "${HEAD_SHA}")"
+          printf 'path=%s\n' "${manifest}" >>"${GITHUB_OUTPUT}"
+
+  release-tree:
+    name: release-tree
+    if: ${{ github.event_name == 'pull_request' }}
+    needs: release-source
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out complete promotion history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up the pinned Go toolchain
+        uses: ./.github/actions/setup
+        with:
+          node: "false"
+      - name: Prove the approved staging tree is unchanged
+        env:
+          CANDIDATE_SHA: ${{ github.sha }}
+          MANIFEST_PATH: ${{ needs.release-source.outputs.manifest }}
+          STAGING_SHA: ${{ github.event.pull_request.head.sha }}
+        run: >-
+          go run ./cmd/releasectl tree
+          --manifest "${MANIFEST_PATH}"
+          --staging-commit "${STAGING_SHA}"
+          --candidate-commit "${CANDIDATE_SHA}"
+          --repository-root .
+
+  release-evidence:
+    name: release-evidence
+    if: ${{ github.event_name == 'pull_request' }}
+    needs: [release-source, release-tree]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out complete promotion history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up the pinned Go toolchain
+        uses: ./.github/actions/setup
+        with:
+          node: "false"
+      - name: Require complete hashed release evidence
+        env:
+          MANIFEST_PATH: ${{ needs.release-source.outputs.manifest }}
+        run: >-
+          go run ./cmd/releasectl evidence
+          --manifest "${MANIFEST_PATH}"
+          --repository-root .
+
+  post-merge-release:
+    name: Build immutable release evidence
+    if: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      pull-requests: read # Verify the master commit's associated PR.
+    outputs:
+      manifest: ${{ steps.manifest.outputs.path }}
+      release_sha: ${{ steps.release.outputs.release_sha }}
+      tag: ${{ steps.manifest.outputs.tag }}
+    steps:
+      - name: Check out complete master history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up pinned release toolchains
+        uses: ./.github/actions/setup
+        with:
+          ci-tools: supply-chain
+      - name: Resolve an exact master release commit
+        id: release
+        env:
+          DISPATCH_SHA: ${{ inputs.release_sha }}
+          EVENT_BEFORE: ${{ github.event.before }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_SHA: ${{ github.sha }}
+          WORKFLOW_REF: ${{ github.ref }}
+        run: |
+          release_sha="${EVENT_SHA}"
+          if [[ "${EVENT_NAME}" == "workflow_dispatch" ]]; then
+            test "${WORKFLOW_REF}" = "refs/heads/master"
+            release_sha="${DISPATCH_SHA}"
+          fi
+          [[ "${release_sha}" =~ ^[0-9a-f]{40}([0-9a-f]{24})?$ ]]
+          git fetch --force --tags origin master
+          git cat-file -e "${release_sha}^{commit}"
+          git merge-base --is-ancestor "${release_sha}" origin/master
+          base_sha="${EVENT_BEFORE}"
+          if [[ ! "${base_sha}" =~ ^[0-9a-f]{40}([0-9a-f]{24})?$ ]] ||
+            ! git merge-base --is-ancestor "${base_sha}" "${release_sha}"; then
+            base_sha="$(git rev-parse "${release_sha}^1")"
+          fi
+          git checkout --detach "${release_sha}"
+          {
+            printf 'base_sha=%s\n' "${base_sha}"
+            printf 'release_sha=%s\n' "${release_sha}"
+          } >>"${GITHUB_OUTPUT}"
+      - name: Verify the master commit came through the release contract
+        env:
+          BASE_SHA: ${{ steps.release.outputs.base_sha }}
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ steps.release.outputs.release_sha }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          git rev-list --first-parent --reverse "${BASE_SHA}..${RELEASE_SHA}" >"${RUNNER_TEMP}/release-commits.txt"
+          test -s "${RUNNER_TEMP}/release-commits.txt"
+          while IFS= read -r commit_sha; do
+            gh api \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              "/repos/${REPOSITORY}/commits/${commit_sha}/pulls" >"${RUNNER_TEMP}/pulls-${commit_sha}.json"
+            go run ./cmd/releasectl integrity \
+              --pulls "${RUNNER_TEMP}/pulls-${commit_sha}.json" \
+              --repository "${REPOSITORY}" \
+              --commit "${commit_sha}" \
+              --repository-root .
+          done <"${RUNNER_TEMP}/release-commits.txt"
+      - name: Validate the merged tree and release evidence
+        id: manifest
+        env:
+          BASE_SHA: ${{ steps.release.outputs.base_sha }}
+          RELEASE_SHA: ${{ steps.release.outputs.release_sha }}
+        run: |
+          manifest="$(bash scripts/release-manifest.sh "${BASE_SHA}" "${RELEASE_SHA}")"
+          go run ./cmd/releasectl tree \
+            --manifest "${manifest}" \
+            --staging-commit "${RELEASE_SHA}" \
+            --candidate-commit "${RELEASE_SHA}" \
+            --repository-root .
+          go run ./cmd/releasectl evidence --manifest "${manifest}" --repository-root .
+          tag="$(go run ./cmd/releasectl describe --manifest "${manifest}" --field tag)"
+          {
+            printf 'path=%s\n' "${manifest}"
+            printf 'tag=%s\n' "${tag}"
+          } >>"${GITHUB_OUTPUT}"
+      - name: Test and build once from the immutable approved archive
+        env:
+          BUILDER_ID: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          INVOCATION_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+          MANIFEST_PATH: ${{ steps.manifest.outputs.path }}
+          REPOSITORY: ${{ github.repository }}
+          TAG: ${{ steps.manifest.outputs.tag }}
+        run: >-
+          bash scripts/release-build.sh
+          "${MANIFEST_PATH}"
+          "dist/releases/${TAG}"
+          "${REPOSITORY}"
+          "${BUILDER_ID}"
+          "${INVOCATION_ID}"
+      - name: Publish the release evidence bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-${{ steps.manifest.outputs.tag }}
+          path: dist/releases/${{ steps.manifest.outputs.tag }}
+          if-no-files-found: error
+          retention-days: 90
+
+  create-signed-tag:
+    name: Create signed release tag
+    if: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
+    needs: post-merge-release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write # Push only the exact tag validated by the read-only build job.
+    steps:
+      - name: Check out the exact validated release commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ needs.post-merge-release.outputs.release_sha }}
+      - name: Create and verify the signed release tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MANIFEST_PATH: ${{ needs.post-merge-release.outputs.manifest }}
+          RELEASE_SHA: ${{ needs.post-merge-release.outputs.release_sha }}
+          REPOSITORY: ${{ github.repository }}
+          SIGNING_EMAIL: ${{ vars.RELEASE_SIGNING_EMAIL }}
+          SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_PRIVATE_KEY }}
+          TAG: ${{ needs.post-merge-release.outputs.tag }}
+        run: |
+          test -n "${SIGNING_KEY}"
+          [[ "${SIGNING_EMAIL}" =~ ^[^[:space:]@]+@[^[:space:]@]+$ ]]
+          [[ "${RELEASE_SHA}" =~ ^[0-9a-f]{40}([0-9a-f]{24})?$ ]]
+          [[ "${TAG}" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          test "$(git rev-parse HEAD)" = "${RELEASE_SHA}"
+          test -f "${MANIFEST_PATH}"
+          test -z "$(git tag --list "${TAG}")"
+          signing_directory="$(mktemp -d)"
+          trap 'rm -rf -- "${signing_directory}"' EXIT
+          umask 077
+          printf '%s\n' "${SIGNING_KEY}" >"${signing_directory}/release-signing-key"
+          public_key="$(ssh-keygen -y -f "${signing_directory}/release-signing-key")"
+          printf '%s %s\n' "${SIGNING_EMAIL}" "${public_key}" >"${signing_directory}/allowed-signers"
+          git config user.name 'Relantern release automation'
+          git config user.email "${SIGNING_EMAIL}"
+          git config gpg.format ssh
+          git config user.signingkey "${signing_directory}/release-signing-key"
+          git config gpg.ssh.allowedSignersFile "${signing_directory}/allowed-signers"
+          manifest_sha="$(sha256sum "${MANIFEST_PATH}" | awk '{print $1}')"
+          git tag -s "${TAG}" "${RELEASE_SHA}" \
+            -m "Relantern ${TAG}" \
+            -m "Release evidence SHA-256: ${manifest_sha}"
+          git verify-tag "${TAG}"
+          basic_auth="$(printf 'x-access-token:%s' "${GH_TOKEN}" | base64 -w0)"
+          GIT_CONFIG_COUNT=1 \
+            GIT_CONFIG_KEY_0=http.https://github.com/.extraheader \
+            GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${basic_auth}" \
+            git push "https://github.com/${REPOSITORY}.git" "refs/tags/${TAG}"

@@ -4,7 +4,8 @@ set -euo pipefail
 docker compose -f compose.yaml config --quiet
 docker compose -f compose.yaml -f compose.dev.yaml config --quiet
 pnpm railway:check
-bash -n scripts/railway-plan.sh scripts/railway-readiness.sh
+bash -n scripts/railway-plan.sh scripts/railway-readiness.sh \
+  scripts/release-manifest.sh scripts/release-build.sh
 
 soak_status="$(bash scripts/go-tool.sh run ./cmd/soakctl --file docs/evidence/staging/soak-template.json)"
 printf '%s' "${soak_status}" | rg -q '"outcome": "in_progress"'
@@ -18,6 +19,36 @@ if rg -n 'railway (config apply|deploy|up|redeploy|restart)' scripts/railway-*.s
   printf 'Railway automation must remain read-only before release approval.\n' >&2
   exit 1
 fi
+
+if bash scripts/go-tool.sh run ./cmd/releasectl evidence \
+  --manifest docs/evidence/releases/release-template.json \
+  --repository-root . >/dev/null 2>&1; then
+  printf 'The empty release template unexpectedly passed.\n' >&2
+  exit 1
+fi
+for workflow in release.yml master-integrity.yml production-authorization.yml; do
+  test -f ".github/workflows/${workflow}" || {
+    printf 'Required release workflow %s is missing.\n' "${workflow}" >&2
+    exit 1
+  }
+done
+for check in release-source release-tree release-evidence; do
+  rg -q "^    name: ${check}$" .github/workflows/release.yml || {
+    printf 'Release workflow is missing required check %s.\n' "${check}" >&2
+    exit 1
+  }
+done
+rg -q "test .*CONFIRMATION.*DEPLOY_PRODUCTION" .github/workflows/production-authorization.yml
+rg -q 'vars.RELEASE_SIGNING_EMAIL' .github/workflows/release.yml
+if rg -n 'railway (config apply|deploy|up|redeploy|restart)' \
+  .github/workflows/release.yml \
+  .github/workflows/production-authorization.yml; then
+  printf 'Release authorization must not deploy production.\n' >&2
+  exit 1
+fi
+rg -q '^release-check:' Makefile
+rg -q '^release-evidence:' Makefile
+rg -q '^release-tree:' Makefile
 
 for service in web api worker migrate postgres; do
   rg -q "^  ${service}:$" deploy/railway/parity.yaml || {
