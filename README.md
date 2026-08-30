@@ -51,8 +51,11 @@ idempotent catch-up and retry, and disconnected Discord, Resend, and local
 capture adapters. PR 18 adds pinned supply-chain scans, evidence-aware
 retention, private worker metrics and alerts, checksum-verified backups,
 isolated restore drills, a reviewed threat model, and complete Version 1
-incident runbooks. Hosted deployment remains intentionally withheld until the
-Railway staging soak and release-evidence phases pass.
+incident runbooks. PR 19 adds pinned typed Railway infrastructure, isolated
+staging/production fuses, a destructive-drift-rejecting read-only plan, and a
+strict evidence-bound 14-day soak ledger. The hosted project remains empty and
+the soak has not started; deployment remains intentionally withheld until the
+staging soak and release-evidence phases pass.
 
 ## Safe local workflow
 
@@ -81,6 +84,9 @@ make sbom
 make backup
 make restore-drill
 make retention-run
+make railway-check
+make railway-plan environment=staging
+make soak-status
 make prepush
 make prodlike-smoke
 make stop
@@ -159,6 +165,13 @@ exposes private `/metrics` and `/alerts` surfaces only on its internal service
 port. Retention preserves claim and published-story evidence, while backup and
 restore commands refuse unvalidated Compose targets and never upload local
 dumps.
+
+Railway topology is defined by `.railway/railway.ts` and validated locally;
+there is deliberately no infrastructure apply or production deploy target.
+After an attended staging provision, use `make railway-readiness` with the
+frozen full SHA and follow the
+[staging soak procedure](docs/operations/staging-soak.md). The committed soak
+template always reports `in_progress` and cannot satisfy a release gate.
 
 `make reset` is destructive and requires confirmation. It targets only the
 validated Relantern Compose project and its volumes.
