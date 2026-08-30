@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
+	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 	"github.com/riverqueue/river/rivertype"
 	"github.com/traweezy/relantern/internal/clock"
 	"github.com/traweezy/relantern/internal/config"
@@ -41,11 +42,9 @@ func TestRiverOneShotRunsReconciliationAndOccurrenceToCompletion(t *testing.T) {
 	now := time.Date(2025, time.January, 3, 6, 30, 0, 0, time.UTC)
 	userID, scheduleID := insertRunnerSchedule(t, pool, now)
 	runID := uuid.NewString()
+	testQueue := "worker_test_" + uuid.NewString()
 	cleanupRunnerIntegration(t, pool, userID, scheduleID, runID)
-	inserter, err := jobqueue.NewInserter()
-	if err != nil {
-		t.Fatalf("jobqueue.NewInserter() error = %v", err)
-	}
+	inserter := newRunnerQueueEnqueuer(t, testQueue)
 	reconciler := scheduler.NewReconciler(
 		pool,
 		clock.NewFixed(now),
@@ -68,12 +67,18 @@ func TestRiverOneShotRunsReconciliationAndOccurrenceToCompletion(t *testing.T) {
 		nil,
 		nil,
 		10*time.Minute,
+		func(options *riverOptions) {
+			options.queueConfigs = map[string]river.QueueConfig{
+				testQueue: {MaxWorkers: 2},
+			}
+		},
 	)
 	if err != nil {
 		t.Fatalf("NewRiverClient() error = %v", err)
 	}
 	runner := NewRunner(client, pool, health, 2*time.Second)
 	runner.newRunID = func() string { return runID }
+	runner.reconcileQueue = testQueue
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	if err := runner.Once(ctx, logger); err != nil {
@@ -251,6 +256,36 @@ func TestScheduleOccurrenceWorkerCancelsPermanentFailure(t *testing.T) {
 }
 
 type failingRunnerEnqueuer struct{}
+
+type runnerQueueEnqueuer struct {
+	client *river.Client[pgx.Tx]
+	queue  string
+}
+
+func newRunnerQueueEnqueuer(t *testing.T, queue string) *runnerQueueEnqueuer {
+	t.Helper()
+	client, err := river.NewClient(riverpgxv5.New(nil), &river.Config{Schema: jobqueue.Schema})
+	if err != nil {
+		t.Fatalf("create runner queue inserter: %v", err)
+	}
+	return &runnerQueueEnqueuer{client: client, queue: queue}
+}
+
+func (enqueuer *runnerQueueEnqueuer) EnqueueScheduleOccurrence(
+	ctx context.Context,
+	tx pgx.Tx,
+	occurrenceID string,
+	runID string,
+) (int64, bool, error) {
+	arguments := jobqueue.ScheduleOccurrenceArgs{OccurrenceID: occurrenceID, RunID: runID}
+	options := arguments.InsertOpts()
+	options.Queue = enqueuer.queue
+	result, err := enqueuer.client.InsertTx(ctx, tx, arguments, &options)
+	if err != nil {
+		return 0, false, err
+	}
+	return result.Job.ID, !result.UniqueSkippedAsDuplicate, nil
+}
 
 func (failingRunnerEnqueuer) EnqueueScheduleOccurrence(
 	context.Context,

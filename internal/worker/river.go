@@ -325,6 +325,10 @@ func NewRiverClient(
 	if enablePeriodicJobs {
 		periodicJobs = jobqueue.PeriodicJobs(interval, configuration.researcher != nil)
 	}
+	queues := jobqueue.QueueConfigs()
+	if configuration.queueConfigs != nil {
+		queues = configuration.queueConfigs
+	}
 	client, err := river.NewClient(riverpgxv5.New(pool), &river.Config{
 		CancelledJobRetentionPeriod: 7 * 24 * time.Hour,
 		CompletedJobRetentionPeriod: 24 * time.Hour,
@@ -334,7 +338,7 @@ func NewRiverClient(
 		Logger:                      logger,
 		MaxAttempts:                 5,
 		PeriodicJobs:                periodicJobs,
-		Queues:                      jobqueue.QueueConfigs(),
+		Queues:                      queues,
 		RescueStuckJobsAfter:        2 * time.Minute,
 		RetryPolicy: jobqueue.NewExponentialRetryPolicy(
 			configuredClock,
@@ -355,6 +359,7 @@ type riverOptions struct {
 	researcher         *research.Processor
 	openAIWebhookStore *openaiwebhook.Store
 	researchTimeout    time.Duration
+	queueConfigs       map[string]river.QueueConfig
 }
 
 type RiverOption func(*riverOptions)

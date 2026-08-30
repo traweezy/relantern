@@ -43,6 +43,7 @@ type Runner struct {
 	pool            *pgxpool.Pool
 	health          *SchedulerHealth
 	newRunID        func() string
+	reconcileQueue  string
 	shutdownTimeout time.Duration
 }
 
@@ -66,10 +67,17 @@ func (runner *Runner) Once(ctx context.Context, logger *slog.Logger) error {
 }
 
 func (runner *Runner) once(ctx context.Context, logger *slog.Logger, runID string) error {
+	arguments := jobqueue.ReconcileSchedulesArgs{RunID: runID}
+	var insertOptions *river.InsertOpts
+	if runner.reconcileQueue != "" {
+		queueOptions := arguments.InsertOpts()
+		queueOptions.Queue = runner.reconcileQueue
+		insertOptions = &queueOptions
+	}
 	result, err := runner.client.Insert(
 		ctx,
-		jobqueue.ReconcileSchedulesArgs{RunID: runID},
-		nil,
+		arguments,
+		insertOptions,
 	)
 	if err != nil {
 		return fmt.Errorf("insert one-shot schedule reconciliation: %w", err)
