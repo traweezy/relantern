@@ -1,9 +1,11 @@
 # PR 20 release-contract readiness evidence
 
 Date: 2026-08-30
-Scope: local release tooling, workflow, and policy validation. No GitHub push,
-pull request, tag, release, environment, secret, Railway change, deployment,
-provider call, or delivery occurred.
+Scope: local release tooling plus hosted workflow, policy, and control-plane
+validation through implementation SHA
+`cbde9c73119513378832b440b4342a0c2b12a36c`. No release pull request, tag,
+release, secret, Railway change, deployment, provider call, or delivery
+occurred.
 
 ## Local results
 
@@ -15,6 +17,8 @@ provider call, or delivery occurred.
 | signed tag validation | PASS | annotated object, exact commit, stable tag, and GitHub `verified: true`/`reason: valid` requirements |
 | master integrity | PASS | staging release and documented hotfix fixtures; direct, fork, wrong-branch, and unlabeled paths rejected |
 | workflow syntax and security | PASS | actionlint, shell syntax, repository action-pin policy, and offline zizmor |
+| hosted implementation CI | PASS | all 26 jobs passed in run `33297778036` for the exact implementation SHA |
+| production Railway source | PASS | production application services use empty IaC sources and cannot follow mutable branch pushes |
 | production side effects | NONE | production authorization stops before secrets and contains no apply/deploy command |
 
 The release workflow builds from an immutable Git archive of the approved SHA,
@@ -27,9 +31,12 @@ validation and build gate passes.
 
 This document is not production release evidence and is not referenced by a
 passing release manifest. `docs/evidence/releases/release-template.json` is
-intentionally incomplete and fails closed. Railway staging is unapplied, P9 has
-not started, no 336-hour passing ledger exists, and no production signing key
-or tagged master release is claimed.
+intentionally incomplete and fails closed. Railway staging is unapplied, its
+OAuth/OpenAI/delivery/backup prerequisites are absent, P9 has not started, no
+336-hour passing ledger exists, and no production signing key or tagged master
+release is claimed. Repository branch protection and rulesets also remain
+unavailable on the current private-repository plan; the tested attended
+fallback does not claim otherwise.
 
 ## Permissions and variables
 
@@ -37,6 +44,7 @@ or tagged master release is claimed.
   key whose public half must be registered with GitHub as a signing key.
 - New non-secret variable: future `RELEASE_SIGNING_EMAIL`, a verified email on
   the account that owns the registered signing key.
+- Current repository and environment secrets and variables: none.
 - Release PR checks: read-only contents.
 - Master integrity: read-only contents and pull-request metadata; every
   first-parent commit in each master push range is audited.
