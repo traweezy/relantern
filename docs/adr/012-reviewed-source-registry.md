@@ -78,3 +78,12 @@ the database contains no independently drifting built-in configuration. CI
 remains fast and reproducible because it never probes publishers. This PR does
 not fetch, parse, schedule, or publish live content; those capabilities remain
 closed behind the registry fuse and later security review.
+
+## Owner control-plane amendment
+
+PR15 exposes the registry through a private owner-only read model and keeps two
+different decisions separate: ranking/digest preferences are stored per owner,
+while pause/resume controls polling. Imported sources require a recent passing
+deterministic validation before approval, and approval never enables polling.
+This preserves the registry and live-network fuses while making health,
+endpoint state, duplicate pressure, and error budgets inspectable.

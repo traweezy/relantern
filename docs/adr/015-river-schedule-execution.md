@@ -72,6 +72,15 @@ The safe local profile still targets only the in-process fake delivery service.
 Source polling, OpenAI, Discord, Resend, and Railway delivery remain disabled
 until their separate rollout gates pass.
 
+## Owner control-plane amendment
+
+PR15 adds optimistic, audited schedule edits plus Preview, Skip next, timed
+pause, resume, and Run now controls. A timed pause is durable and the reconciler
+clears it under the existing advisory lock after expiry. Run now creates an
+idempotent preview-only occurrence and cannot reach an external delivery
+provider before the PR17 delivery gate. Schedule state, audit evidence, and
+outbox publication commit together.
+
 ## Primary references
 
 - [River getting started and migrations](https://riverqueue.com/docs)

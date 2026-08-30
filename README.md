@@ -40,7 +40,11 @@ state-aware Today filtering. PR 14 adds authenticated hybrid Search with durable
 exact-filter shortcuts, source-verified Releases and Coming Soon, bounded URL
 capture through the normal ingestion pipeline, approval-gated OPML import, and
 OPML, JSON, CSV, and selected-story Markdown exports. The default local profile
-remains disconnected from live providers and delivery APIs.
+remains disconnected from live providers and delivery APIs. PR 15 adds the
+private Sources registry and health view, versioned owner interests/current
+stack/settings, durable digest schedule controls, and bounded Operations
+dashboard. Imported-source approval never enables polling, and Run now remains
+preview-only until the separately reviewed delivery phase.
 
 ## Safe local workflow
 
@@ -126,6 +130,12 @@ capture and source-list recovery are covered by the
 [capture and OPML runbook](docs/runbooks/manual-capture-and-opml.md); migration
 ordering and rollback constraints are recorded in the
 [discovery portability migration notes](docs/migrations/000016-discovery-portability.md).
+Owner control-plane rollout and rollback are covered by the
+[control-plane migration notes](docs/migrations/000017-control-plane.md). Use
+the [source failure runbook](docs/runbooks/source-failing.md) for degraded
+registry health and the
+[scheduler stalled runbook](docs/runbooks/scheduler-stalled.md) for missed
+ticks, timed-pause recovery, or overdue occurrences.
 
 `make reset` is destructive and requires confirmation. It targets only the
 validated Relantern Compose project and its volumes.
