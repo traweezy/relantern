@@ -1,5 +1,15 @@
 import type { VariableConfig } from "railway/iac";
-import { bucket, defineRailway, github, image, preserve, ref, service, volume } from "railway/iac";
+import {
+  bucket,
+  defineRailway,
+  empty,
+  github,
+  image,
+  preserve,
+  ref,
+  service,
+  volume,
+} from "railway/iac";
 
 const repository = "traweezy/relantern";
 const applicationRegion = "us-east4-eqdc4a";
@@ -37,11 +47,13 @@ export default defineRailway((context, project) => {
 
   const environment = context.isEnvironment("production") ? "production" : "staging";
   const production = environment === "production";
-  const source = github(repository, {
-    branch: production ? "master" : "staging",
-    checkSuites: true,
-    rootDirectory: "/",
-  });
+  const source = production
+    ? empty()
+    : github(repository, {
+        branch: "staging",
+        checkSuites: true,
+        rootDirectory: "/",
+      });
   const region = { [applicationRegion]: 1 };
   const postgresData = volume("postgres-data", { region: applicationRegion });
   const rawEvidence = bucket("bucket", { region: bucketRegion });

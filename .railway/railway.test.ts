@@ -12,10 +12,7 @@ const servicesByName = (services: ReadonlyArray<ServiceNode>) =>
   new Map(services.map((service) => [service.name, service]));
 
 describe("Railway infrastructure contract", () => {
-  it.each([
-    ["staging", "staging"],
-    ["production", "master"],
-  ] as const)("pins the %s topology and source branch", async (environment, branch) => {
+  it.each(["staging", "production"] as const)("pins the %s topology", async (environment) => {
     const evaluated = await evaluate(environment);
     const services = servicesByName(
       evaluated.graph.resources.filter((item) => item.type === "service"),
@@ -28,19 +25,37 @@ describe("Railway infrastructure contract", () => {
       evaluated.graph.resources.filter((item) => item.type === "volume").map((item) => item.name),
     ).toEqual(["postgres-data"]);
 
-    for (const name of ["api", "migrate", "web", "worker"]) {
-      expect(services.get(name)?.source).toMatchObject({
-        branch,
-        checkSuites: true,
-        repo: "traweezy/relantern",
-        type: "github",
-      });
-    }
     expect(services.get("postgres")?.source?.image).toContain("@sha256:");
     expect(services.get("postgres")?.networking).toBeUndefined();
     expect(services.get("api")?.networking).toBeUndefined();
     expect(services.get("worker")?.networking).toBeUndefined();
     expect(services.get("migrate")?.networking).toBeUndefined();
+  });
+
+  it("deploys staging only after GitHub checks", async () => {
+    const evaluated = await evaluate("staging");
+    const services = servicesByName(
+      evaluated.graph.resources.filter((item) => item.type === "service"),
+    );
+    for (const name of ["api", "migrate", "web", "worker"]) {
+      expect(services.get(name)?.source).toMatchObject({
+        branch: "staging",
+        checkSuites: true,
+        repo: "traweezy/relantern",
+        type: "github",
+      });
+    }
+  });
+
+  it("disconnects production from mutable branch deployments", async () => {
+    const evaluated = await evaluate("production");
+    const services = servicesByName(
+      evaluated.graph.resources.filter((item) => item.type === "service"),
+    );
+    for (const name of ["api", "migrate", "web", "worker"]) {
+      expect(services.get(name)?.kind).toBe("empty");
+      expect(services.get(name)?.source).toEqual({ type: "empty" });
+    }
   });
 
   it("keeps production delivery and AI activation disabled", async () => {

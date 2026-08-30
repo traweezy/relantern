@@ -10,7 +10,8 @@ environments:
     wait_for_ci: true
     delivery_scope: staging_only
   production:
-    source_branch: master
+    approved_source_branch: master
+    deployment_source: immutable_workflow_upload
     automatic_deploy: false
     attended_confirmation: DEPLOY_PRODUCTION
     signed_tag_required: true

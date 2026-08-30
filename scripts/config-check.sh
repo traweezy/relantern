@@ -61,6 +61,7 @@ rg -q '^  file: .railway/railway.ts$' deploy/railway/parity.yaml
 rg -q '^  sdk: railway@3.10.0$' deploy/railway/parity.yaml
 rg -q '^  apply_from_automation: false$' deploy/railway/parity.yaml
 rg -q '^    automatic_deploy: false$' deploy/railway/parity.yaml
+rg -q '^    deployment_source: immutable_workflow_upload$' deploy/railway/parity.yaml
 rg -q '^    attended_confirmation: DEPLOY_PRODUCTION$' deploy/railway/parity.yaml
 rg -q '"railway": "3.10.0"' package.json
 rg -q 'dockerfilePath: "deploy/docker/api.Dockerfile"' .railway/railway.ts
