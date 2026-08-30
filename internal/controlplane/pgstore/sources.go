@@ -279,6 +279,16 @@ func (store *Store) UpdateSourcePreference(
 	request controlplane.UpdateSourcePreferenceRequest,
 	now time.Time,
 ) (controlplane.SourcePreference, error) {
+	return retrySerializableValue(ctx, func() (controlplane.SourcePreference, error) {
+		return store.updateSourcePreference(ctx, request, now)
+	})
+}
+
+func (store *Store) updateSourcePreference(
+	ctx context.Context,
+	request controlplane.UpdateSourcePreferenceRequest,
+	now time.Time,
+) (controlplane.SourcePreference, error) {
 	transaction, err := store.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
 		return controlplane.SourcePreference{}, fmt.Errorf("begin source preference update: %w", err)
@@ -340,6 +350,16 @@ func (store *Store) UpdateSourcePreference(
 }
 
 func (store *Store) ActOnSource(
+	ctx context.Context,
+	request controlplane.SourceActionRequest,
+	now time.Time,
+) (controlplane.ManagedSource, error) {
+	return retrySerializableValue(ctx, func() (controlplane.ManagedSource, error) {
+		return store.actOnSource(ctx, request, now)
+	})
+}
+
+func (store *Store) actOnSource(
 	ctx context.Context,
 	request controlplane.SourceActionRequest,
 	now time.Time,

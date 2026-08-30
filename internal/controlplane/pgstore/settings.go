@@ -158,6 +158,16 @@ func (store *Store) UpdateSettings(
 	request controlplane.UpdateSettingsRequest,
 	now time.Time,
 ) (controlplane.SettingsSnapshot, error) {
+	return retrySerializableValue(ctx, func() (controlplane.SettingsSnapshot, error) {
+		return store.updateSettings(ctx, request, now)
+	})
+}
+
+func (store *Store) updateSettings(
+	ctx context.Context,
+	request controlplane.UpdateSettingsRequest,
+	now time.Time,
+) (controlplane.SettingsSnapshot, error) {
 	transaction, err := store.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
 		return controlplane.SettingsSnapshot{}, fmt.Errorf("begin owner settings update: %w", err)
@@ -377,6 +387,16 @@ func (store *Store) UpdateSchedule(
 	request controlplane.UpdateScheduleRequest,
 	now time.Time,
 ) (controlplane.ScheduleDefinition, error) {
+	return retrySerializableValue(ctx, func() (controlplane.ScheduleDefinition, error) {
+		return store.updateSchedule(ctx, request, now)
+	})
+}
+
+func (store *Store) updateSchedule(
+	ctx context.Context,
+	request controlplane.UpdateScheduleRequest,
+	now time.Time,
+) (controlplane.ScheduleDefinition, error) {
 	transaction, err := store.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
 		return controlplane.ScheduleDefinition{}, fmt.Errorf("begin schedule update: %w", err)
@@ -453,6 +473,16 @@ func (store *Store) UpdateSchedule(
 }
 
 func (store *Store) ActOnSchedule(
+	ctx context.Context,
+	request controlplane.ScheduleActionRequest,
+	now time.Time,
+) (controlplane.ScheduleActionResult, error) {
+	return retrySerializableValue(ctx, func() (controlplane.ScheduleActionResult, error) {
+		return store.actOnSchedule(ctx, request, now)
+	})
+}
+
+func (store *Store) actOnSchedule(
 	ctx context.Context,
 	request controlplane.ScheduleActionRequest,
 	now time.Time,
