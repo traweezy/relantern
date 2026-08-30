@@ -91,7 +91,7 @@ func run(arguments []string, logger *slog.Logger) error {
 	if err != nil {
 		return fmt.Errorf("load HTTP configuration: %w", err)
 	}
-	embeddingSearchConfig, err := config.LoadEmbeddingSearch()
+	embeddingSearchConfig, err := config.LoadEmbeddingSearch(common.Environment)
 	if err != nil {
 		return fmt.Errorf("load embedding and search configuration: %w", err)
 	}
@@ -135,12 +135,16 @@ func run(arguments []string, logger *slog.Logger) error {
 	var embeddingClient *embedding.Client
 	if embeddingSearchConfig.HybridEnabled {
 		var clientError error
-		embeddingClient, clientError = embedding.NewClient(
-			embeddingSearchConfig.BaseURL,
-			embeddingSearchConfig.ModelID,
-			embeddingSearchConfig.Dimensions,
-			embeddingSearchConfig.RequestTimeout,
-		)
+		embeddingClient, clientError = embedding.NewClient(embedding.ClientConfig{
+			BaseURL:      embeddingSearchConfig.BaseURL,
+			APIKey:       embeddingSearchConfig.APIKey,
+			ProjectID:    embeddingSearchConfig.ProjectID,
+			Organization: embeddingSearchConfig.OrganizationID,
+			ModelID:      embeddingSearchConfig.ModelID,
+			Dimensions:   embeddingSearchConfig.Dimensions,
+			Timeout:      embeddingSearchConfig.RequestTimeout,
+			Hosted:       embeddingSearchConfig.Hosted,
+		})
 		if clientError != nil {
 			return fmt.Errorf("create embedding client: %w", clientError)
 		}

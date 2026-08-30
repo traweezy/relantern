@@ -89,10 +89,14 @@ type Dedupe struct {
 
 type EmbeddingSearch struct {
 	BaseURL        string
+	APIKey         string
+	ProjectID      string
+	OrganizationID string
 	ModelID        string
 	Dimensions     int
 	RRFK           int
 	HybridEnabled  bool
+	Hosted         bool
 	RequestTimeout time.Duration
 }
 
@@ -415,7 +419,7 @@ func LoadDedupe() (Dedupe, error) {
 	}, nil
 }
 
-func LoadEmbeddingSearch() (EmbeddingSearch, error) {
+func LoadEmbeddingSearch(environment Environment) (EmbeddingSearch, error) {
 	dimensionsValue := valueOrDefault("EMBEDDING_DIMENSIONS", strconv.Itoa(embedding.DefaultDimensions))
 	dimensions, err := strconv.Atoi(dimensionsValue)
 	if err != nil || dimensions != embedding.DefaultDimensions {
@@ -438,12 +442,32 @@ func LoadEmbeddingSearch() (EmbeddingSearch, error) {
 	if modelID == "" || len(modelID) > 255 {
 		return EmbeddingSearch{}, errors.New("OPENAI_EMBEDDING_MODEL must contain between 1 and 255 characters")
 	}
+	hosted := environment == EnvironmentStaging || environment == EnvironmentProduction
+	baseURL := valueOrDefault("FAKE_OPENAI_URL", "http://fake-openai:8091")
+	apiKey := ""
+	if hosted {
+		baseURL = valueOrDefault("OPENAI_BASE_URL", "https://api.openai.com")
+		apiKey, err = secretValue("OPENAI_API_KEY", "OPENAI_API_KEY_FILE")
+		if err != nil {
+			return EmbeddingSearch{}, err
+		}
+		if hybridEnabled && apiKey == "" {
+			return EmbeddingSearch{}, errors.New("OPENAI_API_KEY or OPENAI_API_KEY_FILE is required when hosted hybrid search is enabled")
+		}
+	}
+	if err := validateOpenAIBaseURL(baseURL, environment); err != nil {
+		return EmbeddingSearch{}, err
+	}
 	return EmbeddingSearch{
-		BaseURL:        valueOrDefault("FAKE_OPENAI_URL", "http://fake-openai:8091"),
+		BaseURL:        strings.TrimSuffix(baseURL, "/"),
+		APIKey:         apiKey,
+		ProjectID:      strings.TrimSpace(os.Getenv("OPENAI_PROJECT_ID")),
+		OrganizationID: strings.TrimSpace(os.Getenv("OPENAI_ORG_ID")),
 		ModelID:        modelID,
 		Dimensions:     dimensions,
 		RRFK:           rrfK,
 		HybridEnabled:  hybridEnabled,
+		Hosted:         hosted,
 		RequestTimeout: requestTimeout,
 	}, nil
 }

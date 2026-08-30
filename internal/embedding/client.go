@@ -18,8 +18,23 @@ const maximumResponseBytes = 1 << 20
 type Client struct {
 	endpoint   *url.URL
 	httpClient *http.Client
+	apiKey     string
+	projectID  string
+	orgID      string
 	modelID    string
 	dimensions int
+}
+
+type ClientConfig struct {
+	BaseURL      string
+	APIKey       string
+	ProjectID    string
+	Organization string
+	ModelID      string
+	Dimensions   int
+	Timeout      time.Duration
+	Hosted       bool
+	HTTPClient   *http.Client
 }
 
 type embedRequest struct {
@@ -36,34 +51,62 @@ type embedResponse struct {
 	Model string `json:"model"`
 }
 
-func NewClient(baseURL string, modelID string, dimensions int, timeout time.Duration) (*Client, error) {
-	parsedURL, err := url.Parse(strings.TrimSpace(baseURL))
-	if err != nil || parsedURL.Scheme != "http" || parsedURL.Host == "" || parsedURL.User != nil {
-		return nil, errors.New("fake embedding base URL must be an absolute HTTP origin")
+func NewClient(config ClientConfig) (*Client, error) {
+	parsedURL, err := embeddingBaseURL(config.BaseURL, config.Hosted)
+	if err != nil {
+		return nil, err
 	}
-	hostname := parsedURL.Hostname()
-	if hostname != "fake-openai" && hostname != "127.0.0.1" && hostname != "localhost" {
-		return nil, errors.New("embedding requests are restricted to the local fake-openai service")
+	if config.Hosted && strings.TrimSpace(config.APIKey) == "" {
+		return nil, errors.New("hosted embedding requests require an OpenAI API key")
 	}
-	if parsedURL.RawQuery != "" || parsedURL.Fragment != "" {
-		return nil, errors.New("fake embedding base URL may not contain a query or fragment")
-	}
-	if strings.TrimSpace(modelID) == "" || len(modelID) > 255 {
+	if strings.TrimSpace(config.ModelID) == "" || len(config.ModelID) > 255 {
 		return nil, errors.New("embedding model ID must contain between 1 and 255 characters")
 	}
-	if dimensions < 1 || dimensions > 4096 {
+	if config.Dimensions < 1 || config.Dimensions > 4096 {
 		return nil, errors.New("embedding dimensions must be between 1 and 4096")
 	}
-	if timeout <= 0 {
+	if config.Timeout <= 0 {
 		return nil, errors.New("embedding request timeout must be positive")
 	}
-	parsedURL.Path = strings.TrimSuffix(parsedURL.Path, "/") + "/v1/embeddings"
+	parsedURL.Path = "/v1/embeddings"
+	httpClient := config.HTTPClient
+	if httpClient == nil {
+		httpClient = &http.Client{}
+	}
+	boundedHTTPClient := *httpClient
+	boundedHTTPClient.Timeout = config.Timeout
 	return &Client{
 		endpoint:   parsedURL,
-		httpClient: &http.Client{Timeout: timeout},
-		modelID:    modelID,
-		dimensions: dimensions,
+		httpClient: &boundedHTTPClient,
+		apiKey:     strings.TrimSpace(config.APIKey),
+		projectID:  strings.TrimSpace(config.ProjectID),
+		orgID:      strings.TrimSpace(config.Organization),
+		modelID:    config.ModelID,
+		dimensions: config.Dimensions,
 	}, nil
+}
+
+func embeddingBaseURL(raw string, hosted bool) (*url.URL, error) {
+	parsedURL, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || parsedURL.Host == "" || parsedURL.User != nil || parsedURL.RawQuery != "" || parsedURL.Fragment != "" {
+		return nil, errors.New("embedding base URL must be an absolute trusted origin")
+	}
+	path := strings.TrimSuffix(parsedURL.EscapedPath(), "/")
+	if path != "" && path != "/v1" {
+		return nil, errors.New("embedding base URL path must be empty or /v1")
+	}
+	hostname := strings.ToLower(parsedURL.Hostname())
+	if hosted {
+		if parsedURL.Scheme != "https" || hostname != "api.openai.com" {
+			return nil, errors.New("hosted embedding requests are restricted to https://api.openai.com")
+		}
+		return parsedURL, nil
+	}
+	if parsedURL.Scheme != "http" ||
+		(hostname != "fake-openai" && hostname != "127.0.0.1" && hostname != "localhost") {
+		return nil, errors.New("local embedding requests are restricted to fake-openai or loopback HTTP")
+	}
+	return parsedURL, nil
 }
 
 func (client *Client) Embed(ctx context.Context, input string) (Vector, error) {
@@ -83,14 +126,23 @@ func (client *Client) Embed(ctx context.Context, input string) (Vector, error) {
 		return nil, fmt.Errorf("create embedding request: %w", err)
 	}
 	request.Header.Set("Content-Type", "application/json")
+	if client.apiKey != "" {
+		request.Header.Set("Authorization", "Bearer "+client.apiKey)
+	}
+	if client.projectID != "" {
+		request.Header.Set("OpenAI-Project", client.projectID)
+	}
+	if client.orgID != "" {
+		request.Header.Set("OpenAI-Organization", client.orgID)
+	}
 	response, err := client.httpClient.Do(request)
 	if err != nil {
-		return nil, fmt.Errorf("request fake embedding: %w", err)
+		return nil, fmt.Errorf("request embedding provider: %w", err)
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
 		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, maximumResponseBytes))
-		return nil, fmt.Errorf("fake embedding returned HTTP %d", response.StatusCode)
+		return nil, fmt.Errorf("embedding provider returned HTTP %d", response.StatusCode)
 	}
 	var decoded embedResponse
 	decoder := json.NewDecoder(io.LimitReader(response.Body, maximumResponseBytes))

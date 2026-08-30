@@ -23,7 +23,10 @@ func TestClientReturnsDeterministicBoundedEmbedding(t *testing.T) {
 	}
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
-	client, err := embedding.NewClient(server.URL, embedding.DefaultModelID, embedding.DefaultDimensions, time.Second)
+	client, err := embedding.NewClient(embedding.ClientConfig{
+		BaseURL: server.URL, ModelID: embedding.DefaultModelID,
+		Dimensions: embedding.DefaultDimensions, Timeout: time.Second,
+	})
 	if err != nil {
 		t.Fatalf("embedding.NewClient() error = %v", err)
 	}
@@ -56,18 +59,40 @@ func TestClientRejectsUnsafeAndMalformedBoundaries(t *testing.T) {
 		"http://user:secret@localhost:8091",
 		"http://localhost:8091?unsafe=true",
 	} {
-		if _, err := embedding.NewClient(baseURL, embedding.DefaultModelID, embedding.DefaultDimensions, time.Second); err == nil {
+		if _, err := embedding.NewClient(embedding.ClientConfig{
+			BaseURL: baseURL, ModelID: embedding.DefaultModelID,
+			Dimensions: embedding.DefaultDimensions, Timeout: time.Second,
+		}); err == nil {
 			t.Errorf("NewClient() accepted unsafe URL %q", baseURL)
 		}
 	}
-	if _, err := embedding.NewClient("http://localhost:8091", "", embedding.DefaultDimensions, time.Second); err == nil {
+	if _, err := embedding.NewClient(embedding.ClientConfig{
+		BaseURL: "http://localhost:8091", Dimensions: embedding.DefaultDimensions, Timeout: time.Second,
+	}); err == nil {
 		t.Error("NewClient() accepted an empty model")
 	}
-	if _, err := embedding.NewClient("http://localhost:8091", embedding.DefaultModelID, 0, time.Second); err == nil {
+	if _, err := embedding.NewClient(embedding.ClientConfig{
+		BaseURL: "http://localhost:8091", ModelID: embedding.DefaultModelID, Timeout: time.Second,
+	}); err == nil {
 		t.Error("NewClient() accepted zero dimensions")
 	}
-	if _, err := embedding.NewClient("http://localhost:8091", embedding.DefaultModelID, embedding.DefaultDimensions, 0); err == nil {
+	if _, err := embedding.NewClient(embedding.ClientConfig{
+		BaseURL: "http://localhost:8091", ModelID: embedding.DefaultModelID,
+		Dimensions: embedding.DefaultDimensions,
+	}); err == nil {
 		t.Error("NewClient() accepted a zero timeout")
+	}
+	if _, err := embedding.NewClient(embedding.ClientConfig{
+		BaseURL: "https://api.openai.com", ModelID: embedding.DefaultModelID,
+		Dimensions: embedding.DefaultDimensions, Timeout: time.Second, Hosted: true,
+	}); err == nil {
+		t.Error("NewClient() accepted a hosted request without an API key")
+	}
+	if _, err := embedding.NewClient(embedding.ClientConfig{
+		BaseURL: "https://example.com", APIKey: "fixture-key", ModelID: embedding.DefaultModelID,
+		Dimensions: embedding.DefaultDimensions, Timeout: time.Second, Hosted: true,
+	}); err == nil {
+		t.Error("NewClient() accepted an untrusted hosted provider")
 	}
 
 	tests := []struct {
@@ -88,7 +113,10 @@ func TestClientRejectsUnsafeAndMalformedBoundaries(t *testing.T) {
 				_, _ = response.Write([]byte(test.payload))
 			}))
 			t.Cleanup(server.Close)
-			client, err := embedding.NewClient(server.URL, embedding.DefaultModelID, embedding.DefaultDimensions, time.Second)
+			client, err := embedding.NewClient(embedding.ClientConfig{
+				BaseURL: server.URL, ModelID: embedding.DefaultModelID,
+				Dimensions: embedding.DefaultDimensions, Timeout: time.Second,
+			})
 			if err != nil {
 				t.Fatalf("NewClient() error = %v", err)
 			}
@@ -97,6 +125,50 @@ func TestClientRejectsUnsafeAndMalformedBoundaries(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestHostedClientAuthenticatesOnlyThePinnedOpenAIEndpoint(t *testing.T) {
+	t.Parallel()
+	transport := roundTripperFunc(func(request *http.Request) (*http.Response, error) {
+		if request.URL.String() != "https://api.openai.com/v1/embeddings" {
+			t.Fatalf("request URL = %q", request.URL.String())
+		}
+		if request.Header.Get("Authorization") != "Bearer fixture-key" ||
+			request.Header.Get("OpenAI-Project") != "project-fixture" ||
+			request.Header.Get("OpenAI-Organization") != "org-fixture" {
+			t.Fatalf("request headers = %#v", request.Header)
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body: io.NopCloser(strings.NewReader(
+				`{"model":"text-embedding-3-small","data":[{"embedding":[1,0,0],"index":0}]}`,
+			)),
+			Request: request,
+		}, nil
+	})
+	client, err := embedding.NewClient(embedding.ClientConfig{
+		BaseURL: "https://api.openai.com/v1", APIKey: "fixture-key",
+		ProjectID: "project-fixture", Organization: "org-fixture",
+		ModelID: embedding.DefaultModelID, Dimensions: 3, Timeout: time.Second,
+		Hosted: true, HTTPClient: &http.Client{Transport: transport},
+	})
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+	result, err := client.Embed(context.Background(), "bounded hosted input")
+	if err != nil {
+		t.Fatalf("Embed() error = %v", err)
+	}
+	if len(result) != 3 || result[0] != 1 {
+		t.Fatalf("Embed() = %v", result)
+	}
+}
+
+type roundTripperFunc func(*http.Request) (*http.Response, error)
+
+func (fn roundTripperFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return fn(request)
 }
 
 func TestEmbeddingValidationRejectsInvalidInputAndVectors(t *testing.T) {

@@ -68,7 +68,7 @@ func run(arguments []string, logger *slog.Logger) error {
 	if err != nil {
 		return fmt.Errorf("load private OpenAI webhook configuration: %w", err)
 	}
-	embeddingSearchConfig, err := config.LoadEmbeddingSearch()
+	embeddingSearchConfig, err := config.LoadEmbeddingSearch(common.Environment)
 	if err != nil {
 		return fmt.Errorf("load embedding and search configuration: %w", err)
 	}
@@ -101,12 +101,16 @@ func run(arguments []string, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	embeddingClient, err := embedding.NewClient(
-		embeddingSearchConfig.BaseURL,
-		embeddingSearchConfig.ModelID,
-		embeddingSearchConfig.Dimensions,
-		embeddingSearchConfig.RequestTimeout,
-	)
+	embeddingClient, err := embedding.NewClient(embedding.ClientConfig{
+		BaseURL:      embeddingSearchConfig.BaseURL,
+		APIKey:       embeddingSearchConfig.APIKey,
+		ProjectID:    embeddingSearchConfig.ProjectID,
+		Organization: embeddingSearchConfig.OrganizationID,
+		ModelID:      embeddingSearchConfig.ModelID,
+		Dimensions:   embeddingSearchConfig.Dimensions,
+		Timeout:      embeddingSearchConfig.RequestTimeout,
+		Hosted:       embeddingSearchConfig.Hosted,
+	})
 	if err != nil {
 		return fmt.Errorf("create discovery embedding client: %w", err)
 	}

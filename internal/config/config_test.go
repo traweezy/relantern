@@ -200,13 +200,14 @@ func TestLoadDedupeUsesEvaluatedDefaultsAndRejectsInvalidBounds(t *testing.T) {
 }
 
 func TestLoadEmbeddingSearchUsesPinnedDefaultsAndRejectsDrift(t *testing.T) {
-	settings, err := config.LoadEmbeddingSearch()
+	settings, err := config.LoadEmbeddingSearch(config.EnvironmentTest)
 	if err != nil {
 		t.Fatalf("LoadEmbeddingSearch() error = %v", err)
 	}
 	if settings.BaseURL != "http://fake-openai:8091" ||
 		settings.ModelID != "text-embedding-3-small" || settings.Dimensions != 1536 ||
-		settings.RRFK != 60 || !settings.HybridEnabled || settings.RequestTimeout != 5*time.Second {
+		settings.RRFK != 60 || !settings.HybridEnabled || settings.Hosted ||
+		settings.RequestTimeout != 5*time.Second {
 		t.Fatalf("LoadEmbeddingSearch() = %+v", settings)
 	}
 
@@ -218,10 +219,33 @@ func TestLoadEmbeddingSearchUsesPinnedDefaultsAndRejectsDrift(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Setenv(name, value)
-			if _, err := config.LoadEmbeddingSearch(); err == nil {
+			if _, err := config.LoadEmbeddingSearch(config.EnvironmentTest); err == nil {
 				t.Fatalf("LoadEmbeddingSearch() accepted %s=%q", name, value)
 			}
 		})
+	}
+}
+
+func TestLoadEmbeddingSearchRequiresPinnedHostedCredentials(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "fixture-hosted-key")
+	t.Setenv("OPENAI_PROJECT_ID", "project-fixture")
+	settings, err := config.LoadEmbeddingSearch(config.EnvironmentStaging)
+	if err != nil {
+		t.Fatalf("LoadEmbeddingSearch() error = %v", err)
+	}
+	if !settings.Hosted || settings.BaseURL != "https://api.openai.com" ||
+		settings.APIKey != "fixture-hosted-key" || settings.ProjectID != "project-fixture" {
+		t.Fatalf("LoadEmbeddingSearch() = %+v", settings)
+	}
+
+	t.Setenv("OPENAI_BASE_URL", "https://example.com")
+	if _, err := config.LoadEmbeddingSearch(config.EnvironmentStaging); err == nil {
+		t.Fatal("LoadEmbeddingSearch() accepted an untrusted hosted provider")
+	}
+	t.Setenv("OPENAI_BASE_URL", "https://api.openai.com")
+	t.Setenv("OPENAI_API_KEY", "")
+	if _, err := config.LoadEmbeddingSearch(config.EnvironmentStaging); err == nil {
+		t.Fatal("LoadEmbeddingSearch() accepted hosted hybrid search without an API key")
 	}
 }
 
