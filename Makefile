@@ -196,6 +196,17 @@ railway-check: ## Validate the pinned Railway IaC graph without cloud access
 railway-plan: ## Preview safe Railway drift without applying it
 	bash scripts/railway-plan.sh $(if $(environment),$(environment),staging)
 
+railway-readiness: ## Audit live Railway readiness without printing variables
+	@test -n "$(release_sha)" || { printf 'Usage: make railway-readiness environment=staging release_sha=<full-sha>\n' >&2; exit 1; }
+	bash scripts/railway-readiness.sh "$(if $(environment),$(environment),staging)" "$(release_sha)"
+
+soak-status: ## Report a staging soak ledger without requiring PASS
+	$(GO) run ./cmd/soakctl --file "$(if $(file),$(file),docs/evidence/staging/soak-template.json)"
+
+soak-validate: ## Require a completed PASS staging soak ledger
+	@test -n "$(file)" || { printf 'Usage: make soak-validate file=<ledger.json>\n' >&2; exit 1; }
+	$(GO) run ./cmd/soakctl --file "$(file)" --require-pass
+
 demo: dev ## Open the isolated anonymous fixture demonstration
 	@printf 'Open http://127.0.0.1:3000/demo\n'
 

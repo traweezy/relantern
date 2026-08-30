@@ -4,6 +4,20 @@ set -euo pipefail
 docker compose -f compose.yaml config --quiet
 docker compose -f compose.yaml -f compose.dev.yaml config --quiet
 pnpm railway:check
+bash -n scripts/railway-plan.sh scripts/railway-readiness.sh
+
+soak_status="$(bash scripts/go-tool.sh run ./cmd/soakctl --file docs/evidence/staging/soak-template.json)"
+printf '%s' "${soak_status}" | rg -q '"outcome": "in_progress"'
+if bash scripts/go-tool.sh run ./cmd/soakctl \
+  --file docs/evidence/staging/soak-template.json \
+  --require-pass >/dev/null 2>&1; then
+  printf 'The empty staging soak template unexpectedly passed.\n' >&2
+  exit 1
+fi
+if rg -n 'railway (config apply|deploy|up|redeploy|restart)' scripts/railway-*.sh; then
+  printf 'Railway automation must remain read-only before release approval.\n' >&2
+  exit 1
+fi
 
 for service in web api worker migrate postgres; do
   rg -q "^  ${service}:$" deploy/railway/parity.yaml || {
@@ -24,6 +38,8 @@ rg -q 'dockerfilePath: "deploy/docker/web.Dockerfile"' .railway/railway.ts
 rg -q 'dockerfilePath: "deploy/docker/migrate.Dockerfile"' .railway/railway.ts
 rg -q 'startCommand: "/app/migrate up"' .railway/railway.ts
 rg -q 'PUBLIC_BASE_URL: railwayHTTPSOrigin\("web.RAILWAY_PUBLIC_DOMAIN"\)' .railway/railway.ts
+rg -q '^railway-readiness:' Makefile
+rg -q '^soak-validate:' Makefile
 
 for dockerfile in web api worker migrate; do
   rg -q "dockerfile: deploy/docker/${dockerfile}.Dockerfile" deploy/railway/parity.yaml || {

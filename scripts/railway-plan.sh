@@ -2,10 +2,18 @@
 set -euo pipefail
 
 expected_environment="${1:-staging}"
+plan_mode="${2:-}"
 case "${expected_environment}" in
   staging | production) ;;
   *)
     printf 'Usage: %s [staging|production]\n' "$0" >&2
+    exit 1
+    ;;
+esac
+case "${plan_mode}" in
+  "" | --require-clean) ;;
+  *)
+    printf 'Usage: %s [staging|production] [--require-clean]\n' "$0" >&2
     exit 1
     ;;
 esac
@@ -28,10 +36,10 @@ railway config plan \
   --file .railway/railway.ts \
   --json >"${plan_file}"
 
-node --input-type=module - "${plan_file}" "${expected_environment}" <<'NODE'
+node --input-type=module - "${plan_file}" "${expected_environment}" "${plan_mode}" <<'NODE'
 import { readFileSync } from "node:fs";
 
-const [, , planPath, expectedEnvironment] = process.argv;
+const [, , planPath, expectedEnvironment, planMode] = process.argv;
 const plan = JSON.parse(readFileSync(planPath, "utf8"));
 if (plan.ok !== true) {
   const diagnostics = Array.isArray(plan.diagnostics) ? plan.diagnostics : [];
@@ -55,6 +63,12 @@ if (destructive.length > 0) {
   for (const change of destructive) {
     process.stderr.write(`Destructive Railway change rejected: ${change.summary}\n`);
   }
+  process.exit(1);
+}
+if (planMode === "--require-clean" && changes.length > 0) {
+  process.stderr.write(
+    `Railway ${environment} is not ready: ${changes.length} unapplied infrastructure change(s).\n`,
+  );
   process.exit(1);
 }
 

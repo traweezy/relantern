@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "environment": "staging",
+  "projectId": "",
+  "releaseSha": "",
+  "startedAt": "",
+  "profile": {
+    "priority0SourcesActive": false,
+    "realReadOnlyApisActive": false,
+    "lowCapOpenAiProject": false,
+    "stagingOnlyDelivery": false
+  },
+  "observations": [],
+  "exercises": [],
+  "ownerReview": {
+    "reviewedTopItems": 0,
+    "usefulOrAlreadyKnown": 0
+  },
+  "cost": {
+    "actualCents": 0,
+    "budgetCents": 1500,
+    "hardCapCents": 1500
+  },
+  "nonCriticalSloMisses": [],
+  "fatalFindings": []
+}
