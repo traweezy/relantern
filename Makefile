@@ -60,7 +60,7 @@ test-integration: secrets ## Run database, object-storage, and worker integratio
 	$(COMPOSE_BASE) run --rm --build worker once
 	@IFS= read -r relantern_database_secret < .local/secrets/database_password; \
 		DATABASE_URL="postgres://relantern:$${relantern_database_secret}@127.0.0.1:5432/relantern?sslmode=disable" \
-		$(GO) test -p 1 ./internal/dedupe/pgstore ./internal/discovery/pgstore ./internal/embedding/pgstore ./internal/extraction/pgstore ./internal/fetcher/pgstore ./internal/jobqueue ./internal/openaiwebhook ./internal/parsing/pgstore ./internal/readingstate/pgstore ./internal/reembedding ./internal/research/pgstore ./internal/scheduler ./internal/search/pgstore ./internal/sources/pgstore ./internal/worker -count=1
+		$(GO) test -p 1 ./internal/controlplane/pgstore ./internal/dedupe/pgstore ./internal/discovery/pgstore ./internal/embedding/pgstore ./internal/extraction/pgstore ./internal/fetcher/pgstore ./internal/jobqueue ./internal/openaiwebhook ./internal/parsing/pgstore ./internal/readingstate/pgstore ./internal/reembedding ./internal/research/pgstore ./internal/scheduler ./internal/search/pgstore ./internal/sources/pgstore ./internal/worker -count=1
 	@IFS= read -r relantern_s3_access < .local/secrets/minio_access_key; \
 		IFS= read -r relantern_s3_secret < .local/secrets/minio_secret_key; \
 		S3_TEST_ENDPOINT=http://127.0.0.1:9000 \

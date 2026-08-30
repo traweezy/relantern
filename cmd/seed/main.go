@@ -72,8 +72,88 @@ func run(ctx context.Context) error {
 	if err := seedSchedule(ctx, tx, userID, common.Clock.Now(), "weekly_radar", scheduler.LocalTime{Hour: 9}, []int16{6}); err != nil {
 		return err
 	}
+	if err := seedOwnerControlPlane(ctx, tx, userID, common.Clock.Now().UTC()); err != nil {
+		return err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit seed: %w", err)
+	}
+	return nil
+}
+
+func seedOwnerControlPlane(ctx context.Context, tx pgx.Tx, userID string, now time.Time) error {
+	if _, err := tx.Exec(ctx, `
+		insert into app.owner_settings (user_id)
+		values ($1::uuid)
+		on conflict (user_id) do nothing`, userID); err != nil {
+		return fmt.Errorf("seed owner settings: %w", err)
+	}
+	var profileID string
+	if err := tx.QueryRow(ctx, `
+		with inserted as (
+			insert into app.interest_profiles (
+				user_id, name, profile_summary, created_at, updated_at
+			) values (
+				$1::uuid, 'Owner intelligence',
+				'Backend, web-platform, data, infrastructure, security, and developer-tool intelligence.',
+				$2, $2
+			)
+			on conflict (user_id, name) do nothing
+			returning id
+		)
+		select id::text from inserted
+		union all
+		select id::text from app.interest_profiles
+		where user_id = $1::uuid and is_active
+			and not exists (select 1 from inserted)
+		limit 1`, userID, now).Scan(&profileID); err != nil {
+		return fmt.Errorf("seed owner interest profile: %w", err)
+	}
+	for index, topic := range []string{
+		"go", "postgresql", "security", "typescript", "react", "nextjs", "developer-tools", "infrastructure",
+	} {
+		priority := int16(2)
+		weight := "0.8000"
+		if index < 3 {
+			priority = 1
+			weight = "1.0000"
+		}
+		if _, err := tx.Exec(ctx, `
+			insert into app.interest_topics (
+				profile_id, topic_id, priority, weight, keywords, exclusions, created_at, updated_at
+			) values ($1::uuid, $2, $3, $4::numeric, array[]::text[], array[]::text[], $5, $5)
+			on conflict (profile_id, topic_id) do nothing`,
+			profileID, topic, priority, weight, now); err != nil {
+			return fmt.Errorf("seed owner interest topic %q: %w", topic, err)
+		}
+	}
+	type technologySeed struct {
+		name        string
+		packageName string
+		version     string
+	}
+	for _, technology := range []technologySeed{
+		{name: "Biome", packageName: "@biomejs/biome", version: "2.5.10"},
+		{name: "Go", packageName: "go", version: "1.27.0"},
+		{name: "Next.js", packageName: "next", version: "16.3.3"},
+		{name: "Node.js", packageName: "node", version: "26.8.1"},
+		{name: "pnpm", packageName: "pnpm", version: "11.24.0"},
+		{name: "PostgreSQL", packageName: "postgresql", version: "18.6"},
+		{name: "React", packageName: "react", version: "19.2.8"},
+		{name: "TypeScript", packageName: "typescript", version: "5.9.3"},
+	} {
+		if _, err := tx.Exec(ctx, `
+			insert into app.watched_technologies (
+				user_id, technology, package_name, current_version,
+				version_constraint, status, source, last_verified_at,
+				created_at, updated_at
+			) values (
+				$1::uuid, $2, $3, $4, '', 'active', 'version-manifest', $5, $5, $5
+			)
+			on conflict (user_id, package_name) do nothing`,
+			userID, technology.name, technology.packageName, technology.version, now); err != nil {
+			return fmt.Errorf("seed watched technology %q: %w", technology.packageName, err)
+		}
 	}
 	return nil
 }

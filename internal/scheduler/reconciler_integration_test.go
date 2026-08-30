@@ -148,6 +148,50 @@ func TestReconcileRollsBackOccurrenceWhenEnqueueFails(t *testing.T) {
 	}
 }
 
+func TestReconcileResumesElapsedTimedPauseBeforeClaimingDueSchedule(t *testing.T) {
+	pool := openSchedulerIntegrationPool(t)
+	now := time.Date(2026, time.August, 29, 12, 0, 0, 0, time.UTC)
+	userID, scheduleID := insertDueSchedule(t, pool, now)
+	cleanupScheduleIntegration(t, pool, userID, scheduleID)
+	if _, err := pool.Exec(context.Background(), `
+		update app.schedule_definitions
+		set paused_at = $2, paused_until = $3
+		where id = $1::uuid`, scheduleID, now.Add(-time.Hour), now.Add(-time.Minute)); err != nil {
+		t.Fatalf("set elapsed timed pause: %v", err)
+	}
+
+	inserter, err := jobqueue.NewInserter()
+	if err != nil {
+		t.Fatalf("NewInserter() error = %v", err)
+	}
+	reconciler := scheduler.NewReconciler(
+		pool,
+		clock.NewFixed(now),
+		"scheduler-integration-timed-resume",
+		inserter,
+		scheduler.WithScheduleIDs(scheduleID),
+	)
+	result, err := reconciler.Reconcile(context.Background(), "scheduler-integration-timed-resume")
+	if err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	if result.OccurrencesCreated != 1 || result.JobsEnqueued != 1 {
+		t.Fatalf("reconcile result = %+v, want one claimed occurrence", result)
+	}
+
+	var pausedAt *time.Time
+	var pausedUntil *time.Time
+	if err := pool.QueryRow(context.Background(), `
+		select paused_at, paused_until
+		from app.schedule_definitions
+		where id = $1::uuid`, scheduleID).Scan(&pausedAt, &pausedUntil); err != nil {
+		t.Fatalf("inspect resumed schedule: %v", err)
+	}
+	if pausedAt != nil || pausedUntil != nil {
+		t.Fatalf("elapsed pause remained active: paused_at=%v paused_until=%v", pausedAt, pausedUntil)
+	}
+}
+
 type failingOccurrenceEnqueuer struct{}
 
 func (failingOccurrenceEnqueuer) EnqueueScheduleOccurrence(

@@ -292,6 +292,20 @@ components:
       required:
         - deleted
       type: object
+    DeploymentMetadata:
+      additionalProperties: false
+      properties:
+        environment:
+          type: string
+        gitSha:
+          type: string
+        version:
+          type: string
+      required:
+        - environment
+        - version
+        - gitSha
+      type: object
     ErrorDetail:
       additionalProperties: false
       properties:
@@ -500,6 +514,61 @@ components:
         - candidates
         - expiresAt
       type: object
+    InterestProfile:
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        profileSummary:
+          type: string
+        topics:
+          items:
+            $ref: "#/components/schemas/InterestTopic"
+          type:
+            - array
+            - "null"
+        version:
+          format: int64
+          type: integer
+      required:
+        - id
+        - name
+        - profileSummary
+        - version
+        - topics
+      type: object
+    InterestTopic:
+      additionalProperties: false
+      properties:
+        exclusions:
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        keywords:
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        priority:
+          format: int32
+          type: integer
+        topicId:
+          type: string
+        weight:
+          format: double
+          type: number
+      required:
+        - topicId
+        - priority
+        - weight
+        - keywords
+        - exclusions
+      type: object
     LaterOrderCommand:
       additionalProperties: false
       properties:
@@ -566,6 +635,89 @@ components:
       required:
         - events
         - generatedAt
+      type: object
+    ManagedSource:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/ManagedSource.json
+          format: uri
+          readOnly: true
+          type: string
+        contentCount:
+          format: int64
+          type: integer
+        contentPolicy:
+          type: string
+        duplicateRate:
+          format: double
+          type: number
+        enabled:
+          type: boolean
+        endpoints:
+          items:
+            $ref: "#/components/schemas/SourceEndpoint"
+          type:
+            - array
+            - "null"
+        errorBudgetState:
+          type: string
+        failureCount24h:
+          format: int64
+          type: integer
+        homepageUrl:
+          type: string
+        id:
+          type: string
+        latestValidation:
+          $ref: "#/components/schemas/SourceValidation"
+        name:
+          type: string
+        origin:
+          type: string
+        owner:
+          type: string
+        pollingEnabled:
+          type: boolean
+        preference:
+          $ref: "#/components/schemas/SourcePreference"
+        reviewedAt:
+          format: date-time
+          type: string
+        successCount24h:
+          format: int64
+          type: integer
+        topics:
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        trustTier:
+          type: string
+        validationState:
+          type: string
+      required:
+        - id
+        - name
+        - trustTier
+        - owner
+        - origin
+        - validationState
+        - homepageUrl
+        - contentPolicy
+        - enabled
+        - pollingEnabled
+        - topics
+        - contentCount
+        - duplicateRate
+        - successCount24h
+        - failureCount24h
+        - errorBudgetState
+        - preference
+        - endpoints
       type: object
     ManualCapture:
       additionalProperties: false
@@ -708,6 +860,148 @@ components:
       required:
         - opml
       type: object
+    OperationsSnapshot:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/OperationsSnapshot.json
+          format: uri
+          readOnly: true
+          type: string
+        deliveryAttempts:
+          format: int64
+          type: integer
+        deployment:
+          $ref: "#/components/schemas/DeploymentMetadata"
+        generatedAt:
+          format: date-time
+          type: string
+        occurrences:
+          items:
+            $ref: "#/components/schemas/ScheduleOccurrence"
+          type:
+            - array
+            - "null"
+        oldestOverdueOccurrence:
+          format: date-time
+          type: string
+        openaiBackgroundPending:
+          format: int64
+          type: integer
+        queues:
+          items:
+            $ref: "#/components/schemas/QueueDepth"
+          type:
+            - array
+            - "null"
+        restore:
+          $ref: "#/components/schemas/RestoreStatus"
+        schedulerLastSuccess:
+          format: date-time
+          type: string
+        schedules:
+          items:
+            $ref: "#/components/schemas/ScheduleDefinition"
+          type:
+            - array
+            - "null"
+        sourceErrorBudgets:
+          items:
+            $ref: "#/components/schemas/SourceErrorBudget"
+          type:
+            - array
+            - "null"
+        stuckJobs:
+          items:
+            $ref: "#/components/schemas/StuckJob"
+          type:
+            - array
+            - "null"
+      required:
+        - generatedAt
+        - queues
+        - stuckJobs
+        - openaiBackgroundPending
+        - deliveryAttempts
+        - sourceErrorBudgets
+        - deployment
+        - restore
+        - schedules
+        - occurrences
+      type: object
+    OwnerSettings:
+      additionalProperties: false
+      properties:
+        auditRetentionDays:
+          format: int64
+          type: integer
+        criticalAlertsBypass:
+          type: boolean
+        monthlyHardBudgetUsd:
+          type: string
+        monthlySoftBudgetUsd:
+          type: string
+        quietHoursEnd:
+          type: string
+        quietHoursStart:
+          type: string
+        rawRetentionDays:
+          format: int64
+          type: integer
+        timezone:
+          type: string
+        version:
+          format: int64
+          type: integer
+      required:
+        - timezone
+        - quietHoursStart
+        - quietHoursEnd
+        - criticalAlertsBypass
+        - monthlySoftBudgetUsd
+        - monthlyHardBudgetUsd
+        - rawRetentionDays
+        - auditRetentionDays
+        - version
+      type: object
+    QueueDepth:
+      additionalProperties: false
+      properties:
+        available:
+          format: int64
+          type: integer
+        cancelled:
+          format: int64
+          type: integer
+        completed:
+          format: int64
+          type: integer
+        discarded:
+          format: int64
+          type: integer
+        queue:
+          type: string
+        retryable:
+          format: int64
+          type: integer
+        running:
+          format: int64
+          type: integer
+        scheduled:
+          format: int64
+          type: integer
+      required:
+        - queue
+        - available
+        - running
+        - retryable
+        - scheduled
+        - completed
+        - discarded
+        - cancelled
+      type: object
     ReleaseCatalog:
       additionalProperties: false
       properties:
@@ -779,6 +1073,17 @@ components:
         - sourceUrl
         - targetDate
         - lastVerifiedAt
+      type: object
+    RestoreStatus:
+      additionalProperties: false
+      properties:
+        explanation:
+          type: string
+        state:
+          type: string
+      required:
+        - state
+        - explanation
       type: object
     SaveSearchInputBody:
       additionalProperties: false
@@ -855,6 +1160,322 @@ components:
             - "null"
       required:
         - searches
+      type: object
+    ScheduleActionBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/ScheduleActionBody.json
+          format: uri
+          readOnly: true
+          type: string
+        action:
+          enum:
+            - pause
+            - resume
+            - run_now
+            - skip_next
+          type: string
+        idempotencyKey:
+          maxLength: 200
+          type: string
+        pausedUntil:
+          format: date-time
+          type: string
+        reason:
+          maxLength: 1000
+          minLength: 3
+          type: string
+      required:
+        - action
+        - reason
+      type: object
+    ScheduleActionResult:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/ScheduleActionResult.json
+          format: uri
+          readOnly: true
+          type: string
+        message:
+          type: string
+        occurrenceId:
+          type: string
+        schedule:
+          $ref: "#/components/schemas/ScheduleDefinition"
+      required:
+        - message
+        - schedule
+      type: object
+    ScheduleBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/ScheduleBody.json
+          format: uri
+          readOnly: true
+          type: string
+        catchupGraceMinutes:
+          format: int64
+          maximum: 10080
+          minimum: 0
+          type: integer
+        catchupPolicy:
+          enum:
+            - catch_up
+            - skip
+          type: string
+        channels:
+          items:
+            type: string
+          maxItems: 3
+          minItems: 1
+          type:
+            - array
+            - "null"
+        daysOfWeek:
+          items:
+            format: int32
+            type: integer
+          maxItems: 7
+          minItems: 1
+          type:
+            - array
+            - "null"
+        emptyBehavior:
+          enum:
+            - send_nothing
+            - all_clear
+            - dashboard_only
+          type: string
+        enabled:
+          type: boolean
+        expectedVersion:
+          format: int64
+          minimum: 1
+          type: integer
+        includeComingSoon:
+          type: boolean
+        includeLaterReminders:
+          type: boolean
+        includeRadarCandidates:
+          type: boolean
+        localTime:
+          maxLength: 5
+          minLength: 5
+          type: string
+        maximumItems:
+          enum:
+            - 5
+            - 10
+            - 15
+            - 20
+          format: int64
+          type: integer
+        minimumScore:
+          format: double
+          maximum: 1
+          minimum: 0
+          type: number
+        timezone:
+          maxLength: 255
+          minLength: 1
+          type: string
+        weekendMode:
+          enum:
+            - normal
+            - weekly_only
+            - "off"
+          type: string
+      required:
+        - expectedVersion
+        - timezone
+        - localTime
+        - daysOfWeek
+        - enabled
+        - catchupPolicy
+        - catchupGraceMinutes
+        - weekendMode
+        - maximumItems
+        - minimumScore
+        - includeComingSoon
+        - includeRadarCandidates
+        - includeLaterReminders
+        - emptyBehavior
+        - channels
+      type: object
+    ScheduleDefinition:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/ScheduleDefinition.json
+          format: uri
+          readOnly: true
+          type: string
+        catchupGraceMinutes:
+          format: int64
+          type: integer
+        catchupPolicy:
+          type: string
+        channels:
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        daysOfWeek:
+          items:
+            format: int32
+            type: integer
+          type:
+            - array
+            - "null"
+        emptyBehavior:
+          type: string
+        enabled:
+          type: boolean
+        id:
+          type: string
+        includeComingSoon:
+          type: boolean
+        includeLaterReminders:
+          type: boolean
+        includeRadarCandidates:
+          type: boolean
+        localTime:
+          type: string
+        maximumItems:
+          format: int64
+          type: integer
+        minimumScore:
+          format: double
+          type: number
+        nextDueAt:
+          format: date-time
+          type: string
+        pausedAt:
+          format: date-time
+          type: string
+        pausedUntil:
+          format: date-time
+          type: string
+        scheduleType:
+          type: string
+        skipNextAt:
+          format: date-time
+          type: string
+        timezone:
+          type: string
+        version:
+          format: int64
+          type: integer
+        weekendMode:
+          type: string
+      required:
+        - id
+        - scheduleType
+        - timezone
+        - localTime
+        - daysOfWeek
+        - enabled
+        - catchupPolicy
+        - catchupGraceMinutes
+        - nextDueAt
+        - weekendMode
+        - maximumItems
+        - minimumScore
+        - includeComingSoon
+        - includeRadarCandidates
+        - includeLaterReminders
+        - emptyBehavior
+        - channels
+        - version
+      type: object
+    ScheduleOccurrence:
+      additionalProperties: false
+      properties:
+        completedAt:
+          format: date-time
+          type: string
+        errorCode:
+          type: string
+        id:
+          type: string
+        idempotencyKey:
+          type: string
+        localDate:
+          type: string
+        scheduleId:
+          type: string
+        scheduleType:
+          type: string
+        scheduledFor:
+          format: date-time
+          type: string
+        startedAt:
+          format: date-time
+          type: string
+        state:
+          type: string
+        triggerType:
+          type: string
+      required:
+        - id
+        - scheduleId
+        - scheduleType
+        - scheduledFor
+        - localDate
+        - state
+        - triggerType
+        - idempotencyKey
+      type: object
+    SchedulePreview:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/SchedulePreview.json
+          format: uri
+          readOnly: true
+          type: string
+        candidateCount:
+          format: int64
+          type: integer
+        explanation:
+          type: string
+        externalDelivery:
+          type: boolean
+        localDate:
+          type: string
+        maximumItems:
+          format: int64
+          type: integer
+        nextRunAt:
+          format: date-time
+          type: string
+        scheduleId:
+          type: string
+        scheduleType:
+          type: string
+      required:
+        - scheduleId
+        - scheduleType
+        - localDate
+        - nextRunAt
+        - candidateCount
+        - maximumItems
+        - externalDelivery
+        - explanation
       type: object
     SearchExplanation:
       additionalProperties: false
@@ -977,6 +1598,125 @@ components:
         - score
         - explanation
       type: object
+    SettingsBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/SettingsBody.json
+          format: uri
+          readOnly: true
+          type: string
+        auditRetentionDays:
+          format: int64
+          maximum: 3650
+          minimum: 30
+          type: integer
+        criticalAlertsBypass:
+          type: boolean
+        expectedVersion:
+          format: int64
+          minimum: 1
+          type: integer
+        monthlyHardBudgetUsd:
+          maxLength: 20
+          minLength: 1
+          type: string
+        monthlySoftBudgetUsd:
+          maxLength: 20
+          minLength: 1
+          type: string
+        profileName:
+          maxLength: 120
+          minLength: 1
+          type: string
+        profileSummary:
+          maxLength: 2000
+          type: string
+        quietHoursEnd:
+          maxLength: 5
+          minLength: 5
+          type: string
+        quietHoursStart:
+          maxLength: 5
+          minLength: 5
+          type: string
+        rawRetentionDays:
+          format: int64
+          maximum: 3650
+          minimum: 7
+          type: integer
+        technologies:
+          items:
+            $ref: "#/components/schemas/WatchedTechnology"
+          maxItems: 100
+          type:
+            - array
+            - "null"
+        timezone:
+          maxLength: 255
+          minLength: 1
+          type: string
+        topics:
+          items:
+            $ref: "#/components/schemas/InterestTopic"
+          maxItems: 50
+          minItems: 1
+          type:
+            - array
+            - "null"
+      required:
+        - expectedVersion
+        - profileName
+        - profileSummary
+        - topics
+        - technologies
+        - timezone
+        - quietHoursStart
+        - quietHoursEnd
+        - criticalAlertsBypass
+        - monthlySoftBudgetUsd
+        - monthlyHardBudgetUsd
+        - rawRetentionDays
+        - auditRetentionDays
+      type: object
+    SettingsSnapshot:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/SettingsSnapshot.json
+          format: uri
+          readOnly: true
+          type: string
+        generatedAt:
+          format: date-time
+          type: string
+        owner:
+          $ref: "#/components/schemas/OwnerSettings"
+        profile:
+          $ref: "#/components/schemas/InterestProfile"
+        schedules:
+          items:
+            $ref: "#/components/schemas/ScheduleDefinition"
+          type:
+            - array
+            - "null"
+        technologies:
+          items:
+            $ref: "#/components/schemas/WatchedTechnology"
+          type:
+            - array
+            - "null"
+      required:
+        - generatedAt
+        - owner
+        - profile
+        - technologies
+        - schedules
+      type: object
     Source:
       additionalProperties: false
       properties:
@@ -993,6 +1733,200 @@ components:
         - label
         - tier
         - url
+      type: object
+    SourceActionBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/SourceActionBody.json
+          format: uri
+          readOnly: true
+          type: string
+        action:
+          enum:
+            - approve
+            - pause
+            - reject
+            - resume
+            - test
+          type: string
+        reason:
+          maxLength: 1000
+          minLength: 3
+          type: string
+      required:
+        - action
+        - reason
+      type: object
+    SourceEndpoint:
+      additionalProperties: false
+      properties:
+        connector:
+          type: string
+        healthState:
+          type: string
+        id:
+          type: string
+        lastAttemptAt:
+          format: date-time
+          type: string
+        lastSuccessAt:
+          format: date-time
+          type: string
+        latestErrorCode:
+          type: string
+        latestStatusCode:
+          format: int64
+          type: integer
+        nextPollAt:
+          format: date-time
+          type: string
+        pollIntervalSeconds:
+          format: int64
+          type: integer
+        priority:
+          type: string
+        url:
+          type: string
+      required:
+        - id
+        - connector
+        - url
+        - pollIntervalSeconds
+        - priority
+        - healthState
+      type: object
+    SourceErrorBudget:
+      additionalProperties: false
+      properties:
+        attempts:
+          format: int64
+          type: integer
+        failureRate:
+          format: double
+          type: number
+        failures:
+          format: int64
+          type: integer
+        sourceId:
+          type: string
+        sourceName:
+          type: string
+        state:
+          type: string
+      required:
+        - sourceId
+        - sourceName
+        - attempts
+        - failures
+        - failureRate
+        - state
+      type: object
+    SourcePreference:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/SourcePreference.json
+          format: uri
+          readOnly: true
+          type: string
+        excludeFromDigest:
+          type: boolean
+        muted:
+          type: boolean
+        relevanceAdjustment:
+          format: double
+          type: number
+        version:
+          format: int64
+          type: integer
+      required:
+        - muted
+        - excludeFromDigest
+        - relevanceAdjustment
+        - version
+      type: object
+    SourcePreferenceBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/SourcePreferenceBody.json
+          format: uri
+          readOnly: true
+          type: string
+        excludeFromDigest:
+          type: boolean
+        expectedVersion:
+          format: int64
+          minimum: 0
+          type: integer
+        muted:
+          type: boolean
+        relevanceAdjustment:
+          format: double
+          maximum: 1
+          minimum: -1
+          type: number
+      required:
+        - muted
+        - excludeFromDigest
+        - relevanceAdjustment
+        - expectedVersion
+      type: object
+    SourceValidation:
+      additionalProperties: false
+      properties:
+        checkCount:
+          format: int64
+          type: integer
+        completedAt:
+          format: date-time
+          type: string
+        explanation:
+          type: string
+        failedCheckCount:
+          format: int64
+          type: integer
+        id:
+          type: string
+        state:
+          type: string
+      required:
+        - id
+        - state
+        - checkCount
+        - failedCheckCount
+        - explanation
+        - completedAt
+      type: object
+    SourcesSnapshot:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/SourcesSnapshot.json
+          format: uri
+          readOnly: true
+          type: string
+        generatedAt:
+          format: date-time
+          type: string
+        sources:
+          items:
+            $ref: "#/components/schemas/ManagedSource"
+          type:
+            - array
+            - "null"
+      required:
+        - generatedAt
+        - sources
       type: object
     StoryDetail:
       additionalProperties: false
@@ -1267,6 +2201,28 @@ components:
         - summary
         - whyItMatters
       type: object
+    StuckJob:
+      additionalProperties: false
+      properties:
+        attempt:
+          format: int64
+          type: integer
+        attemptedAt:
+          format: date-time
+          type: string
+        id:
+          format: int64
+          type: integer
+        kind:
+          type: string
+        queue:
+          type: string
+      required:
+        - id
+        - queue
+        - kind
+        - attempt
+      type: object
     Tag:
       additionalProperties: false
       properties:
@@ -1460,6 +2416,34 @@ components:
           type: string
       required:
         - body
+      type: object
+    WatchedTechnology:
+      additionalProperties: false
+      properties:
+        currentVersion:
+          type: string
+        id:
+          type: string
+        lastVerifiedAt:
+          format: date-time
+          type: string
+        packageName:
+          type: string
+        source:
+          type: string
+        status:
+          type: string
+        technology:
+          type: string
+        versionConstraint:
+          type: string
+      required:
+        - technology
+        - packageName
+        - currentVersion
+        - versionConstraint
+        - status
+        - source
       type: object
 info:
   title: Relantern API
@@ -1996,6 +2980,36 @@ paths:
       summary: Get the current owner intelligence stream snapshot
       tags:
         - intelligence
+  /api/v1/operations:
+    get:
+      operationId: get-operations
+      parameters:
+        - in: header
+          name: Authorization
+          schema:
+            type: string
+        - in: header
+          name: X-Relantern-User-ID
+          schema:
+            maxLength: 36
+            minLength: 36
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OperationsSnapshot"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Get bounded private queue, source, deployment, and schedule operations
+      tags:
+        - control-plane
   /api/v1/releases:
     get:
       operationId: get-releases
@@ -2239,6 +3253,194 @@ paths:
       summary: Delete an owner saved search
       tags:
         - discovery
+  /api/v1/settings:
+    get:
+      operationId: get-settings
+      parameters:
+        - in: header
+          name: Authorization
+          schema:
+            type: string
+        - in: header
+          name: X-Relantern-User-ID
+          schema:
+            maxLength: 36
+            minLength: 36
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SettingsSnapshot"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Get private owner profile and schedule settings
+      tags:
+        - control-plane
+    put:
+      operationId: update-settings
+      parameters:
+        - in: header
+          name: Authorization
+          schema:
+            type: string
+        - in: header
+          name: X-Relantern-User-ID
+          schema:
+            maxLength: 36
+            minLength: 36
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SettingsBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SettingsSnapshot"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Update private owner profile, stack, budget, and retention settings
+      tags:
+        - control-plane
+  /api/v1/settings/schedules/{scheduleId}:
+    put:
+      operationId: update-schedule
+      parameters:
+        - in: header
+          name: Authorization
+          schema:
+            type: string
+        - in: header
+          name: X-Relantern-User-ID
+          schema:
+            maxLength: 36
+            minLength: 36
+            type: string
+        - in: path
+          name: scheduleId
+          required: true
+          schema:
+            maxLength: 36
+            minLength: 36
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScheduleBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScheduleDefinition"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Update a durable owner schedule definition
+      tags:
+        - control-plane
+  /api/v1/settings/schedules/{scheduleId}/actions:
+    post:
+      operationId: act-on-schedule
+      parameters:
+        - in: header
+          name: Authorization
+          schema:
+            type: string
+        - in: header
+          name: X-Relantern-User-ID
+          schema:
+            maxLength: 36
+            minLength: 36
+            type: string
+        - in: path
+          name: scheduleId
+          required: true
+          schema:
+            maxLength: 36
+            minLength: 36
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScheduleActionBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScheduleActionResult"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Preview-run, skip, pause, or resume a durable owner schedule
+      tags:
+        - control-plane
+  /api/v1/settings/schedules/{scheduleId}/preview:
+    get:
+      operationId: preview-schedule
+      parameters:
+        - in: header
+          name: Authorization
+          schema:
+            type: string
+        - in: header
+          name: X-Relantern-User-ID
+          schema:
+            maxLength: 36
+            minLength: 36
+            type: string
+        - in: path
+          name: scheduleId
+          required: true
+          schema:
+            maxLength: 36
+            minLength: 36
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SchedulePreview"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Preview the next owner schedule without delivery
+      tags:
+        - control-plane
   /api/v1/snoozed:
     get:
       operationId: get-snoozed
@@ -2284,6 +3486,122 @@ paths:
       summary: Get the owner snoozed reading collection
       tags:
         - reading-state
+  /api/v1/sources:
+    get:
+      operationId: list-sources
+      parameters:
+        - in: header
+          name: Authorization
+          schema:
+            type: string
+        - in: header
+          name: X-Relantern-User-ID
+          schema:
+            maxLength: 36
+            minLength: 36
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SourcesSnapshot"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: List owner source registry health and preferences
+      tags:
+        - control-plane
+  /api/v1/sources/{sourceId}/actions:
+    post:
+      operationId: act-on-source
+      parameters:
+        - in: header
+          name: Authorization
+          schema:
+            type: string
+        - in: header
+          name: X-Relantern-User-ID
+          schema:
+            maxLength: 36
+            minLength: 36
+            type: string
+        - in: path
+          name: sourceId
+          required: true
+          schema:
+            maxLength: 255
+            minLength: 1
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SourceActionBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ManagedSource"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Test, review, pause, or resume a source
+      tags:
+        - control-plane
+  /api/v1/sources/{sourceId}/preference:
+    put:
+      operationId: update-source-preference
+      parameters:
+        - in: header
+          name: Authorization
+          schema:
+            type: string
+        - in: header
+          name: X-Relantern-User-ID
+          schema:
+            maxLength: 36
+            minLength: 36
+            type: string
+        - in: path
+          name: sourceId
+          required: true
+          schema:
+            maxLength: 255
+            minLength: 1
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SourcePreferenceBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SourcePreference"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Update an owner source ranking and delivery preference
+      tags:
+        - control-plane
   /api/v1/starred:
     get:
       operationId: get-starred

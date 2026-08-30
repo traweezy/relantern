@@ -95,6 +95,18 @@ func (reconciler *Reconciler) Reconcile(ctx context.Context, runID string) (Reco
 	result := ReconcileResult{LockAcquired: true}
 
 	now := reconciler.clock.Now().UTC()
+	if _, err := tx.Exec(ctx, `
+		update app.schedule_definitions
+		set paused_at = null,
+			paused_until = null,
+			version = version + 1,
+			updated_at = $1
+		where enabled
+			and paused_at is not null
+			and paused_until is not null
+			and paused_until <= $1`, now); err != nil {
+		return ReconcileResult{}, fmt.Errorf("resume elapsed schedule pauses: %w", err)
+	}
 	rows, err := tx.Query(ctx, `
 		select
 			id::text,

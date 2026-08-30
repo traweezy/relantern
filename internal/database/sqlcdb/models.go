@@ -263,6 +263,28 @@ type AppGithubRepository struct {
 	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
 }
 
+type AppInterestProfile struct {
+	ID             pgtype.UUID        `json:"id"`
+	UserID         pgtype.UUID        `json:"user_id"`
+	Version        int64              `json:"version"`
+	Name           string             `json:"name"`
+	IsActive       bool               `json:"is_active"`
+	ProfileSummary string             `json:"profile_summary"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+}
+
+type AppInterestTopic struct {
+	ProfileID  pgtype.UUID        `json:"profile_id"`
+	TopicID    string             `json:"topic_id"`
+	Priority   int16              `json:"priority"`
+	Weight     pgtype.Numeric     `json:"weight"`
+	Keywords   []string           `json:"keywords"`
+	Exclusions []string           `json:"exclusions"`
+	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
+}
+
 type AppItem struct {
 	ID                pgtype.UUID        `json:"id"`
 	CurrentRevisionID pgtype.UUID        `json:"current_revision_id"`
@@ -372,6 +394,19 @@ type AppOutboxEvent struct {
 	CreatedAt     pgtype.Timestamptz `json:"created_at"`
 }
 
+type AppOwnerSetting struct {
+	UserID               pgtype.UUID        `json:"user_id"`
+	QuietHoursStart      pgtype.Time        `json:"quiet_hours_start"`
+	QuietHoursEnd        pgtype.Time        `json:"quiet_hours_end"`
+	CriticalAlertsBypass bool               `json:"critical_alerts_bypass"`
+	MonthlySoftBudgetUsd pgtype.Numeric     `json:"monthly_soft_budget_usd"`
+	MonthlyHardBudgetUsd pgtype.Numeric     `json:"monthly_hard_budget_usd"`
+	RawRetentionDays     int32              `json:"raw_retention_days"`
+	AuditRetentionDays   int32              `json:"audit_retention_days"`
+	Version              int64              `json:"version"`
+	UpdatedAt            pgtype.Timestamptz `json:"updated_at"`
+}
+
 type AppPromptVersion struct {
 	ID              pgtype.UUID        `json:"id"`
 	Purpose         string             `json:"purpose"`
@@ -450,22 +485,31 @@ type AppSavedSearch struct {
 }
 
 type AppScheduleDefinition struct {
-	ID            pgtype.UUID        `json:"id"`
-	UserID        pgtype.UUID        `json:"user_id"`
-	ScheduleType  string             `json:"schedule_type"`
-	Timezone      string             `json:"timezone"`
-	LocalTime     pgtype.Time        `json:"local_time"`
-	DaysOfWeek    []int16            `json:"days_of_week"`
-	Enabled       bool               `json:"enabled"`
-	CatchupPolicy string             `json:"catchup_policy"`
-	CatchupGrace  pgtype.Interval    `json:"catchup_grace"`
-	NextDueAt     pgtype.Timestamptz `json:"next_due_at"`
-	SkipNextAt    pgtype.Timestamptz `json:"skip_next_at"`
-	PausedAt      pgtype.Timestamptz `json:"paused_at"`
-	Config        []byte             `json:"config"`
-	Version       int64              `json:"version"`
-	CreatedAt     pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
+	ID                     pgtype.UUID        `json:"id"`
+	UserID                 pgtype.UUID        `json:"user_id"`
+	ScheduleType           string             `json:"schedule_type"`
+	Timezone               string             `json:"timezone"`
+	LocalTime              pgtype.Time        `json:"local_time"`
+	DaysOfWeek             []int16            `json:"days_of_week"`
+	Enabled                bool               `json:"enabled"`
+	CatchupPolicy          string             `json:"catchup_policy"`
+	CatchupGrace           pgtype.Interval    `json:"catchup_grace"`
+	NextDueAt              pgtype.Timestamptz `json:"next_due_at"`
+	SkipNextAt             pgtype.Timestamptz `json:"skip_next_at"`
+	PausedAt               pgtype.Timestamptz `json:"paused_at"`
+	Config                 []byte             `json:"config"`
+	Version                int64              `json:"version"`
+	CreatedAt              pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt              pgtype.Timestamptz `json:"updated_at"`
+	WeekendMode            string             `json:"weekend_mode"`
+	MaximumItems           int32              `json:"maximum_items"`
+	MinimumScore           pgtype.Numeric     `json:"minimum_score"`
+	IncludeComingSoon      bool               `json:"include_coming_soon"`
+	IncludeRadarCandidates bool               `json:"include_radar_candidates"`
+	IncludeLaterReminders  bool               `json:"include_later_reminders"`
+	EmptyBehavior          string             `json:"empty_behavior"`
+	Channels               []string           `json:"channels"`
+	PausedUntil            pgtype.Timestamptz `json:"paused_until"`
 }
 
 type AppScheduleOccurrence struct {
@@ -602,6 +646,18 @@ type AppSourceRuntimeOverride struct {
 	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
 }
 
+type AppSourceValidationRun struct {
+	ID               pgtype.UUID        `json:"id"`
+	SourceID         string             `json:"source_id"`
+	RequestedBy      pgtype.UUID        `json:"requested_by"`
+	State            string             `json:"state"`
+	CheckCount       int32              `json:"check_count"`
+	FailedCheckCount int32              `json:"failed_check_count"`
+	Explanation      string             `json:"explanation"`
+	StartedAt        pgtype.Timestamptz `json:"started_at"`
+	CompletedAt      pgtype.Timestamptz `json:"completed_at"`
+}
+
 type AppStoryCluster struct {
 	ID            pgtype.UUID        `json:"id"`
 	PrimaryItemID pgtype.UUID        `json:"primary_item_id"`
@@ -654,6 +710,16 @@ type AppUserItemState struct {
 	UpdatedAt           pgtype.Timestamptz `json:"updated_at"`
 }
 
+type AppUserSourcePreference struct {
+	UserID              pgtype.UUID        `json:"user_id"`
+	SourceID            string             `json:"source_id"`
+	Muted               bool               `json:"muted"`
+	ExcludeFromDigest   bool               `json:"exclude_from_digest"`
+	RelevanceAdjustment pgtype.Numeric     `json:"relevance_adjustment"`
+	Version             int64              `json:"version"`
+	UpdatedAt           pgtype.Timestamptz `json:"updated_at"`
+}
+
 type AppVStorySummary struct {
 	StoryID           pgtype.UUID        `json:"story_id"`
 	ItemID            pgtype.UUID        `json:"item_id"`
@@ -675,11 +741,15 @@ type AppVStorySummary struct {
 }
 
 type AppWatchedTechnology struct {
-	ID             pgtype.UUID        `json:"id"`
-	UserID         pgtype.UUID        `json:"user_id"`
-	Technology     string             `json:"technology"`
-	PackageName    string             `json:"package_name"`
-	CurrentVersion string             `json:"current_version"`
-	CreatedAt      pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+	ID                pgtype.UUID        `json:"id"`
+	UserID            pgtype.UUID        `json:"user_id"`
+	Technology        string             `json:"technology"`
+	PackageName       string             `json:"package_name"`
+	CurrentVersion    string             `json:"current_version"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
+	VersionConstraint string             `json:"version_constraint"`
+	Status            string             `json:"status"`
+	Source            string             `json:"source"`
+	LastVerifiedAt    pgtype.Timestamptz `json:"last_verified_at"`
 }

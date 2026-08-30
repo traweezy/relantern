@@ -226,6 +226,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/operations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get bounded private queue, source, deployment, and schedule operations */
+        get: operations["get-operations"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/releases": {
         parameters: {
             query?: never;
@@ -295,6 +312,75 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get private owner profile and schedule settings */
+        get: operations["get-settings"];
+        /** Update private owner profile, stack, budget, and retention settings */
+        put: operations["update-settings"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/settings/schedules/{scheduleId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Update a durable owner schedule definition */
+        put: operations["update-schedule"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/settings/schedules/{scheduleId}/actions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Preview-run, skip, pause, or resume a durable owner schedule */
+        post: operations["act-on-schedule"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/settings/schedules/{scheduleId}/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Preview the next owner schedule without delivery */
+        get: operations["preview-schedule"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/snoozed": {
         parameters: {
             query?: never;
@@ -305,6 +391,57 @@ export interface paths {
         /** Get the owner snoozed reading collection */
         get: operations["get-snoozed"];
         put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List owner source registry health and preferences */
+        get: operations["list-sources"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sources/{sourceId}/actions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Test, review, pause, or resume a source */
+        post: operations["act-on-source"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sources/{sourceId}/preference": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Update an owner source ranking and delivery preference */
+        put: operations["update-source-preference"];
         post?: never;
         delete?: never;
         options?: never;
@@ -662,6 +799,11 @@ export interface components {
             readonly $schema?: string;
             deleted: boolean;
         };
+        DeploymentMetadata: {
+            environment: string;
+            gitSha: string;
+            version: string;
+        };
         ErrorDetail: {
             /** @description Where the error occurred, e.g. 'body.items[3].tags' or 'path.thing-id' */
             location?: string;
@@ -778,6 +920,23 @@ export interface components {
             expiresAt: string;
             id: string;
         };
+        InterestProfile: {
+            id: string;
+            name: string;
+            profileSummary: string;
+            topics: components["schemas"]["InterestTopic"][] | null;
+            /** Format: int64 */
+            version: number;
+        };
+        InterestTopic: {
+            exclusions: string[] | null;
+            keywords: string[] | null;
+            /** Format: int32 */
+            priority: number;
+            topicId: string;
+            /** Format: double */
+            weight: number;
+        };
         LaterOrderCommand: {
             /**
              * Format: uri
@@ -807,6 +966,39 @@ export interface components {
             events: components["schemas"]["LiveEvent"][] | null;
             /** Format: date-time */
             generatedAt: string;
+        };
+        ManagedSource: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/ManagedSource.json
+             */
+            readonly $schema?: string;
+            /** Format: int64 */
+            contentCount: number;
+            contentPolicy: string;
+            /** Format: double */
+            duplicateRate: number;
+            enabled: boolean;
+            endpoints: components["schemas"]["SourceEndpoint"][] | null;
+            errorBudgetState: string;
+            /** Format: int64 */
+            failureCount24h: number;
+            homepageUrl: string;
+            id: string;
+            latestValidation?: components["schemas"]["SourceValidation"];
+            name: string;
+            origin: string;
+            owner: string;
+            pollingEnabled: boolean;
+            preference: components["schemas"]["SourcePreference"];
+            /** Format: date-time */
+            reviewedAt?: string;
+            /** Format: int64 */
+            successCount24h: number;
+            topics: string[] | null;
+            trustTier: string;
+            validationState: string;
         };
         ManualCapture: {
             /**
@@ -876,6 +1068,62 @@ export interface components {
             readonly $schema?: string;
             opml: string;
         };
+        OperationsSnapshot: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/OperationsSnapshot.json
+             */
+            readonly $schema?: string;
+            /** Format: int64 */
+            deliveryAttempts: number;
+            deployment: components["schemas"]["DeploymentMetadata"];
+            /** Format: date-time */
+            generatedAt: string;
+            occurrences: components["schemas"]["ScheduleOccurrence"][] | null;
+            /** Format: date-time */
+            oldestOverdueOccurrence?: string;
+            /** Format: int64 */
+            openaiBackgroundPending: number;
+            queues: components["schemas"]["QueueDepth"][] | null;
+            restore: components["schemas"]["RestoreStatus"];
+            /** Format: date-time */
+            schedulerLastSuccess?: string;
+            schedules: components["schemas"]["ScheduleDefinition"][] | null;
+            sourceErrorBudgets: components["schemas"]["SourceErrorBudget"][] | null;
+            stuckJobs: components["schemas"]["StuckJob"][] | null;
+        };
+        OwnerSettings: {
+            /** Format: int64 */
+            auditRetentionDays: number;
+            criticalAlertsBypass: boolean;
+            monthlyHardBudgetUsd: string;
+            monthlySoftBudgetUsd: string;
+            quietHoursEnd: string;
+            quietHoursStart: string;
+            /** Format: int64 */
+            rawRetentionDays: number;
+            timezone: string;
+            /** Format: int64 */
+            version: number;
+        };
+        QueueDepth: {
+            /** Format: int64 */
+            available: number;
+            /** Format: int64 */
+            cancelled: number;
+            /** Format: int64 */
+            completed: number;
+            /** Format: int64 */
+            discarded: number;
+            queue: string;
+            /** Format: int64 */
+            retryable: number;
+            /** Format: int64 */
+            running: number;
+            /** Format: int64 */
+            scheduled: number;
+        };
         ReleaseCatalog: {
             /**
              * Format: uri
@@ -902,6 +1150,10 @@ export interface components {
             targetDate: string | null;
             technology: string;
             version: string;
+        };
+        RestoreStatus: {
+            explanation: string;
+            state: string;
         };
         SaveSearchInputBody: {
             /**
@@ -938,6 +1190,136 @@ export interface components {
              */
             readonly $schema?: string;
             searches: components["schemas"]["SavedSearch"][] | null;
+        };
+        ScheduleActionBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/ScheduleActionBody.json
+             */
+            readonly $schema?: string;
+            /** @enum {string} */
+            action: "pause" | "resume" | "run_now" | "skip_next";
+            idempotencyKey?: string;
+            /** Format: date-time */
+            pausedUntil?: string;
+            reason: string;
+        };
+        ScheduleActionResult: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/ScheduleActionResult.json
+             */
+            readonly $schema?: string;
+            message: string;
+            occurrenceId?: string;
+            schedule: components["schemas"]["ScheduleDefinition"];
+        };
+        ScheduleBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/ScheduleBody.json
+             */
+            readonly $schema?: string;
+            /** Format: int64 */
+            catchupGraceMinutes: number;
+            /** @enum {string} */
+            catchupPolicy: "catch_up" | "skip";
+            channels: string[] | null;
+            daysOfWeek: number[] | null;
+            /** @enum {string} */
+            emptyBehavior: "send_nothing" | "all_clear" | "dashboard_only";
+            enabled: boolean;
+            /** Format: int64 */
+            expectedVersion: number;
+            includeComingSoon: boolean;
+            includeLaterReminders: boolean;
+            includeRadarCandidates: boolean;
+            localTime: string;
+            /**
+             * Format: int64
+             * @enum {integer}
+             */
+            maximumItems: 5 | 10 | 15 | 20;
+            /** Format: double */
+            minimumScore: number;
+            timezone: string;
+            /** @enum {string} */
+            weekendMode: "normal" | "weekly_only" | "off";
+        };
+        ScheduleDefinition: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/ScheduleDefinition.json
+             */
+            readonly $schema?: string;
+            /** Format: int64 */
+            catchupGraceMinutes: number;
+            catchupPolicy: string;
+            channels: string[] | null;
+            daysOfWeek: number[] | null;
+            emptyBehavior: string;
+            enabled: boolean;
+            id: string;
+            includeComingSoon: boolean;
+            includeLaterReminders: boolean;
+            includeRadarCandidates: boolean;
+            localTime: string;
+            /** Format: int64 */
+            maximumItems: number;
+            /** Format: double */
+            minimumScore: number;
+            /** Format: date-time */
+            nextDueAt: string;
+            /** Format: date-time */
+            pausedAt?: string;
+            /** Format: date-time */
+            pausedUntil?: string;
+            scheduleType: string;
+            /** Format: date-time */
+            skipNextAt?: string;
+            timezone: string;
+            /** Format: int64 */
+            version: number;
+            weekendMode: string;
+        };
+        ScheduleOccurrence: {
+            /** Format: date-time */
+            completedAt?: string;
+            errorCode?: string;
+            id: string;
+            idempotencyKey: string;
+            localDate: string;
+            scheduleId: string;
+            scheduleType: string;
+            /** Format: date-time */
+            scheduledFor: string;
+            /** Format: date-time */
+            startedAt?: string;
+            state: string;
+            triggerType: string;
+        };
+        SchedulePreview: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/SchedulePreview.json
+             */
+            readonly $schema?: string;
+            /** Format: int64 */
+            candidateCount: number;
+            explanation: string;
+            externalDelivery: boolean;
+            localDate: string;
+            /** Format: int64 */
+            maximumItems: number;
+            /** Format: date-time */
+            nextRunAt: string;
+            scheduleId: string;
+            scheduleType: string;
         };
         SearchExplanation: {
             /** Format: int64 */
@@ -988,11 +1370,139 @@ export interface components {
             summary: string;
             title: string;
         };
+        SettingsBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/SettingsBody.json
+             */
+            readonly $schema?: string;
+            /** Format: int64 */
+            auditRetentionDays: number;
+            criticalAlertsBypass: boolean;
+            /** Format: int64 */
+            expectedVersion: number;
+            monthlyHardBudgetUsd: string;
+            monthlySoftBudgetUsd: string;
+            profileName: string;
+            profileSummary: string;
+            quietHoursEnd: string;
+            quietHoursStart: string;
+            /** Format: int64 */
+            rawRetentionDays: number;
+            technologies: components["schemas"]["WatchedTechnology"][] | null;
+            timezone: string;
+            topics: components["schemas"]["InterestTopic"][] | null;
+        };
+        SettingsSnapshot: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/SettingsSnapshot.json
+             */
+            readonly $schema?: string;
+            /** Format: date-time */
+            generatedAt: string;
+            owner: components["schemas"]["OwnerSettings"];
+            profile: components["schemas"]["InterestProfile"];
+            schedules: components["schemas"]["ScheduleDefinition"][] | null;
+            technologies: components["schemas"]["WatchedTechnology"][] | null;
+        };
         Source: {
             domain: string;
             label: string;
             tier: string;
             url: string;
+        };
+        SourceActionBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/SourceActionBody.json
+             */
+            readonly $schema?: string;
+            /** @enum {string} */
+            action: "approve" | "pause" | "reject" | "resume" | "test";
+            reason: string;
+        };
+        SourceEndpoint: {
+            connector: string;
+            healthState: string;
+            id: string;
+            /** Format: date-time */
+            lastAttemptAt?: string;
+            /** Format: date-time */
+            lastSuccessAt?: string;
+            latestErrorCode?: string;
+            /** Format: int64 */
+            latestStatusCode?: number;
+            /** Format: date-time */
+            nextPollAt?: string;
+            /** Format: int64 */
+            pollIntervalSeconds: number;
+            priority: string;
+            url: string;
+        };
+        SourceErrorBudget: {
+            /** Format: int64 */
+            attempts: number;
+            /** Format: double */
+            failureRate: number;
+            /** Format: int64 */
+            failures: number;
+            sourceId: string;
+            sourceName: string;
+            state: string;
+        };
+        SourcePreference: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/SourcePreference.json
+             */
+            readonly $schema?: string;
+            excludeFromDigest: boolean;
+            muted: boolean;
+            /** Format: double */
+            relevanceAdjustment: number;
+            /** Format: int64 */
+            version: number;
+        };
+        SourcePreferenceBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/SourcePreferenceBody.json
+             */
+            readonly $schema?: string;
+            excludeFromDigest: boolean;
+            /** Format: int64 */
+            expectedVersion: number;
+            muted: boolean;
+            /** Format: double */
+            relevanceAdjustment: number;
+        };
+        SourceValidation: {
+            /** Format: int64 */
+            checkCount: number;
+            /** Format: date-time */
+            completedAt: string;
+            explanation: string;
+            /** Format: int64 */
+            failedCheckCount: number;
+            id: string;
+            state: string;
+        };
+        SourcesSnapshot: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/SourcesSnapshot.json
+             */
+            readonly $schema?: string;
+            /** Format: date-time */
+            generatedAt: string;
+            sources: components["schemas"]["ManagedSource"][] | null;
         };
         StoryDetail: {
             /**
@@ -1097,6 +1607,16 @@ export interface components {
             summary: string;
             whyItMatters: string;
         };
+        StuckJob: {
+            /** Format: int64 */
+            attempt: number;
+            /** Format: date-time */
+            attemptedAt?: string;
+            /** Format: int64 */
+            id: number;
+            kind: string;
+            queue: string;
+        };
         Tag: {
             /**
              * Format: uri
@@ -1186,6 +1706,17 @@ export interface components {
              */
             readonly $schema?: string;
             body: string;
+        };
+        WatchedTechnology: {
+            currentVersion: string;
+            id?: string;
+            /** Format: date-time */
+            lastVerifiedAt?: string;
+            packageName: string;
+            source: string;
+            status: string;
+            technology: string;
+            versionConstraint: string;
         };
     };
     responses: never;
@@ -1685,6 +2216,38 @@ export interface operations {
             };
         };
     };
+    "get-operations": {
+        parameters: {
+            query?: never;
+            header?: {
+                Authorization?: string;
+                "X-Relantern-User-ID"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationsSnapshot"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     "get-releases": {
         parameters: {
             query?: never;
@@ -1862,6 +2425,184 @@ export interface operations {
             };
         };
     };
+    "get-settings": {
+        parameters: {
+            query?: never;
+            header?: {
+                Authorization?: string;
+                "X-Relantern-User-ID"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SettingsSnapshot"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "update-settings": {
+        parameters: {
+            query?: never;
+            header?: {
+                Authorization?: string;
+                "X-Relantern-User-ID"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SettingsBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SettingsSnapshot"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "update-schedule": {
+        parameters: {
+            query?: never;
+            header?: {
+                Authorization?: string;
+                "X-Relantern-User-ID"?: string;
+            };
+            path: {
+                scheduleId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScheduleBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScheduleDefinition"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "act-on-schedule": {
+        parameters: {
+            query?: never;
+            header?: {
+                Authorization?: string;
+                "X-Relantern-User-ID"?: string;
+            };
+            path: {
+                scheduleId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScheduleActionBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScheduleActionResult"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "preview-schedule": {
+        parameters: {
+            query?: never;
+            header?: {
+                Authorization?: string;
+                "X-Relantern-User-ID"?: string;
+            };
+            path: {
+                scheduleId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SchedulePreview"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     "get-snoozed": {
         parameters: {
             query?: {
@@ -1884,6 +2625,114 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Collection"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "list-sources": {
+        parameters: {
+            query?: never;
+            header?: {
+                Authorization?: string;
+                "X-Relantern-User-ID"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourcesSnapshot"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "act-on-source": {
+        parameters: {
+            query?: never;
+            header?: {
+                Authorization?: string;
+                "X-Relantern-User-ID"?: string;
+            };
+            path: {
+                sourceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SourceActionBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ManagedSource"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "update-source-preference": {
+        parameters: {
+            query?: never;
+            header?: {
+                Authorization?: string;
+                "X-Relantern-User-ID"?: string;
+            };
+            path: {
+                sourceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SourcePreferenceBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourcePreference"];
                 };
             };
             /** @description Error */
