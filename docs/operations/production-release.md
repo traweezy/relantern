@@ -34,8 +34,8 @@ absent, the release fails before tag creation.
    `make security-scan`, gitleaks, pnpm audit, and signature verification
    against that commit. Preserve small redacted logs under `docs/evidence/`.
 4. Create strict gate reports. A security report has `kind: "security"` and
-   lists all of:
-   `make security-scan`, `gitleaks git --redact --no-banner`,
+   lists all of: `make security-scan`,
+   `bash scripts/go-tool.sh run github.com/zricethezav/gitleaks/v8@v8.30.1 git --redact --no-banner`,
    `pnpm audit --audit-level high`, and `pnpm audit signatures`. A pre-push
    report has `kind: "prepush"` and lists `make prepush` and
    `make prodlike-smoke`. Both use version 1, the approved SHA, `result: "pass"`,

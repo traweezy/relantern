@@ -291,8 +291,13 @@ func loadGateReport(
 		return GateReport{}, fmt.Errorf("%s gate must complete before the release decision", kind)
 	}
 	requiredCommands := map[string][]string{
-		"security": {"make security-scan", "gitleaks git --redact --no-banner", "pnpm audit --audit-level high", "pnpm audit signatures"},
-		"prepush":  {"make prepush", "make prodlike-smoke"},
+		"security": {
+			"make security-scan",
+			"bash scripts/go-tool.sh run github.com/zricethezav/gitleaks/v8@v8.30.1 git --redact --no-banner",
+			"pnpm audit --audit-level high",
+			"pnpm audit signatures",
+		},
+		"prepush": {"make prepush", "make prodlike-smoke"},
 	}[kind]
 	for _, command := range requiredCommands {
 		if !slices.Contains(report.Commands, command) {

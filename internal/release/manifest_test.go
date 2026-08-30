@@ -235,8 +235,13 @@ func completeReleaseEvidence(t *testing.T) (string, Manifest, time.Time) {
 	security := GateReport{
 		Version: 1, Kind: "security", ReleaseSHA: testReleaseSHA, Result: "pass",
 		CompletedAt: endedAt.Add(30 * time.Minute).Format(time.RFC3339),
-		Commands:    []string{"make security-scan", "gitleaks git --redact --no-banner", "pnpm audit --audit-level high", "pnpm audit signatures"},
-		Evidence:    []EvidenceReference{shared},
+		Commands: []string{
+			"make security-scan",
+			"bash scripts/go-tool.sh run github.com/zricethezav/gitleaks/v8@v8.30.1 git --redact --no-banner",
+			"pnpm audit --audit-level high",
+			"pnpm audit signatures",
+		},
+		Evidence: []EvidenceReference{shared},
 	}
 	securityReference := writeJSONEvidence(t, root, "docs/evidence/releases/security.json", security)
 	prepush := GateReport{
