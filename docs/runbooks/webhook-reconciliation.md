@@ -3,7 +3,17 @@
 Use this runbook when an OpenAI background response appears stuck, a webhook is
 duplicated or rejected, or `reconcile_openai_background` reports failures.
 
-## Safety boundary
+## Trigger
+
+- A background response remains running beyond the reconciliation interval.
+- A webhook is duplicated, rejected, unprocessed, or linked to a failed poll.
+
+## Impact
+
+Background research completion is delayed or held for review. Stored evidence,
+deterministic ingestion, and already completed briefs remain available.
+
+## Immediate containment
 
 - Never parse or forward a webhook before the public Next.js route verifies its
   signature against the untouched raw body.
@@ -14,7 +24,7 @@ duplicated or rejected, or `reconcile_openai_background` reports failures.
 - `OPENAI_WEBHOOK_SECRET` and `WEB_INTERNAL_SERVICE_TOKEN` are distinct per
   environment and must not be printed, committed, or exposed to the browser.
 
-## Inspect durable state
+## Exact verification commands
 
 ```sql
 select
@@ -88,3 +98,20 @@ Expected behavior:
 Escalate immediately if an unverified event reaches the private API, one
 response ID updates multiple runs, a duplicate causes two completed briefs, or
 local/test traffic reaches the live OpenAI API.
+
+## Data-integrity checks
+
+- One event ID maps to one durable webhook row and one effective transition.
+- One provider response ID maps to one AI run in the same environment.
+- Terminal processing preserves attempt usage, evidence, and error history.
+
+## Communication
+
+Record event/response/run IDs, bounded error code, environment, visible delay,
+containment, and recovery time. Never include payloads or secret values.
+
+## Post-incident evidence
+
+Retain sanitized webhook/run/job queries, signature verification status,
+idempotency results, reconciliation timestamps, release SHA, and regression
+coverage.

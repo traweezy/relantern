@@ -4,13 +4,15 @@ Use this runbook when a URL capture remains queued, fails, produces uncertain
 lineage, or an OPML preview/import is rejected. Never enable an owner source,
 edit a preview, or mutate a River row directly.
 
-## Trigger and impact
+## Trigger
 
 - A capture has not reached `completed` or `failed` within five minutes.
 - `process_manual_capture` repeatedly retries or becomes discarded.
 - An approved OPML commit returns conflict/not-found, or an imported source is
   unexpectedly enabled.
 - Exported OPML or story metadata does not reflect the owner-scoped database.
+
+## Impact
 
 Capture failures affect only the requested owner URL. OPML commit failures may
 delay the selected source additions, but must never partially enable them.
@@ -25,7 +27,7 @@ delay the selected source additions, but must never partially enable them.
 4. If the failure is external-policy related, leave the source disabled and do
    not bypass robots, content-type, size, redirect, or address validation.
 
-## Inspect
+## Exact verification commands
 
 List bounded discarded work without printing job arguments:
 
@@ -54,7 +56,7 @@ Review worker/API logs by capture or request ID. Classify the failure as
 configuration, transient dependency, source policy, unsupported connector,
 invalid content, parser drift, or code defect before retrying.
 
-## Recover
+## Recovery
 
 - For an eligible cancelled/discarded capture after its root cause is fixed,
   use the audited `retry-job` command from the queue recovery runbook. Verify
@@ -67,7 +69,7 @@ invalid content, parser drift, or code defect before retrying.
 - A generic connector that fails bounded fetch/parse validation remains
   disabled until a fixture and reviewed parser change pass normal gates.
 
-## Verify
+## Data-integrity checks
 
 - A successful capture has one item and story cluster, one terminal capture
   record, content-addressed raw/normalized objects, and no duplicate River job.
@@ -78,3 +80,13 @@ invalid content, parser drift, or code defect before retrying.
 - Preview replay returns conflict, duplicate/invalid candidates cannot commit,
   and exports contain only owner-authorized records.
 - API/worker error rate and queue age return to baseline before intake resumes.
+
+## Communication
+
+Record capture/preview identifiers, failure class, whether polling stayed off,
+owner-visible impact, and recovery time. Do not include source or OPML bodies.
+
+## Post-incident evidence
+
+Retain bounded logs, job and request IDs, idempotency results, source safety
+state, export verification, release SHA, and the regression test.

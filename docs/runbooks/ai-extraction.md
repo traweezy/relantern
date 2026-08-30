@@ -4,7 +4,18 @@ Use this runbook for `extract_item` failures, budget blocks, schema review, or
 prompt/model registry drift. Fast extraction never authorizes web search, shell
 execution, file writes, deployments, or delivery.
 
-## Safety boundary
+## Trigger
+
+- An `extract_item` job retries, discards, or enters `needs_review`.
+- A run is blocked by budget, schema, configuration, or revision integrity.
+- Provider usage, cost, or evidence coverage departs from the reviewed bounds.
+
+## Impact
+
+New claim extraction may pause or require review. Deterministic ingestion,
+stored evidence, ranking, search, and prior published stories remain available.
+
+## Immediate containment
 
 - The default local stack uses only `http://fake-openai:8091`.
 - Do not place a production OpenAI key in Compose, GitHub Actions, logs, shell
@@ -15,7 +26,7 @@ execution, file writes, deployments, or delivery.
 - Production migrations are forward-only. Never run `migrate down` outside a
   disposable local or test database.
 
-## Inspect current state
+## Exact verification commands
 
 Use read-only queries first:
 
@@ -77,7 +88,7 @@ Inspect discarded jobs with `docker compose run --rm worker dead-letters` and
 follow `queue-recovery.md` for audited retries. Job retry does not erase attempt
 history or budget reservations.
 
-## Containment and recovery
+## Recovery
 
 To contain provider calls in a hosted environment, set
 `OPENAI_FAST_ENABLED=false` in that environment and roll the worker back through
@@ -96,3 +107,20 @@ Before re-enabling:
 Escalate immediately if a provider call occurs after a hard-cap rejection, a
 material claim lacks a persisted evidence span, local/test traffic reaches a
 live provider, or prompt-injection text affects tool authority.
+
+## Data-integrity checks
+
+- Every published material claim retains a persisted evidence span and source.
+- Attempt reservations, actual usage, and terminal run state remain immutable.
+- Retry does not change prompt, schema, model, revision, or owner identity.
+
+## Communication
+
+Record the bounded error code, affected run count, provider/cost impact,
+containment state, and recovery time. Do not retain prompts, source bodies,
+credentials, or owner data in incident communication.
+
+## Post-incident evidence
+
+Retain run and job IDs, sanitized logs, ledger totals, exact registry digests,
+test output, release SHA, and the regression-prevention change.

@@ -66,6 +66,12 @@ docker compose run --rm worker retry-job -id <job-id> \
   compatibility, and exit arrays.
 - Reprocessing completed evidence does not create duplicate metric snapshots.
 
+## Communication
+
+Record the affected run/job IDs, queue delay, owner-visible staleness,
+containment, recovery time, and whether any decision required review. Do not
+include evidence payloads or owner profile data.
+
 ## Post-incident evidence
 
 Retain the affected run/job IDs, bounded error code, recovery timestamp, queue

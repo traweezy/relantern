@@ -5,7 +5,32 @@ browser session must be revoked. Never print OAuth secrets, Better Auth secrets,
 session tokens, authorization codes, or raw provider profiles into a terminal,
 ticket, or log.
 
-## Triage
+## Trigger
+
+- Owner sign-in, callback, session validation, or sign-out fails.
+- A GitHub OAuth, Better Auth, or service credential must rotate.
+- A suspected compromise requires session revocation.
+
+## Impact
+
+The owner may be locked out or an active session may be untrusted. Anonymous
+fixture demo availability is independent and private routes remain protected.
+
+## Immediate containment
+
+- Keep protected routes private and do not weaken the numeric owner allowlist,
+  CSRF, cookie, CSP, or OAuth state/PKCE controls.
+- For suspected compromise, revoke the provider secret and stop new sign-ins
+  before rotating environment-specific credentials.
+- Preserve bounded request/session IDs and timestamps without token values.
+
+## Exact verification commands
+
+```sh
+make ps
+docker compose logs --since=30m web postgres fake-source
+make auth-smoke
+```
 
 1. Confirm `web`, PostgreSQL, and the provider are healthy. In local development,
    the provider is `fake-source`; in staging and production it is GitHub.
@@ -23,7 +48,9 @@ ticket, or log.
 6. In local development, run `make auth-smoke`. It must remain disconnected from
    live GitHub unless the live-provider fuse was separately authorized.
 
-## Owner lockout
+## Recovery
+
+### Owner lockout
 
 - Verify the numeric GitHub user ID, not the mutable login or email address.
 - Verify the OAuth app belongs to the current environment and its callback URL
@@ -35,7 +62,7 @@ ticket, or log.
 - If GitHub is unavailable, wait for provider recovery. The local fixture is not
   an acceptable hosted bypass.
 
-## Rotate the GitHub client secret
+### Rotate the GitHub client secret
 
 1. Create a new secret in the environment-specific GitHub OAuth app.
 2. Seal it as `GITHUB_OAUTH_CLIENT_SECRET` in the matching Railway environment.
@@ -46,7 +73,7 @@ ticket, or log.
 Existing Relantern sessions remain valid; revoke them too when rotation responds
 to suspected account or token compromise.
 
-## Rotate the Better Auth secret
+### Rotate the Better Auth secret
 
 1. Generate at least 32 random bytes in the environment's secret manager.
 2. Seal the new value as `BETTER_AUTH_SECRET` and redeploy `web`.
@@ -55,7 +82,7 @@ to suspected account or token compromise.
    suspected compromise.
 5. Complete a new owner sign-in and verify `/`, `/login`, and sign-out.
 
-## Revoke sessions
+### Revoke sessions
 
 Count sessions first without selecting tokens:
 
@@ -76,7 +103,7 @@ This is intentionally destructive to login state but not owner or product data.
 Do not delete accounts or users. Verify an old browser is redirected to
 `/login`, then complete a fresh owner sign-in.
 
-## Local verification
+### Local verification
 
 With the production-like stack running:
 
@@ -87,3 +114,22 @@ make auth-smoke
 The check validates the signed-out redirect, exact public routes, protected API
 401, PKCE fixture callback, HttpOnly SameSite=Lax session cookie, private shell,
 and session revocation on sign-out. It never contacts GitHub.
+
+## Data-integrity checks
+
+- The numeric GitHub owner identity and owner row remain unchanged.
+- Old credentials or revoked sessions fail while the rotated credential and a
+  fresh owner session succeed.
+- No account, product data, audit history, or private route policy is removed.
+
+## Communication
+
+Record the affected environment, credential class, rotation/revocation times,
+owner-visible lockout, and verification result. Never record secret values,
+codes, cookies, tokens, or provider profiles.
+
+## Post-incident evidence
+
+Retain sanitized auth logs, callback/origin metadata, session counts, secret
+manager change references, smoke-test output, release SHA, and the follow-up
+prevention action.

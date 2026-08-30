@@ -44,7 +44,15 @@ remains disconnected from live providers and delivery APIs. PR 15 adds the
 private Sources registry and health view, versioned owner interests/current
 stack/settings, durable digest schedule controls, and bounded Operations
 dashboard. Imported-source approval never enables polling, and Run now remains
-preview-only until the separately reviewed delivery phase.
+preview-only until the separately reviewed delivery phase. PR 16 adds the
+evidence-first Technology Radar, deterministic assessment scoring, and
+owner-controlled decisions. PR 17 adds immutable digest preparation,
+idempotent catch-up and retry, and disconnected Discord, Resend, and local
+capture adapters. PR 18 adds pinned supply-chain scans, evidence-aware
+retention, private worker metrics and alerts, checksum-verified backups,
+isolated restore drills, a reviewed threat model, and complete Version 1
+incident runbooks. Hosted deployment remains intentionally withheld until the
+Railway staging soak and release-evidence phases pass.
 
 ## Safe local workflow
 
@@ -68,6 +76,11 @@ make logs
 make test
 make auth-smoke
 make demo-audit
+make security-scan
+make sbom
+make backup
+make restore-drill
+make retention-run
 make prepush
 make prodlike-smoke
 make stop
@@ -136,6 +149,16 @@ the [source failure runbook](docs/runbooks/source-failing.md) for degraded
 registry health and the
 [scheduler stalled runbook](docs/runbooks/scheduler-stalled.md) for missed
 ticks, timed-pause recovery, or overdue occurrences.
+
+Security and operational hardening are summarized by the
+[threat model](docs/threat-model.md),
+[alert catalog](docs/operations/alert-catalog.md),
+[retention policy](docs/operations/retention-policy.md), and
+[backup and restore policy](docs/operations/backup-and-restore.md). The worker
+exposes private `/metrics` and `/alerts` surfaces only on its internal service
+port. Retention preserves claim and published-story evidence, while backup and
+restore commands refuse unvalidated Compose targets and never upload local
+dumps.
 
 `make reset` is destructive and requires confirmation. It targets only the
 validated Relantern Compose project and its volumes.
