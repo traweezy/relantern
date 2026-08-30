@@ -575,6 +575,12 @@ func registerSource(mux *http.ServeMux) {
 		response.WriteHeader(http.StatusOK)
 		_, _ = response.Write([]byte(`<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom"><title>Relantern fake source</title><id>urn:relantern:fake-source</id><updated>2026-08-29T00:00:00Z</updated><entry><title>Foundation fixture</title><id>urn:relantern:fixture:foundation</id><updated>2026-08-29T00:00:00Z</updated><content>Static evidence fixture. Ingestion is disabled in PR 0.</content></entry></feed>`))
 	})
+	mux.HandleFunc("GET /article.html", func(response http.ResponseWriter, _ *http.Request) {
+		response.Header().Set("Content-Type", "text/html; charset=utf-8")
+		response.Header().Set("ETag", `"manual-capture-v1"`)
+		response.WriteHeader(http.StatusOK)
+		_, _ = response.Write([]byte(`<!doctype html><html lang="en"><head><title>Go 1.27 fixture release</title></head><body><main><article><h1>Go 1.27 fixture release</h1><p>Go 1.27 is the stable released version on 2026-08-29.</p><p>This deterministic page validates manual capture without contacting a live source.</p></article></main></body></html>`))
+	})
 	mux.HandleFunc("GET /robots.txt", func(response http.ResponseWriter, _ *http.Request) {
 		response.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		_, _ = response.Write([]byte("User-agent: *\nAllow: /\nCrawl-delay: 1\n"))

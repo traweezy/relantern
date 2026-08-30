@@ -175,6 +175,126 @@ export type StoryAnnotation = Readonly<{
   updatedAt: string;
 }>;
 
+export type SearchExplanation = Readonly<{
+  keywordRank: number | null;
+  semanticRank: number | null;
+  semanticSimilarity: number | null;
+  summary: string;
+}>;
+
+export type IntelligenceSearchResult = Readonly<{
+  explanation: SearchExplanation;
+  firstSeenAt: string;
+  itemId: string;
+  lifecycleState: "deprecated" | "eol" | "preview" | "release_candidate" | "stable" | "unknown";
+  packageName: string;
+  recommendedAction: string;
+  saved: boolean;
+  score: number;
+  signal: StorySignal;
+  sourceTier: SourceTier;
+  storyId: string;
+  summary: string;
+  title: string;
+}>;
+
+export type IntelligenceSearchResponse = Readonly<{
+  explanation: string;
+  query: string;
+  resultCount: number;
+  results: readonly IntelligenceSearchResult[];
+}>;
+
+export type IntelligenceSearchFilters = Readonly<{
+  action?: string | undefined;
+  after?: string | undefined;
+  before?: string | undefined;
+  lifecycle?: string | undefined;
+  radar?: string | undefined;
+  saved?: string | undefined;
+  sourceTier?: string | undefined;
+  topic?: string | undefined;
+}>;
+
+export type SavedIntelligenceSearch = Readonly<{
+  createdAt: string;
+  filters: IntelligenceSearchFilters;
+  id: string;
+  name: string;
+  query: string;
+  updatedAt: string;
+}>;
+
+export type ReleaseState =
+  | "deprecation"
+  | "deprecated"
+  | "eol"
+  | "preview"
+  | "release_candidate"
+  | "security"
+  | "stable"
+  | "unknown";
+
+export type ReleaseEntry = Readonly<{
+  headline: string;
+  lastVerifiedAt: string;
+  packageName: string;
+  sourceTier: SourceTier;
+  sourceUrl: string;
+  state: ReleaseState;
+  storyId: string;
+  summary: string;
+  targetDate: string | null;
+  technology: string;
+  version: string;
+}>;
+
+export type TechnologyRelease = Readonly<{
+  currentVersion: string;
+  entries: readonly ReleaseEntry[];
+  newestVersion: string;
+  packageName: string;
+  technology: string;
+  upgradeStatus: "current" | "not-configured" | "update-available";
+}>;
+
+export type ReleaseCatalog = Readonly<{
+  comingSoon: readonly ReleaseEntry[];
+  generatedAt: string;
+  technologies: readonly TechnologyRelease[];
+}>;
+
+export type ManualCapture = Readonly<{
+  completedAt?: string | undefined;
+  createdAt: string;
+  errorCode?: string | undefined;
+  id: string;
+  state: "completed" | "deduplicating" | "failed" | "fetching" | "parsing" | "queued";
+  storyId?: string | undefined;
+  url: string;
+}>;
+
+export type ImportCandidate = Readonly<{
+  connector: string;
+  duplicate: boolean;
+  explanation: string;
+  id: string;
+  name: string;
+  url: string;
+  valid: boolean;
+}>;
+
+export type ImportPreview = Readonly<{
+  candidates: readonly ImportCandidate[];
+  expiresAt: string;
+  id: string;
+}>;
+
+export type ImportCommitResult = Readonly<{
+  importedCount: number;
+  pendingSourceIds: readonly string[];
+}>;
+
 export type ItemState = Readonly<{
   isRead: boolean;
   location: ReadingLocation;

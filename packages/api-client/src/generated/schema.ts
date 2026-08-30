@@ -39,6 +39,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/exports/markdown": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Export selected briefs, annotations, and citations as Markdown */
+        post: operations["export-markdown"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/exports/metadata": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Export bounded story metadata as JSON or CSV */
+        get: operations["export-metadata"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/exports/opml": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Export owner-added sources as OPML */
+        get: operations["export-opml"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/healthz": {
         parameters: {
             query?: never;
@@ -56,6 +107,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/imports/opml/commit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create approved OPML entries as disabled pending sources */
+        post: operations["commit-opml-import"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/imports/opml/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Preview and validate an OPML source import */
+        post: operations["preview-opml-import"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/inbox": {
         parameters: {
             query?: never;
@@ -67,6 +152,23 @@ export interface paths {
         get: operations["get-inbox"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/inbox/import-url": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Queue a URL for the bounded source ingestion pipeline */
+        post: operations["import-inbox-url"];
         delete?: never;
         options?: never;
         head?: never;
@@ -119,6 +221,75 @@ export interface paths {
         put?: never;
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/releases": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get the verified release and coming-soon matrix */
+        get: operations["get-releases"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Search published owner intelligence with hybrid retrieval */
+        get: operations["search-intelligence"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/searches": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List durable owner search queries */
+        get: operations["list-saved-searches"];
+        put?: never;
+        /** Create or update a durable owner search query */
+        post: operations["save-search"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/searches/{savedSearchId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete an owner saved search */
+        delete: operations["delete-saved-search"];
         options?: never;
         head?: never;
         patch?: never;
@@ -575,6 +746,38 @@ export interface components {
             status: string;
             version: string;
         };
+        ImportCandidate: {
+            connector: string;
+            duplicate: boolean;
+            explanation: string;
+            id: string;
+            name: string;
+            url: string;
+            valid: boolean;
+        };
+        ImportCommitResult: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/ImportCommitResult.json
+             */
+            readonly $schema?: string;
+            /** Format: int64 */
+            importedCount: number;
+            pendingSourceIds: string[] | null;
+        };
+        ImportPreview: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/ImportPreview.json
+             */
+            readonly $schema?: string;
+            candidates: components["schemas"]["ImportCandidate"][] | null;
+            /** Format: date-time */
+            expiresAt: string;
+            id: string;
+        };
         LaterOrderCommand: {
             /**
              * Format: uri
@@ -605,6 +808,43 @@ export interface components {
             /** Format: date-time */
             generatedAt: string;
         };
+        ManualCapture: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/ManualCapture.json
+             */
+            readonly $schema?: string;
+            /** Format: date-time */
+            completedAt?: string;
+            /** Format: date-time */
+            createdAt: string;
+            errorCode?: string;
+            id: string;
+            state: string;
+            storyId?: string;
+            url: string;
+        };
+        ManualCaptureInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/ManualCaptureInputBody.json
+             */
+            readonly $schema?: string;
+            idempotencyKey: string;
+            /** Format: uri */
+            url: string;
+        };
+        MarkdownExportInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/MarkdownExportInputBody.json
+             */
+            readonly $schema?: string;
+            storyIds: string[] | null;
+        };
         MutationResult: {
             /**
              * Format: uri
@@ -616,6 +856,137 @@ export interface components {
             state: components["schemas"]["StoryState"];
             /** Format: date-time */
             undoDeadline: string;
+        };
+        OPMLCommitInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/OPMLCommitInputBody.json
+             */
+            readonly $schema?: string;
+            approvedIds: string[] | null;
+            previewId: string;
+        };
+        OPMLPreviewInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/OPMLPreviewInputBody.json
+             */
+            readonly $schema?: string;
+            opml: string;
+        };
+        ReleaseCatalog: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/ReleaseCatalog.json
+             */
+            readonly $schema?: string;
+            comingSoon: components["schemas"]["ReleaseEntry"][] | null;
+            /** Format: date-time */
+            generatedAt: string;
+            technologies: components["schemas"]["TechnologyRelease"][] | null;
+        };
+        ReleaseEntry: {
+            headline: string;
+            /** Format: date-time */
+            lastVerifiedAt: string;
+            packageName: string;
+            sourceTier: string;
+            sourceUrl: string;
+            state: string;
+            storyId: string;
+            summary: string;
+            /** Format: date-time */
+            targetDate: string | null;
+            technology: string;
+            version: string;
+        };
+        SaveSearchInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/SaveSearchInputBody.json
+             */
+            readonly $schema?: string;
+            filters: components["schemas"]["SearchFilters"];
+            name: string;
+            query: string;
+        };
+        SavedSearch: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/SavedSearch.json
+             */
+            readonly $schema?: string;
+            /** Format: date-time */
+            createdAt: string;
+            filters: components["schemas"]["SearchFilters"];
+            id: string;
+            name: string;
+            query: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        SavedSearchesOutputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/SavedSearchesOutputBody.json
+             */
+            readonly $schema?: string;
+            searches: components["schemas"]["SavedSearch"][] | null;
+        };
+        SearchExplanation: {
+            /** Format: int64 */
+            keywordRank: number | null;
+            /** Format: int64 */
+            semanticRank: number | null;
+            /** Format: double */
+            semanticSimilarity: number | null;
+            summary: string;
+        };
+        SearchFilters: {
+            action?: string;
+            after?: string;
+            before?: string;
+            lifecycle?: string;
+            radar?: string;
+            saved?: string;
+            sourceTier?: string;
+            topic?: string;
+        };
+        SearchResponse: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/SearchResponse.json
+             */
+            readonly $schema?: string;
+            explanation: string;
+            query: string;
+            /** Format: int64 */
+            resultCount: number;
+            results: components["schemas"]["SearchResult"][] | null;
+        };
+        SearchResult: {
+            explanation: components["schemas"]["SearchExplanation"];
+            /** Format: date-time */
+            firstSeenAt: string;
+            itemId: string;
+            lifecycleState: string;
+            packageName: string;
+            recommendedAction: string;
+            saved: boolean;
+            /** Format: double */
+            score: number;
+            signal: string;
+            sourceTier: string;
+            storyId: string;
+            summary: string;
+            title: string;
         };
         Source: {
             domain: string;
@@ -759,6 +1130,14 @@ export interface components {
              */
             readonly $schema?: string;
             tags: components["schemas"]["Tag"][] | null;
+        };
+        TechnologyRelease: {
+            currentVersion: string;
+            entries: components["schemas"]["ReleaseEntry"][] | null;
+            newestVersion: string;
+            packageName: string;
+            technology: string;
+            upgradeStatus: string;
         };
         TodaySnapshot: {
             /**
@@ -924,6 +1303,114 @@ export interface operations {
             };
         };
     };
+    "export-markdown": {
+        parameters: {
+            query?: never;
+            header?: {
+                Authorization?: string;
+                "X-Relantern-User-ID"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MarkdownExportInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    "Content-Disposition"?: string;
+                    "Content-Type"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": string;
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "export-metadata": {
+        parameters: {
+            query?: {
+                format?: "json" | "csv";
+            };
+            header?: {
+                Authorization?: string;
+                "X-Relantern-User-ID"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    "Content-Disposition"?: string;
+                    "Content-Type"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": string;
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "export-opml": {
+        parameters: {
+            query?: never;
+            header?: {
+                Authorization?: string;
+                "X-Relantern-User-ID"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    "Content-Disposition"?: string;
+                    "Content-Type"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": string;
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     "get-health": {
         parameters: {
             query?: never;
@@ -940,6 +1427,78 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HealthBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "commit-opml-import": {
+        parameters: {
+            query?: never;
+            header?: {
+                Authorization?: string;
+                "X-Relantern-User-ID"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OPMLCommitInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportCommitResult"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "preview-opml-import": {
+        parameters: {
+            query?: never;
+            header?: {
+                Authorization?: string;
+                "X-Relantern-User-ID"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OPMLPreviewInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportPreview"];
                 };
             };
             /** @description Error */
@@ -975,6 +1534,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Collection"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "import-inbox-url": {
+        parameters: {
+            query?: never;
+            header?: {
+                Authorization?: string;
+                "X-Relantern-User-ID"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ManualCaptureInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ManualCapture"];
                 };
             };
             /** @description Error */
@@ -1077,6 +1672,183 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LiveSnapshot"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-releases": {
+        parameters: {
+            query?: never;
+            header?: {
+                Authorization?: string;
+                "X-Relantern-User-ID"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReleaseCatalog"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "search-intelligence": {
+        parameters: {
+            query?: {
+                q?: string;
+                topic?: string;
+                sourceTier?: "T0" | "T1" | "T2" | "T3";
+                lifecycle?: "stable" | "preview" | "release_candidate" | "deprecated" | "eol" | "unknown";
+                radar?: "adopt" | "trial" | "assess" | "hold" | "reject";
+                action?: string;
+                saved?: "true" | "false";
+                after?: string;
+                before?: string;
+                limit?: number;
+            };
+            header?: {
+                Authorization?: string;
+                "X-Relantern-User-ID"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchResponse"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "list-saved-searches": {
+        parameters: {
+            query?: never;
+            header?: {
+                Authorization?: string;
+                "X-Relantern-User-ID"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SavedSearchesOutputBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "save-search": {
+        parameters: {
+            query?: never;
+            header?: {
+                Authorization?: string;
+                "X-Relantern-User-ID"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SaveSearchInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SavedSearch"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "delete-saved-search": {
+        parameters: {
+            query?: never;
+            header?: {
+                Authorization?: string;
+                "X-Relantern-User-ID"?: string;
+            };
+            path: {
+                savedSearchId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeleteOutputBody"];
                 };
             };
             /** @description Error */

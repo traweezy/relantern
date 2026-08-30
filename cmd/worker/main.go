@@ -13,12 +13,18 @@ import (
 	"github.com/traweezy/relantern/internal/clock"
 	"github.com/traweezy/relantern/internal/config"
 	"github.com/traweezy/relantern/internal/database"
+	"github.com/traweezy/relantern/internal/dedupe"
+	dedupestore "github.com/traweezy/relantern/internal/dedupe/pgstore"
 	"github.com/traweezy/relantern/internal/embedding"
 	embeddingstore "github.com/traweezy/relantern/internal/embedding/pgstore"
 	"github.com/traweezy/relantern/internal/extraction"
 	extractionstore "github.com/traweezy/relantern/internal/extraction/pgstore"
+	"github.com/traweezy/relantern/internal/fetcher"
 	"github.com/traweezy/relantern/internal/jobqueue"
+	"github.com/traweezy/relantern/internal/manualcapture"
 	"github.com/traweezy/relantern/internal/openaiwebhook"
+	"github.com/traweezy/relantern/internal/parsing"
+	parsingstore "github.com/traweezy/relantern/internal/parsing/pgstore"
 	readingstatestore "github.com/traweezy/relantern/internal/readingstate/pgstore"
 	"github.com/traweezy/relantern/internal/reembedding"
 	"github.com/traweezy/relantern/internal/research"
@@ -81,6 +87,10 @@ func run(arguments []string, logger *slog.Logger) error {
 	if err != nil {
 		return fmt.Errorf("load OpenAI research configuration: %w", err)
 	}
+	dedupeConfig, err := config.LoadDedupe()
+	if err != nil {
+		return fmt.Errorf("load dedupe configuration: %w", err)
+	}
 
 	rootContext, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -106,8 +116,10 @@ func run(arguments []string, logger *slog.Logger) error {
 	}
 
 	var reembedder *reembedding.Processor
+	var embeddingClient *embedding.Client
 	if embeddingSearchConfig.HybridEnabled {
-		embeddingClient, clientError := embedding.NewClient(
+		var clientError error
+		embeddingClient, clientError = embedding.NewClient(
 			embeddingSearchConfig.BaseURL,
 			embeddingSearchConfig.ModelID,
 			embeddingSearchConfig.Dimensions,
@@ -182,6 +194,44 @@ func run(arguments []string, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	var manualCaptureProcessor *manualcapture.Processor
+	if embeddingClient != nil {
+		dedupeStore, storeError := dedupestore.New(pool, common.Clock, dedupe.Config{
+			SimHashDistance:     dedupeConfig.SimHashDistance,
+			EmbeddingSimilarity: dedupeConfig.EmbeddingSimilarity,
+			ClusterMaxAge:       dedupeConfig.ClusterMaxAge,
+		})
+		if storeError != nil {
+			return fmt.Errorf("create manual-capture dedupe store: %w", storeError)
+		}
+		revisionStore, storeError := parsingstore.New(pool)
+		if storeError != nil {
+			return fmt.Errorf("create manual-capture parsing store: %w", storeError)
+		}
+		parsingProcessor, processorError := parsing.NewProcessor(rawStore, revisionStore, common.Clock)
+		if processorError != nil {
+			return fmt.Errorf("create manual-capture parser: %w", processorError)
+		}
+		limiter, limiterError := fetcher.NewHostLimiter(12, 2, time.Second)
+		if limiterError != nil {
+			return fmt.Errorf("create manual-capture host limiter: %w", limiterError)
+		}
+		manualCaptureProcessor, err = manualcapture.New(
+			pool,
+			common.Clock,
+			rawStore,
+			embeddingClient,
+			dedupeStore,
+			parsingProcessor,
+			inserter,
+			limiter,
+			embeddingSearchConfig.ModelID,
+			common.Environment == config.EnvironmentLocal || common.Environment == config.EnvironmentTest,
+		)
+		if err != nil {
+			return fmt.Errorf("create manual-capture processor: %w", err)
+		}
+	}
 	var researcher *research.Processor
 	var openAIWebhookStore *openaiwebhook.Store
 	if openAIResearchConfig.Enabled {
@@ -236,6 +286,9 @@ func run(arguments []string, logger *slog.Logger) error {
 		return fmt.Errorf("create reading-state worker store: %w", err)
 	}
 	riverOptions := []worker.RiverOption{worker.WithSnoozeReturner(readingStateStore)}
+	if manualCaptureProcessor != nil {
+		riverOptions = append(riverOptions, worker.WithManualCaptureProcessor(manualCaptureProcessor))
+	}
 	if researcher != nil {
 		riverOptions = append(riverOptions, worker.WithResearchWorkers(
 			researcher,

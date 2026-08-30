@@ -24,6 +24,7 @@ const (
 	PollOpenAIBackgroundKind      = "poll_openai_background"
 	ReconcileOpenAIBackgroundKind = "reconcile_openai_background"
 	ReturnSnoozedItemsKind        = "return_snoozed_items"
+	ProcessManualCaptureKind      = "process_manual_capture"
 )
 
 const reconcileSchedulesPeriodicID = "reconcile-schedules-v1"
@@ -119,6 +120,26 @@ func (ReconcileOpenAIBackgroundArgs) Kind() string {
 }
 
 type ReturnSnoozedItemsArgs struct{}
+
+type ProcessManualCaptureArgs struct {
+	CaptureID string `json:"captureId" river:"unique"`
+}
+
+func (ProcessManualCaptureArgs) Kind() string {
+	return ProcessManualCaptureKind
+}
+
+func (ProcessManualCaptureArgs) InsertOpts() river.InsertOpts {
+	return river.InsertOpts{
+		MaxAttempts: 5,
+		Priority:    2,
+		Queue:       QueueFetch,
+		Tags:        []string{"manual-capture", "fetch", "parse", "dedupe"},
+		UniqueOpts: river.UniqueOpts{
+			ByArgs: true, ByQueue: true, ByState: rivertype.JobStates(),
+		},
+	}
+}
 
 func (ReturnSnoozedItemsArgs) Kind() string {
 	return ReturnSnoozedItemsKind

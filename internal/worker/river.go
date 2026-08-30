@@ -15,6 +15,7 @@ import (
 	"github.com/traweezy/relantern/internal/clock"
 	"github.com/traweezy/relantern/internal/extraction"
 	"github.com/traweezy/relantern/internal/jobqueue"
+	"github.com/traweezy/relantern/internal/manualcapture"
 	"github.com/traweezy/relantern/internal/openaiwebhook"
 	"github.com/traweezy/relantern/internal/reembedding"
 	"github.com/traweezy/relantern/internal/research"
@@ -62,7 +63,29 @@ type reembedEntityWorker struct {
 type extractItemWorker struct {
 	river.WorkerDefaults[jobqueue.ExtractItemArgs]
 	processor *extraction.Processor
+	pool      *pgxpool.Pool
+	jobs      *jobqueue.Inserter
 	timeout   time.Duration
+}
+
+type manualCaptureWorker struct {
+	river.WorkerDefaults[jobqueue.ProcessManualCaptureArgs]
+	processor *manualcapture.Processor
+}
+
+func (worker *manualCaptureWorker) Timeout(*river.Job[jobqueue.ProcessManualCaptureArgs]) time.Duration {
+	return 2 * time.Minute
+}
+
+func (worker *manualCaptureWorker) Work(
+	ctx context.Context,
+	job *river.Job[jobqueue.ProcessManualCaptureArgs],
+) error {
+	err := worker.processor.Process(ctx, job.Args.CaptureID)
+	if errors.Is(err, manualcapture.ErrInvalidCapture) || errors.Is(err, manualcapture.ErrPermanent) {
+		return river.JobCancel(err)
+	}
+	return err
 }
 
 type researchStoryWorker struct {
@@ -194,14 +217,48 @@ func (worker *extractItemWorker) Work(
 	ctx context.Context,
 	job *river.Job[jobqueue.ExtractItemArgs],
 ) error {
-	_, err := worker.processor.Process(ctx, extraction.ProcessRequest{
+	result, err := worker.processor.Process(ctx, extraction.ProcessRequest{
 		ItemID:     job.Args.ItemID,
 		RevisionID: job.Args.RevisionID,
 	})
 	if extraction.Permanent(err) {
 		return river.JobCancel(err)
 	}
-	return err
+	if !shouldEnqueueResearch(result, err, worker.jobs != nil) {
+		return err
+	}
+	return worker.enqueueResearch(ctx, job.Args.ItemID)
+}
+
+func shouldEnqueueResearch(result extraction.ProcessResult, processError error, researchEnabled bool) bool {
+	return processError == nil && !result.Obsolete && !result.NeedsReview && researchEnabled
+}
+
+func (worker *extractItemWorker) enqueueResearch(ctx context.Context, itemID string) error {
+	transaction, err := worker.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	if err != nil {
+		return fmt.Errorf("begin extraction research handoff: %w", err)
+	}
+	defer func() { _ = transaction.Rollback(ctx) }()
+	var clusterID string
+	if err := transaction.QueryRow(ctx, `
+		select cluster_id::text
+		from app.cluster_members
+		where item_id = $1::uuid
+		for key share`, itemID).Scan(&clusterID); err != nil {
+		return fmt.Errorf("select extraction research cluster: %w", err)
+	}
+	if _, _, err := worker.jobs.EnqueueResearchStory(
+		ctx,
+		transaction,
+		jobqueue.ResearchStoryArgs{ClusterID: clusterID},
+	); err != nil {
+		return err
+	}
+	if err := transaction.Commit(ctx); err != nil {
+		return fmt.Errorf("commit extraction research handoff: %w", err)
+	}
+	return nil
 }
 
 func (worker *reembedEntityWorker) Work(
@@ -300,6 +357,14 @@ func NewRiverClient(
 		return nil, errors.New("research workers require a webhook store and timeout of at most 30 minutes")
 	}
 	workers := river.NewWorkers()
+	var researchJobs *jobqueue.Inserter
+	if configuration.researcher != nil {
+		var err error
+		researchJobs, err = jobqueue.NewInserter()
+		if err != nil {
+			return nil, fmt.Errorf("create extraction research inserter: %w", err)
+		}
+	}
 	if err := river.AddWorkerSafely(
 		workers,
 		&reconcileSchedulesWorker{health: health, logger: logger, reconciler: reconciler},
@@ -323,7 +388,12 @@ func NewRiverClient(
 	if extractor != nil {
 		if err := river.AddWorkerSafely(
 			workers,
-			&extractItemWorker{processor: extractor, timeout: extractionTimeout},
+			&extractItemWorker{
+				processor: extractor,
+				pool:      pool,
+				jobs:      researchJobs,
+				timeout:   extractionTimeout,
+			},
 		); err != nil {
 			return nil, fmt.Errorf("register structured extraction worker: %w", err)
 		}
@@ -352,6 +422,13 @@ func NewRiverClient(
 			logger: logger, returner: configuration.snoozeReturner,
 		}); err != nil {
 			return nil, fmt.Errorf("register returned-snooze worker: %w", err)
+		}
+	}
+	if configuration.manualCaptureProcessor != nil {
+		if err := river.AddWorkerSafely(workers, &manualCaptureWorker{
+			processor: configuration.manualCaptureProcessor,
+		}); err != nil {
+			return nil, fmt.Errorf("register manual-capture worker: %w", err)
 		}
 	}
 
@@ -394,16 +471,23 @@ func NewRiverClient(
 }
 
 type riverOptions struct {
-	researcher         *research.Processor
-	openAIWebhookStore *openaiwebhook.Store
-	researchTimeout    time.Duration
-	snoozeReturner     snoozeReturner
-	queueConfigs       map[string]river.QueueConfig
+	researcher             *research.Processor
+	openAIWebhookStore     *openaiwebhook.Store
+	researchTimeout        time.Duration
+	snoozeReturner         snoozeReturner
+	queueConfigs           map[string]river.QueueConfig
+	manualCaptureProcessor *manualcapture.Processor
 }
 
 func WithSnoozeReturner(returner snoozeReturner) RiverOption {
 	return func(configuration *riverOptions) {
 		configuration.snoozeReturner = returner
+	}
+}
+
+func WithManualCaptureProcessor(processor *manualcapture.Processor) RiverOption {
+	return func(configuration *riverOptions) {
+		configuration.manualCaptureProcessor = processor
 	}
 }
 

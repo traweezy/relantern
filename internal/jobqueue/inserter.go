@@ -77,6 +77,18 @@ func (inserter *Inserter) EnqueueResearchStory(
 	return result.Job.ID, !result.UniqueSkippedAsDuplicate, nil
 }
 
+func (inserter *Inserter) EnqueueManualCapture(
+	ctx context.Context,
+	tx pgx.Tx,
+	arguments ProcessManualCaptureArgs,
+) (int64, bool, error) {
+	result, err := inserter.client.InsertTx(ctx, tx, arguments, nil)
+	if err != nil {
+		return 0, false, fmt.Errorf("enqueue manual capture %s: %w", arguments.CaptureID, err)
+	}
+	return result.Job.ID, !result.UniqueSkippedAsDuplicate, nil
+}
+
 func (inserter *Inserter) EnqueuePollOpenAIBackground(
 	ctx context.Context,
 	tx pgx.Tx,

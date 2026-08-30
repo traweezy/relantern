@@ -314,6 +314,24 @@ type AppItemTag struct {
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
 }
 
+type AppManualCapture struct {
+	ID             pgtype.UUID        `json:"id"`
+	UserID         pgtype.UUID        `json:"user_id"`
+	IdempotencyKey string             `json:"idempotency_key"`
+	RequestedUrl   string             `json:"requested_url"`
+	CanonicalUrl   string             `json:"canonical_url"`
+	State          string             `json:"state"`
+	SourceID       pgtype.Text        `json:"source_id"`
+	EndpointID     pgtype.UUID        `json:"endpoint_id"`
+	ItemID         pgtype.UUID        `json:"item_id"`
+	ClusterID      pgtype.UUID        `json:"cluster_id"`
+	ErrorCode      pgtype.Text        `json:"error_code"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	StartedAt      pgtype.Timestamptz `json:"started_at"`
+	CompletedAt    pgtype.Timestamptz `json:"completed_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+}
+
 type AppModelConfig struct {
 	ID                       pgtype.UUID        `json:"id"`
 	Role                     string             `json:"role"`
@@ -419,6 +437,16 @@ type AppResearchSource struct {
 	SourceUrl    string             `json:"source_url"`
 	SourceDomain string             `json:"source_domain"`
 	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+}
+
+type AppSavedSearch struct {
+	ID        pgtype.UUID        `json:"id"`
+	UserID    pgtype.UUID        `json:"user_id"`
+	Name      string             `json:"name"`
+	Query     string             `json:"query"`
+	Filters   []byte             `json:"filters"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
 }
 
 type AppScheduleDefinition struct {
@@ -540,6 +568,16 @@ type AppSourceFetch struct {
 	CreatedAt       pgtype.Timestamptz `json:"created_at"`
 }
 
+type AppSourceImportPreview struct {
+	ID             pgtype.UUID        `json:"id"`
+	UserID         pgtype.UUID        `json:"user_id"`
+	DocumentSha256 []byte             `json:"document_sha256"`
+	Candidates     []byte             `json:"candidates"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	ExpiresAt      pgtype.Timestamptz `json:"expires_at"`
+	CommittedAt    pgtype.Timestamptz `json:"committed_at"`
+}
+
 type AppSourceParseAttempt struct {
 	ID            int64              `json:"id"`
 	RawDocumentID pgtype.UUID        `json:"raw_document_id"`
@@ -634,4 +672,14 @@ type AppVStorySummary struct {
 	Uncertainties     []byte             `json:"uncertainties"`
 	BriefCreatedAt    pgtype.Timestamptz `json:"brief_created_at"`
 	PrimarySourceUrl  string             `json:"primary_source_url"`
+}
+
+type AppWatchedTechnology struct {
+	ID             pgtype.UUID        `json:"id"`
+	UserID         pgtype.UUID        `json:"user_id"`
+	Technology     string             `json:"technology"`
+	PackageName    string             `json:"package_name"`
+	CurrentVersion string             `json:"current_version"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
 }

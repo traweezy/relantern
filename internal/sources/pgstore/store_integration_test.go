@@ -30,19 +30,26 @@ func TestRegistryMirrorMatchesReviewedConfiguration(t *testing.T) {
 	defer pool.Close()
 
 	sourceIDs := make([]string, 0, len(registry.Sources)+len(registry.Repositories))
+	repositoryIDs := make([]string, 0, len(registry.Repositories))
 	for _, source := range registry.Sources {
 		sourceIDs = append(sourceIDs, source.ID)
 	}
 	for _, repository := range registry.Repositories {
 		sourceIDs = append(sourceIDs, repository.ID)
+		repositoryIDs = append(repositoryIDs, repository.ID)
+	}
+	endpoints := registry.Endpoints()
+	endpointIDs := make([]string, 0, len(endpoints))
+	for _, endpoint := range endpoints {
+		endpointIDs = append(endpointIDs, endpoint.ID)
 	}
 
 	assertCount(t, pool, "select count(*) from app.sources where id = any($1::text[])", len(sourceIDs), sourceIDs)
-	assertCount(t, pool, "select count(*) from app.source_endpoints", len(registry.Endpoints()))
-	assertCount(t, pool, "select count(*) from app.github_repositories", len(registry.Repositories))
+	assertCount(t, pool, "select count(*) from app.source_endpoints where registry_id = any($1::text[])", len(endpointIDs), endpointIDs)
+	assertCount(t, pool, "select count(*) from app.github_repositories where source_id = any($1::text[])", len(repositoryIDs), repositoryIDs)
 	assertCount(t, pool, "select count(*) from app.sources where id = any($1::text[]) and validation_state = 'paused'", len(sourceIDs), sourceIDs)
-	assertCount(t, pool, "select count(*) from app.source_endpoints where next_poll_at is null", len(registry.Endpoints()))
-	assertCount(t, pool, "select count(*) from app.source_endpoints where health_state = 'paused'", len(registry.Endpoints()))
+	assertCount(t, pool, "select count(*) from app.source_endpoints where registry_id = any($1::text[]) and next_poll_at is null", len(endpointIDs), endpointIDs)
+	assertCount(t, pool, "select count(*) from app.source_endpoints where registry_id = any($1::text[]) and health_state = 'paused'", len(endpointIDs), endpointIDs)
 }
 
 func assertCount(t *testing.T, pool *pgxpool.Pool, query string, expected int, arguments ...any) {

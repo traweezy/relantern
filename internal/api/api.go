@@ -13,6 +13,7 @@ import (
 	"github.com/danielgtaylor/huma/v2/adapters/humachi"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/traweezy/relantern/internal/discovery"
 	"github.com/traweezy/relantern/internal/httpx"
 	"github.com/traweezy/relantern/internal/intelligence"
 	"github.com/traweezy/relantern/internal/readingstate"
@@ -66,6 +67,7 @@ type options struct {
 	clock         func() time.Time
 	intelligence  intelligence.Reader
 	readingState  readingstate.Repository
+	discovery     *discovery.Service
 	serviceToken  string
 	openAIWebhook http.Handler
 }
@@ -88,6 +90,13 @@ func WithIntelligence(reader intelligence.Reader, serviceToken string) Option {
 func WithReadingState(repository readingstate.Repository, serviceToken string) Option {
 	return func(configuration *options) {
 		configuration.readingState = repository
+		configuration.serviceToken = serviceToken
+	}
+}
+
+func WithDiscovery(service *discovery.Service, serviceToken string) Option {
+	return func(configuration *options) {
+		configuration.discovery = service
 		configuration.serviceToken = serviceToken
 	}
 }
@@ -158,6 +167,7 @@ func New(logger *slog.Logger, info Info, ready ReadyCheck, configuredOptions ...
 	})
 	registerIntelligence(api, configuration, logger)
 	registerReadingState(api, configuration, logger)
+	registerDiscovery(api, configuration, logger)
 
 	return Application{Handler: router, API: api}
 }

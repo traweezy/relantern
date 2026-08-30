@@ -425,6 +425,81 @@ components:
         - version
         - gitSha
       type: object
+    ImportCandidate:
+      additionalProperties: false
+      properties:
+        connector:
+          type: string
+        duplicate:
+          type: boolean
+        explanation:
+          type: string
+        id:
+          type: string
+        name:
+          type: string
+        url:
+          type: string
+        valid:
+          type: boolean
+      required:
+        - id
+        - name
+        - url
+        - connector
+        - duplicate
+        - valid
+        - explanation
+      type: object
+    ImportCommitResult:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/ImportCommitResult.json
+          format: uri
+          readOnly: true
+          type: string
+        importedCount:
+          format: int64
+          type: integer
+        pendingSourceIds:
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+      required:
+        - importedCount
+        - pendingSourceIds
+      type: object
+    ImportPreview:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/ImportPreview.json
+          format: uri
+          readOnly: true
+          type: string
+        candidates:
+          items:
+            $ref: "#/components/schemas/ImportCandidate"
+          type:
+            - array
+            - "null"
+        expiresAt:
+          format: date-time
+          type: string
+        id:
+          type: string
+      required:
+        - id
+        - candidates
+        - expiresAt
+      type: object
     LaterOrderCommand:
       additionalProperties: false
       properties:
@@ -492,6 +567,82 @@ components:
         - events
         - generatedAt
       type: object
+    ManualCapture:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/ManualCapture.json
+          format: uri
+          readOnly: true
+          type: string
+        completedAt:
+          format: date-time
+          type: string
+        createdAt:
+          format: date-time
+          type: string
+        errorCode:
+          type: string
+        id:
+          type: string
+        state:
+          type: string
+        storyId:
+          type: string
+        url:
+          type: string
+      required:
+        - id
+        - url
+        - state
+        - createdAt
+      type: object
+    ManualCaptureInputBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/ManualCaptureInputBody.json
+          format: uri
+          readOnly: true
+          type: string
+        idempotencyKey:
+          maxLength: 200
+          minLength: 16
+          type: string
+        url:
+          format: uri
+          maxLength: 4096
+          minLength: 9
+          type: string
+      required:
+        - url
+        - idempotencyKey
+      type: object
+    MarkdownExportInputBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/MarkdownExportInputBody.json
+          format: uri
+          readOnly: true
+          type: string
+        storyIds:
+          items:
+            type: string
+          maxItems: 100
+          minItems: 1
+          type:
+            - array
+            - "null"
+      required:
+        - storyIds
+      type: object
     MutationResult:
       additionalProperties: false
       properties:
@@ -513,6 +664,318 @@ components:
         - mutationId
         - state
         - undoDeadline
+      type: object
+    OPMLCommitInputBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/OPMLCommitInputBody.json
+          format: uri
+          readOnly: true
+          type: string
+        approvedIds:
+          items:
+            type: string
+          maxItems: 500
+          minItems: 1
+          type:
+            - array
+            - "null"
+        previewId:
+          maxLength: 36
+          minLength: 36
+          type: string
+      required:
+        - previewId
+        - approvedIds
+      type: object
+    OPMLPreviewInputBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/OPMLPreviewInputBody.json
+          format: uri
+          readOnly: true
+          type: string
+        opml:
+          maxLength: 2097152
+          minLength: 1
+          type: string
+      required:
+        - opml
+      type: object
+    ReleaseCatalog:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/ReleaseCatalog.json
+          format: uri
+          readOnly: true
+          type: string
+        comingSoon:
+          items:
+            $ref: "#/components/schemas/ReleaseEntry"
+          type:
+            - array
+            - "null"
+        generatedAt:
+          format: date-time
+          type: string
+        technologies:
+          items:
+            $ref: "#/components/schemas/TechnologyRelease"
+          type:
+            - array
+            - "null"
+      required:
+        - generatedAt
+        - technologies
+        - comingSoon
+      type: object
+    ReleaseEntry:
+      additionalProperties: false
+      properties:
+        headline:
+          type: string
+        lastVerifiedAt:
+          format: date-time
+          type: string
+        packageName:
+          type: string
+        sourceTier:
+          type: string
+        sourceUrl:
+          type: string
+        state:
+          type: string
+        storyId:
+          type: string
+        summary:
+          type: string
+        targetDate:
+          format: date-time
+          type:
+            - string
+            - "null"
+        technology:
+          type: string
+        version:
+          type: string
+      required:
+        - storyId
+        - technology
+        - packageName
+        - version
+        - state
+        - headline
+        - summary
+        - sourceTier
+        - sourceUrl
+        - targetDate
+        - lastVerifiedAt
+      type: object
+    SaveSearchInputBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/SaveSearchInputBody.json
+          format: uri
+          readOnly: true
+          type: string
+        filters:
+          $ref: "#/components/schemas/SearchFilters"
+        name:
+          maxLength: 100
+          minLength: 1
+          type: string
+        query:
+          maxLength: 500
+          minLength: 2
+          type: string
+      required:
+        - name
+        - query
+        - filters
+      type: object
+    SavedSearch:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/SavedSearch.json
+          format: uri
+          readOnly: true
+          type: string
+        createdAt:
+          format: date-time
+          type: string
+        filters:
+          $ref: "#/components/schemas/SearchFilters"
+        id:
+          type: string
+        name:
+          type: string
+        query:
+          type: string
+        updatedAt:
+          format: date-time
+          type: string
+      required:
+        - id
+        - name
+        - query
+        - filters
+        - createdAt
+        - updatedAt
+      type: object
+    SavedSearchesOutputBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/SavedSearchesOutputBody.json
+          format: uri
+          readOnly: true
+          type: string
+        searches:
+          items:
+            $ref: "#/components/schemas/SavedSearch"
+          type:
+            - array
+            - "null"
+      required:
+        - searches
+      type: object
+    SearchExplanation:
+      additionalProperties: false
+      properties:
+        keywordRank:
+          format: int64
+          type:
+            - integer
+            - "null"
+        semanticRank:
+          format: int64
+          type:
+            - integer
+            - "null"
+        semanticSimilarity:
+          format: double
+          type:
+            - number
+            - "null"
+        summary:
+          type: string
+      required:
+        - keywordRank
+        - semanticRank
+        - semanticSimilarity
+        - summary
+      type: object
+    SearchFilters:
+      additionalProperties: false
+      properties:
+        action:
+          type: string
+        after:
+          type: string
+        before:
+          type: string
+        lifecycle:
+          type: string
+        radar:
+          type: string
+        saved:
+          type: string
+        sourceTier:
+          type: string
+        topic:
+          type: string
+      type: object
+    SearchResponse:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/SearchResponse.json
+          format: uri
+          readOnly: true
+          type: string
+        explanation:
+          type: string
+        query:
+          type: string
+        resultCount:
+          format: int64
+          type: integer
+        results:
+          items:
+            $ref: "#/components/schemas/SearchResult"
+          type:
+            - array
+            - "null"
+      required:
+        - query
+        - results
+        - resultCount
+        - explanation
+      type: object
+    SearchResult:
+      additionalProperties: false
+      properties:
+        explanation:
+          $ref: "#/components/schemas/SearchExplanation"
+        firstSeenAt:
+          format: date-time
+          type: string
+        itemId:
+          type: string
+        lifecycleState:
+          type: string
+        packageName:
+          type: string
+        recommendedAction:
+          type: string
+        saved:
+          type: boolean
+        score:
+          format: double
+          type: number
+        signal:
+          type: string
+        sourceTier:
+          type: string
+        storyId:
+          type: string
+        summary:
+          type: string
+        title:
+          type: string
+      required:
+        - storyId
+        - itemId
+        - title
+        - summary
+        - packageName
+        - sourceTier
+        - lifecycleState
+        - signal
+        - recommendedAction
+        - firstSeenAt
+        - saved
+        - score
+        - explanation
       type: object
     Source:
       additionalProperties: false
@@ -870,6 +1333,33 @@ components:
       required:
         - tags
       type: object
+    TechnologyRelease:
+      additionalProperties: false
+      properties:
+        currentVersion:
+          type: string
+        entries:
+          items:
+            $ref: "#/components/schemas/ReleaseEntry"
+          type:
+            - array
+            - "null"
+        newestVersion:
+          type: string
+        packageName:
+          type: string
+        technology:
+          type: string
+        upgradeStatus:
+          type: string
+      required:
+        - technology
+        - packageName
+        - currentVersion
+        - newestVersion
+        - upgradeStatus
+        - entries
+      type: object
     TodaySnapshot:
       additionalProperties: false
       properties:
@@ -1100,6 +1590,135 @@ paths:
       summary: Get the owner archive reading collection
       tags:
         - reading-state
+  /api/v1/exports/markdown:
+    post:
+      operationId: export-markdown
+      parameters:
+        - in: header
+          name: Authorization
+          schema:
+            type: string
+        - in: header
+          name: X-Relantern-User-ID
+          schema:
+            maxLength: 36
+            minLength: 36
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MarkdownExportInputBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                contentEncoding: base64
+                type: string
+          description: OK
+          headers:
+            Content-Disposition:
+              schema:
+                type: string
+            Content-Type:
+              schema:
+                type: string
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Export selected briefs, annotations, and citations as Markdown
+      tags:
+        - portability
+  /api/v1/exports/metadata:
+    get:
+      operationId: export-metadata
+      parameters:
+        - in: header
+          name: Authorization
+          schema:
+            type: string
+        - in: header
+          name: X-Relantern-User-ID
+          schema:
+            maxLength: 36
+            minLength: 36
+            type: string
+        - explode: false
+          in: query
+          name: format
+          schema:
+            default: json
+            enum:
+              - json
+              - csv
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                contentEncoding: base64
+                type: string
+          description: OK
+          headers:
+            Content-Disposition:
+              schema:
+                type: string
+            Content-Type:
+              schema:
+                type: string
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Export bounded story metadata as JSON or CSV
+      tags:
+        - portability
+  /api/v1/exports/opml:
+    get:
+      operationId: export-opml
+      parameters:
+        - in: header
+          name: Authorization
+          schema:
+            type: string
+        - in: header
+          name: X-Relantern-User-ID
+          schema:
+            maxLength: 36
+            minLength: 36
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                contentEncoding: base64
+                type: string
+          description: OK
+          headers:
+            Content-Disposition:
+              schema:
+                type: string
+            Content-Type:
+              schema:
+                type: string
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Export owner-added sources as OPML
+      tags:
+        - portability
   /api/v1/healthz:
     get:
       operationId: get-health
@@ -1119,6 +1738,78 @@ paths:
       summary: Get API process health
       tags:
         - operations
+  /api/v1/imports/opml/commit:
+    post:
+      operationId: commit-opml-import
+      parameters:
+        - in: header
+          name: Authorization
+          schema:
+            type: string
+        - in: header
+          name: X-Relantern-User-ID
+          schema:
+            maxLength: 36
+            minLength: 36
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OPMLCommitInputBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImportCommitResult"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Create approved OPML entries as disabled pending sources
+      tags:
+        - portability
+  /api/v1/imports/opml/preview:
+    post:
+      operationId: preview-opml-import
+      parameters:
+        - in: header
+          name: Authorization
+          schema:
+            type: string
+        - in: header
+          name: X-Relantern-User-ID
+          schema:
+            maxLength: 36
+            minLength: 36
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OPMLPreviewInputBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImportPreview"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Preview and validate an OPML source import
+      tags:
+        - portability
   /api/v1/inbox:
     get:
       operationId: get-inbox
@@ -1164,6 +1855,42 @@ paths:
       summary: Get the owner inbox reading collection
       tags:
         - reading-state
+  /api/v1/inbox/import-url:
+    post:
+      operationId: import-inbox-url
+      parameters:
+        - in: header
+          name: Authorization
+          schema:
+            type: string
+        - in: header
+          name: X-Relantern-User-ID
+          schema:
+            maxLength: 36
+            minLength: 36
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ManualCaptureInputBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ManualCapture"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Queue a URL for the bounded source ingestion pipeline
+      tags:
+        - portability
   /api/v1/later:
     get:
       operationId: get-later
@@ -1269,6 +1996,249 @@ paths:
       summary: Get the current owner intelligence stream snapshot
       tags:
         - intelligence
+  /api/v1/releases:
+    get:
+      operationId: get-releases
+      parameters:
+        - in: header
+          name: Authorization
+          schema:
+            type: string
+        - in: header
+          name: X-Relantern-User-ID
+          schema:
+            maxLength: 36
+            minLength: 36
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReleaseCatalog"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Get the verified release and coming-soon matrix
+      tags:
+        - discovery
+  /api/v1/search:
+    get:
+      operationId: search-intelligence
+      parameters:
+        - in: header
+          name: Authorization
+          schema:
+            type: string
+        - in: header
+          name: X-Relantern-User-ID
+          schema:
+            maxLength: 36
+            minLength: 36
+            type: string
+        - explode: false
+          in: query
+          name: q
+          schema:
+            maxLength: 500
+            minLength: 2
+            type: string
+        - explode: false
+          in: query
+          name: topic
+          schema:
+            maxLength: 100
+            type: string
+        - explode: false
+          in: query
+          name: sourceTier
+          schema:
+            enum:
+              - T0
+              - T1
+              - T2
+              - T3
+            type: string
+        - explode: false
+          in: query
+          name: lifecycle
+          schema:
+            enum:
+              - stable
+              - preview
+              - release_candidate
+              - deprecated
+              - eol
+              - unknown
+            type: string
+        - explode: false
+          in: query
+          name: radar
+          schema:
+            enum:
+              - adopt
+              - trial
+              - assess
+              - hold
+              - reject
+            type: string
+        - explode: false
+          in: query
+          name: action
+          schema:
+            maxLength: 120
+            type: string
+        - explode: false
+          in: query
+          name: saved
+          schema:
+            enum:
+              - "true"
+              - "false"
+            type: string
+        - explode: false
+          in: query
+          name: after
+          schema:
+            maxLength: 35
+            type: string
+        - explode: false
+          in: query
+          name: before
+          schema:
+            maxLength: 35
+            type: string
+        - explode: false
+          in: query
+          name: limit
+          schema:
+            default: 20
+            format: int64
+            maximum: 100
+            minimum: 1
+            type: integer
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SearchResponse"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Search published owner intelligence with hybrid retrieval
+      tags:
+        - discovery
+  /api/v1/searches:
+    get:
+      operationId: list-saved-searches
+      parameters:
+        - in: header
+          name: Authorization
+          schema:
+            type: string
+        - in: header
+          name: X-Relantern-User-ID
+          schema:
+            maxLength: 36
+            minLength: 36
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SavedSearchesOutputBody"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: List durable owner search queries
+      tags:
+        - discovery
+    post:
+      operationId: save-search
+      parameters:
+        - in: header
+          name: Authorization
+          schema:
+            type: string
+        - in: header
+          name: X-Relantern-User-ID
+          schema:
+            maxLength: 36
+            minLength: 36
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SaveSearchInputBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SavedSearch"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Create or update a durable owner search query
+      tags:
+        - discovery
+  /api/v1/searches/{savedSearchId}:
+    delete:
+      operationId: delete-saved-search
+      parameters:
+        - in: header
+          name: Authorization
+          schema:
+            type: string
+        - in: header
+          name: X-Relantern-User-ID
+          schema:
+            maxLength: 36
+            minLength: 36
+            type: string
+        - in: path
+          name: savedSearchId
+          required: true
+          schema:
+            maxLength: 36
+            minLength: 36
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteOutputBody"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Delete an owner saved search
+      tags:
+        - discovery
   /api/v1/snoozed:
     get:
       operationId: get-snoozed
