@@ -16,6 +16,7 @@ import (
 	"github.com/traweezy/relantern/internal/clock"
 	"github.com/traweezy/relantern/internal/httpx"
 	"github.com/traweezy/relantern/internal/jobqueue"
+	"github.com/traweezy/relantern/internal/operability"
 	"github.com/traweezy/relantern/internal/service"
 )
 
@@ -45,6 +46,7 @@ type Runner struct {
 	newRunID        func() string
 	reconcileQueue  string
 	shutdownTimeout time.Duration
+	operability     *operability.Collector
 }
 
 func NewRunner(
@@ -53,12 +55,14 @@ func NewRunner(
 	health *SchedulerHealth,
 	shutdownTimeout time.Duration,
 ) *Runner {
+	collector, _ := operability.NewCollector(pool)
 	return &Runner{
 		client:          client,
 		pool:            pool,
 		health:          health,
 		newRunID:        uuid.NewString,
 		shutdownTimeout: shutdownTimeout,
+		operability:     collector,
 	}
 }
 
@@ -240,6 +244,32 @@ func (runner *Runner) healthHandler() http.Handler {
 			payload["oldestOverdueOccurrence"] = oldestOverdue.UTC()
 		}
 		httpx.WriteJSON(response, http.StatusOK, payload)
+	})
+	mux.HandleFunc("GET /metrics", func(response http.ResponseWriter, request *http.Request) {
+		metricsContext, cancel := context.WithTimeout(request.Context(), 2*time.Second)
+		defer cancel()
+		snapshot, err := runner.operability.Collect(metricsContext, runner.health.clock.Now())
+		if err != nil {
+			httpx.WriteProblem(response, request, http.StatusServiceUnavailable, "Service Unavailable", "Operational metrics could not be collected.")
+			return
+		}
+		response.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+		if err := operability.WritePrometheus(response, snapshot); err != nil {
+			return
+		}
+	})
+	mux.HandleFunc("GET /alerts", func(response http.ResponseWriter, request *http.Request) {
+		metricsContext, cancel := context.WithTimeout(request.Context(), 2*time.Second)
+		defer cancel()
+		now := runner.health.clock.Now()
+		snapshot, err := runner.operability.Collect(metricsContext, now)
+		if err != nil {
+			httpx.WriteProblem(response, request, http.StatusServiceUnavailable, "Service Unavailable", "Operational alerts could not be evaluated.")
+			return
+		}
+		httpx.WriteJSON(response, http.StatusOK, map[string]any{
+			"alerts": operability.Evaluate(snapshot, now), "generatedAt": now.UTC(),
+		})
 	})
 	return httpx.SecurityHeaders(mux)
 }

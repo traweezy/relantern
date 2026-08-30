@@ -107,8 +107,18 @@ func TestPeriodicJobsDeclareRunOnStartSchedule(t *testing.T) {
 	if defaultJobs := jobqueue.PeriodicJobs(time.Minute); len(defaultJobs) != 1 {
 		t.Fatalf("default PeriodicJobs() = %+v", defaultJobs)
 	}
-	if completeJobs := jobqueue.PeriodicJobs(time.Minute, true, true); len(completeJobs) != 3 {
+	if completeJobs := jobqueue.PeriodicJobs(time.Minute, true, true, true); len(completeJobs) != 4 {
 		t.Fatalf("complete PeriodicJobs() = %+v", completeJobs)
+	}
+}
+
+func TestRetentionJobIsBoundedDailyMaintenance(t *testing.T) {
+	t.Parallel()
+	options := (jobqueue.RunRetentionArgs{}).InsertOpts()
+	if (jobqueue.RunRetentionArgs{}).Kind() != jobqueue.RunRetentionKind ||
+		options.Queue != jobqueue.QueueMaintenance || options.MaxAttempts != 3 ||
+		options.UniqueOpts.ByPeriod != 24*time.Hour || !options.UniqueOpts.ByQueue {
+		t.Fatalf("retention options = %+v", options)
 	}
 }
 

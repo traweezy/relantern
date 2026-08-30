@@ -33,6 +33,8 @@ import (
 	"github.com/traweezy/relantern/internal/reembedding"
 	"github.com/traweezy/relantern/internal/research"
 	researchstore "github.com/traweezy/relantern/internal/research/pgstore"
+	"github.com/traweezy/relantern/internal/retention"
+	retentionstore "github.com/traweezy/relantern/internal/retention/pgstore"
 	"github.com/traweezy/relantern/internal/scheduler"
 	searchstore "github.com/traweezy/relantern/internal/search/pgstore"
 	"github.com/traweezy/relantern/internal/service"
@@ -61,6 +63,9 @@ func run(arguments []string, logger *slog.Logger) error {
 	}
 	if len(arguments) > 0 && (arguments[0] == "digest-preview" || arguments[0] == "digest-run") {
 		return runDigestOperation(arguments)
+	}
+	if len(arguments) > 0 && arguments[0] == "retention-run" {
+		return runRetentionOperation(arguments)
 	}
 	common, err := config.LoadCommon()
 	if err != nil {
@@ -313,6 +318,14 @@ func run(arguments []string, logger *slog.Logger) error {
 	if err != nil {
 		return fmt.Errorf("create Radar worker store: %w", err)
 	}
+	retentionRepository, err := retentionstore.New(pool)
+	if err != nil {
+		return fmt.Errorf("create retention store: %w", err)
+	}
+	retentionRunner, err := retention.NewRunner(retentionRepository, rawStore, retention.DefaultPolicy())
+	if err != nil {
+		return fmt.Errorf("create retention runner: %w", err)
+	}
 	processor := worker.NewProcessor(
 		pool,
 		deliveryConfig.CaptureURL,
@@ -324,6 +337,7 @@ func run(arguments []string, logger *slog.Logger) error {
 		worker.WithSnoozeReturner(readingStateStore),
 		worker.WithRadarProcessor(radarProcessor),
 		worker.WithDigestProcessor(digestStore, digestSender),
+		worker.WithRetentionRunner(retentionRunner),
 	}
 	if manualCaptureProcessor != nil {
 		riverOptions = append(riverOptions, worker.WithManualCaptureProcessor(manualCaptureProcessor))

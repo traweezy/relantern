@@ -183,6 +183,15 @@ func TestStorePropagatesCopyAndRemoveFailures(t *testing.T) {
 	}
 }
 
+func TestDeleteRejectsInvalidAndStagingKeys(t *testing.T) {
+	store := &Store{client: &fakeObjectClient{}, bucket: "fixture"}
+	for _, key := range []string{"../secret", "_incoming/0123456789abcdef0123456789abcdef"} {
+		if err := store.Delete(context.Background(), key); err == nil {
+			t.Fatalf("Delete(%q) succeeded", key)
+		}
+	}
+}
+
 func TestNewValidatesS3Configuration(t *testing.T) {
 	tests := []Config{
 		{Endpoint: "ftp://storage.example", Bucket: "fixture", AccessKey: "access", SecretKey: "secret"},

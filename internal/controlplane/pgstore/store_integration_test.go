@@ -23,6 +23,7 @@ func TestOwnerControlPlaneRoundTrip(t *testing.T) {
 	now := time.Date(2026, time.August, 29, 12, 0, 0, 0, time.UTC)
 	userID, scheduleID, sourceID := seedControlPlaneFixture(t, pool, now)
 	cleanupControlPlaneFixture(t, pool, userID)
+	restoreCompletedAt := seedRestoreDrillFixture(t, pool)
 
 	jobs, err := jobqueue.NewInserter()
 	if err != nil {
@@ -155,9 +156,33 @@ func TestOwnerControlPlaneRoundTrip(t *testing.T) {
 	}
 	if len(operations.Queues) < 7 || len(operations.Schedules) != 1 ||
 		len(operations.Occurrences) != 1 || operations.Deployment.GitSHA != "fixture-sha" ||
-		operations.Restore.State != "not_recorded" {
+		operations.Restore.State != "passed" || operations.Restore.Explanation != fmt.Sprintf(
+		"Verified %s · RPO 12s/86400s · RTO 34s/14400s",
+		restoreCompletedAt.Format(time.RFC3339),
+	) {
 		t.Fatalf("operations snapshot = %+v", operations)
 	}
+}
+
+func seedRestoreDrillFixture(t *testing.T, pool *pgxpool.Pool) time.Time {
+	t.Helper()
+	startedAt := time.Now().UTC().AddDate(50, 0, 0)
+	completedAt := startedAt.Add(34 * time.Second)
+	backupSHA256 := []byte(fmt.Sprintf("%032d", time.Now().UnixNano()))
+	var drillID string
+	if err := pool.QueryRow(context.Background(), `
+		insert into app.restore_drills (
+			backup_sha256, release_git_sha, state, rpo_seconds, rto_seconds,
+			rpo_target_seconds, rto_target_seconds, restored_migration_version,
+			verification_counts, started_at, completed_at
+		) values ($1, 'abcdef0', 'passed', 12, 34, 86400, 14400, 20, '{}'::jsonb, $2, $3)
+		returning id::text`, backupSHA256, startedAt, completedAt).Scan(&drillID); err != nil {
+		t.Fatalf("insert restore drill fixture: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `delete from app.restore_drills where id = $1::uuid`, drillID)
+	})
+	return completedAt
 }
 
 func openControlPlanePool(t *testing.T) *pgxpool.Pool {

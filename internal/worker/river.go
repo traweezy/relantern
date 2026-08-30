@@ -22,6 +22,7 @@ import (
 	"github.com/traweezy/relantern/internal/radar"
 	"github.com/traweezy/relantern/internal/reembedding"
 	"github.com/traweezy/relantern/internal/research"
+	"github.com/traweezy/relantern/internal/retention"
 	"github.com/traweezy/relantern/internal/scheduler"
 )
 
@@ -346,6 +347,36 @@ type returnSnoozedItemsWorker struct {
 	returner snoozeReturner
 }
 
+type retentionRunner interface {
+	Run(context.Context, time.Time) (retention.Counts, error)
+}
+
+type runRetentionWorker struct {
+	river.WorkerDefaults[jobqueue.RunRetentionArgs]
+	clock  clock.Clock
+	logger *slog.Logger
+	runner retentionRunner
+}
+
+func (worker *runRetentionWorker) Timeout(*river.Job[jobqueue.RunRetentionArgs]) time.Duration {
+	return 10 * time.Minute
+}
+
+func (worker *runRetentionWorker) Work(
+	ctx context.Context,
+	job *river.Job[jobqueue.RunRetentionArgs],
+) error {
+	counts, err := worker.runner.Run(ctx, worker.clock.Now().UTC())
+	if errors.Is(err, retention.ErrBusy) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	worker.logger.InfoContext(ctx, "retention run complete", "job_id", job.ID, "counts", counts)
+	return nil
+}
+
 func (worker *returnSnoozedItemsWorker) Work(
 	ctx context.Context,
 	job *river.Job[jobqueue.ReturnSnoozedItemsArgs],
@@ -635,6 +666,13 @@ func NewRiverClient(
 			return nil, fmt.Errorf("register digest delivery worker: %w", err)
 		}
 	}
+	if configuration.retentionRunner != nil {
+		if err := river.AddWorkerSafely(workers, &runRetentionWorker{
+			clock: configuredClock, logger: logger, runner: configuration.retentionRunner,
+		}); err != nil {
+			return nil, fmt.Errorf("register retention worker: %w", err)
+		}
+	}
 
 	var periodicJobs []*river.PeriodicJob
 	if enablePeriodicJobs {
@@ -642,6 +680,7 @@ func NewRiverClient(
 			interval,
 			configuration.researcher != nil,
 			configuration.snoozeReturner != nil,
+			configuration.retentionRunner != nil,
 		)
 	}
 	queues := jobqueue.QueueConfigs()
@@ -684,6 +723,7 @@ type riverOptions struct {
 	radarProcessor         radarProcessor
 	digestProcessor        digestWorkflow
 	digestSender           digestSender
+	retentionRunner        retentionRunner
 }
 
 func WithSnoozeReturner(returner snoozeReturner) RiverOption {
@@ -708,6 +748,12 @@ func WithDigestProcessor(processor digestWorkflow, sender digestSender) RiverOpt
 	return func(configuration *riverOptions) {
 		configuration.digestProcessor = processor
 		configuration.digestSender = sender
+	}
+}
+
+func WithRetentionRunner(runner retentionRunner) RiverOption {
+	return func(configuration *riverOptions) {
+		configuration.retentionRunner = runner
 	}
 }
 

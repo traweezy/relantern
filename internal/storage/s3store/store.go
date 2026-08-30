@@ -175,6 +175,19 @@ func (store *Store) Abort(ctx context.Context, staged storage.StagedObject) erro
 	return nil
 }
 
+func (store *Store) Delete(ctx context.Context, objectKey string) error {
+	if err := storage.ValidateObjectKey(objectKey); err != nil {
+		return fmt.Errorf("refusing to delete object: %w", err)
+	}
+	if strings.HasPrefix(objectKey, temporaryKeyPrefix) {
+		return errors.New("refusing retention delete inside the staging prefix")
+	}
+	if err := store.client.RemoveObject(ctx, store.bucket, objectKey, minio.RemoveObjectOptions{}); err != nil {
+		return fmt.Errorf("delete retained object: %w", err)
+	}
+	return nil
+}
+
 func parseEndpoint(raw string) (string, bool, error) {
 	parsed, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil || parsed.Host == "" || parsed.Path != "" && parsed.Path != "/" || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.User != nil {

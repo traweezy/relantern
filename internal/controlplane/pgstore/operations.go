@@ -2,10 +2,12 @@ package pgstore
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/traweezy/relantern/internal/controlplane"
 )
 
@@ -44,6 +46,9 @@ func (store *Store) Operations(
 	if err := store.loadDeliveryAttemptCount(ctx, &snapshot.DeliveryAttempts); err != nil {
 		return controlplane.OperationsSnapshot{}, err
 	}
+	if err := store.loadRestoreStatus(ctx, &snapshot.Restore); err != nil {
+		return controlplane.OperationsSnapshot{}, err
+	}
 	errorBudgets, err := store.sourceErrorBudgets(ctx, now)
 	if err != nil {
 		return controlplane.OperationsSnapshot{}, err
@@ -63,6 +68,33 @@ func (store *Store) Operations(
 		return controlplane.OperationsSnapshot{}, err
 	}
 	return snapshot, nil
+}
+
+func (store *Store) loadRestoreStatus(ctx context.Context, status *controlplane.RestoreStatus) error {
+	var state string
+	var completedAt time.Time
+	var rpoSeconds, rtoSeconds, rpoTargetSeconds, rtoTargetSeconds int64
+	err := store.pool.QueryRow(ctx, `
+		select state, completed_at, rpo_seconds, rto_seconds, rpo_target_seconds, rto_target_seconds
+		from app.restore_drills
+		order by completed_at desc, id desc
+		limit 1`).Scan(&state, &completedAt, &rpoSeconds, &rtoSeconds, &rpoTargetSeconds, &rtoTargetSeconds)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("load restore drill status: %w", err)
+	}
+	status.State = state
+	status.Explanation = fmt.Sprintf(
+		"Verified %s · RPO %ds/%ds · RTO %ds/%ds",
+		completedAt.UTC().Format(time.RFC3339),
+		rpoSeconds,
+		rpoTargetSeconds,
+		rtoSeconds,
+		rtoTargetSeconds,
+	)
+	return nil
 }
 
 func (store *Store) queueDepths(ctx context.Context) ([]controlplane.QueueDepth, error) {

@@ -6,7 +6,7 @@ COMPOSE_DEV := docker compose -f compose.yaml -f compose.dev.yaml
 GO := bash scripts/go-tool.sh
 PNPM := bash scripts/pnpm-tool.sh
 
-.PHONY: help doctor secrets bootstrap dev dev-live ps logs stop watch test test-unit test-integration test-e2e auth-smoke lint workflow-lint typecheck format generate generate-check migrate migration seed sources-verify fixtures-record eval test-dedupe test-search test-extraction test-research scheduler-tick digest-preview digest-run test-scheduler test-dst time-travel time-travel-clean observability config-check demo demo-audit prepush prodlike prodlike-smoke sbom clean reset
+.PHONY: help doctor secrets bootstrap dev dev-live ps logs stop watch test test-unit test-integration test-e2e auth-smoke lint workflow-lint typecheck format generate generate-check migrate migration seed sources-verify fixtures-record eval test-dedupe test-search test-extraction test-research scheduler-tick digest-preview digest-run retention-run test-scheduler test-dst time-travel time-travel-clean backup restore-drill observability config-check demo demo-audit security-scan prepush prodlike prodlike-smoke sbom clean reset
 
 help:
 	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z0-9_-]+:.*## / {printf "%-22s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -60,7 +60,7 @@ test-integration: secrets ## Run database, object-storage, and worker integratio
 	$(COMPOSE_BASE) run --rm --build worker once
 	@IFS= read -r relantern_database_secret < .local/secrets/database_password; \
 		DATABASE_URL="postgres://relantern:$${relantern_database_secret}@127.0.0.1:5432/relantern?sslmode=disable" \
-		$(GO) test -p 1 ./internal/controlplane/pgstore ./internal/dedupe/pgstore ./internal/digest/pgstore ./internal/discovery/pgstore ./internal/embedding/pgstore ./internal/extraction/pgstore ./internal/fetcher/pgstore ./internal/jobqueue ./internal/openaiwebhook ./internal/parsing/pgstore ./internal/radar/pgstore ./internal/readingstate/pgstore ./internal/reembedding ./internal/research/pgstore ./internal/scheduler ./internal/search/pgstore ./internal/sources/pgstore ./internal/worker -count=1
+		$(GO) test -p 1 ./internal/controlplane/pgstore ./internal/dedupe/pgstore ./internal/digest/pgstore ./internal/discovery/pgstore ./internal/embedding/pgstore ./internal/extraction/pgstore ./internal/fetcher/pgstore ./internal/jobqueue ./internal/openaiwebhook ./internal/operability ./internal/parsing/pgstore ./internal/radar/pgstore ./internal/readingstate/pgstore ./internal/reembedding ./internal/research/pgstore ./internal/retention/pgstore ./internal/scheduler ./internal/search/pgstore ./internal/sources/pgstore ./internal/worker -count=1
 	@IFS= read -r relantern_s3_access < .local/secrets/minio_access_key; \
 		IFS= read -r relantern_s3_secret < .local/secrets/minio_secret_key; \
 		S3_TEST_ENDPOINT=http://127.0.0.1:9000 \
@@ -154,6 +154,12 @@ digest-run: secrets ## Queue a local run-now preview; set deliver=true to use th
 		printf 'Queued digest occurrence %s\n' "$${occurrence_id}"; \
 		$(COMPOSE_BASE) run --rm worker once --occurrence-id "$${occurrence_id}"
 
+retention-run: secrets ## Run one idempotent bounded retention cycle
+	$(COMPOSE_BASE) up -d --wait postgres minio
+	$(COMPOSE_BASE) run --rm minio-init
+	$(COMPOSE_BASE) run --rm --build migrate up
+	$(COMPOSE_BASE) run --rm --build worker retention-run
+
 test-scheduler: ## Run scheduler unit and DST tests
 	$(GO) test ./internal/scheduler/... -count=1
 
@@ -169,6 +175,14 @@ time-travel: secrets ## Run one isolated fixed-clock reconciliation (at=RFC3339 
 time-travel-clean: ## Remove the isolated time-travel stack after confirmation
 	@printf 'Type relantern-time-travel to delete its disposable volumes: '; read -r answer; test "$$answer" = relantern-time-travel
 	COMPOSE_PROJECT_NAME=relantern-time-travel $(COMPOSE_BASE) down --volumes --remove-orphans
+
+backup: secrets ## Create a private checksum-verified logical PostgreSQL backup
+	$(COMPOSE_BASE) up -d --wait postgres
+	bash scripts/postgres-backup.sh $(if $(output),$(output))
+
+restore-drill: secrets ## Restore a snapshot into an isolated database and record RPO/RTO
+	$(COMPOSE_BASE) up -d --wait postgres
+	bash scripts/postgres-restore-drill.sh $(if $(backup),$(backup))
 
 observability: ## Start the optional local LGTM profile
 	$(COMPOSE_DEV) --profile observability up -d otel-lgtm

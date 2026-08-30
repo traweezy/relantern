@@ -31,11 +31,13 @@ const (
 	PrepareDailyDigestKind        = "prepare_daily_digest"
 	FinalizeDailyDigestKind       = "finalize_daily_digest"
 	DeliverDigestKind             = "deliver_digest"
+	RunRetentionKind              = "run_retention"
 )
 
 const reconcileSchedulesPeriodicID = "reconcile-schedules-v1"
 const reconcileOpenAIBackgroundPeriodicID = "reconcile-openai-background-v1"
 const returnSnoozedItemsPeriodicID = "return-snoozed-items-v1"
+const runRetentionPeriodicID = "run-retention-v1"
 
 type ReconcileSchedulesArgs struct {
 	RunID string `json:"runId,omitempty" river:"unique"`
@@ -103,6 +105,26 @@ func (FinalizeDailyDigestArgs) InsertOpts() river.InsertOpts {
 
 type DeliverDigestArgs struct {
 	DigestID string `json:"digestId" river:"unique"`
+}
+
+type RunRetentionArgs struct{}
+
+func (RunRetentionArgs) Kind() string {
+	return RunRetentionKind
+}
+
+func (RunRetentionArgs) InsertOpts() river.InsertOpts {
+	return river.InsertOpts{
+		MaxAttempts: 3,
+		Priority:    4,
+		Queue:       QueueMaintenance,
+		Tags:        []string{"retention", "maintenance", "bounded"},
+		UniqueOpts: river.UniqueOpts{
+			ByPeriod: 24 * time.Hour,
+			ByQueue:  true,
+			ByState:  rivertype.JobStates(),
+		},
+	}
 }
 
 func (DeliverDigestArgs) Kind() string {
@@ -387,6 +409,15 @@ func PeriodicJobs(interval time.Duration, includeOpenAIReconciliation ...bool) [
 				return ReturnSnoozedItemsArgs{}, nil
 			},
 			&river.PeriodicJobOpts{ID: returnSnoozedItemsPeriodicID, RunOnStart: true},
+		))
+	}
+	if len(includeOpenAIReconciliation) > 2 && includeOpenAIReconciliation[2] {
+		jobs = append(jobs, river.NewPeriodicJob(
+			river.PeriodicInterval(24*time.Hour),
+			func() (river.JobArgs, *river.InsertOpts) {
+				return RunRetentionArgs{}, nil
+			},
+			&river.PeriodicJobOpts{ID: runRetentionPeriodicID, RunOnStart: true},
 		))
 	}
 	return jobs

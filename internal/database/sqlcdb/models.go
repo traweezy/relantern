@@ -153,7 +153,7 @@ type AppContentRevision struct {
 	RawDocumentID           pgtype.UUID        `json:"raw_document_id"`
 	PreviousRevisionID      pgtype.UUID        `json:"previous_revision_id"`
 	NormalizedSha256        []byte             `json:"normalized_sha256"`
-	NormalizedTextObjectKey string             `json:"normalized_text_object_key"`
+	NormalizedTextObjectKey pgtype.Text        `json:"normalized_text_object_key"`
 	ParserName              string             `json:"parser_name"`
 	ParserVersion           string             `json:"parser_version"`
 	Title                   string             `json:"title"`
@@ -170,6 +170,7 @@ type AppContentRevision struct {
 	MaterialChange          bool               `json:"material_change"`
 	ObservedAt              pgtype.Timestamptz `json:"observed_at"`
 	CreatedAt               pgtype.Timestamptz `json:"created_at"`
+	NormalizedTextPrunedAt  pgtype.Timestamptz `json:"normalized_text_pruned_at"`
 }
 
 type AppDedupeDecision struct {
@@ -389,6 +390,7 @@ type AppItemStateMutation struct {
 	UndoDeadline   pgtype.Timestamptz `json:"undo_deadline"`
 	UndoneAt       pgtype.Timestamptz `json:"undone_at"`
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	CompactedAt    pgtype.Timestamptz `json:"compacted_at"`
 }
 
 type AppItemTag struct {
@@ -602,6 +604,7 @@ type AppRawDocument struct {
 	SourcePublishedAt pgtype.Timestamptz `json:"source_published_at"`
 	ContentPolicy     string             `json:"content_policy"`
 	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	RawPrunedAt       pgtype.Timestamptz `json:"raw_pruned_at"`
 }
 
 type AppResearchAssertion struct {
@@ -645,6 +648,34 @@ type AppResearchSource struct {
 	SourceUrl    string             `json:"source_url"`
 	SourceDomain string             `json:"source_domain"`
 	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+}
+
+type AppRestoreDrill struct {
+	ID                       pgtype.UUID        `json:"id"`
+	BackupSha256             []byte             `json:"backup_sha256"`
+	ReleaseGitSha            string             `json:"release_git_sha"`
+	State                    string             `json:"state"`
+	RpoSeconds               int64              `json:"rpo_seconds"`
+	RtoSeconds               int64              `json:"rto_seconds"`
+	RpoTargetSeconds         int64              `json:"rpo_target_seconds"`
+	RtoTargetSeconds         int64              `json:"rto_target_seconds"`
+	RestoredMigrationVersion int64              `json:"restored_migration_version"`
+	VerificationCounts       []byte             `json:"verification_counts"`
+	StartedAt                pgtype.Timestamptz `json:"started_at"`
+	CompletedAt              pgtype.Timestamptz `json:"completed_at"`
+	CreatedAt                pgtype.Timestamptz `json:"created_at"`
+}
+
+type AppRetentionRun struct {
+	ID             pgtype.UUID        `json:"id"`
+	IdempotencyKey string             `json:"idempotency_key"`
+	State          string             `json:"state"`
+	Policy         []byte             `json:"policy"`
+	Counts         []byte             `json:"counts"`
+	StartedAt      pgtype.Timestamptz `json:"started_at"`
+	CompletedAt    pgtype.Timestamptz `json:"completed_at"`
+	ErrorCode      pgtype.Text        `json:"error_code"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
 }
 
 type AppSavedSearch struct {
