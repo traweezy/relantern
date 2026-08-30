@@ -2,6 +2,7 @@
   "name": "relantern",
   "version": "0.0.0",
   "private": true,
+  "type": "module",
   "description": "Evidence-first personal developer intelligence.",
   "license": "UNLICENSED",
   "packageManager": "pnpm@11.24.0",
@@ -16,12 +17,14 @@
     "format:check": "biome format .",
     "generate": "pnpm --filter @relantern/api-client generate",
     "lint": "biome check .",
-    "test": "pnpm --recursive --if-present test",
-    "typecheck": "pnpm --recursive --if-present typecheck"
+    "railway:check": "tsc --project tsconfig.railway.json && vitest run .railway/railway.test.ts",
+    "test": "vitest run .railway/railway.test.ts && pnpm --recursive --if-present test",
+    "typecheck": "tsc --project tsconfig.railway.json && pnpm --recursive --if-present typecheck"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.10",
     "openapi-typescript": "7.13.0",
+    "railway": "3.10.0",
     "typescript": "5.9.3",
     "vitest": "4.1.11"
   }

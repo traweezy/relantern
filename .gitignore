@@ -33,7 +33,9 @@ $RECYCLE.BIN/
 .envrc.local
 .local/
 .mise.local.toml
-.railway/
+.railway/*
+!.railway/railway.test.ts
+!.railway/railway.ts
 
 # JavaScript, pnpm, Next.js, and frontend tooling
 node_modules/

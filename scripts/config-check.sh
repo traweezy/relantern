@@ -3,13 +3,27 @@ set -euo pipefail
 
 docker compose -f compose.yaml config --quiet
 docker compose -f compose.yaml -f compose.dev.yaml config --quiet
+pnpm railway:check
 
-for service in web api worker migrate; do
+for service in web api worker migrate postgres; do
   rg -q "^  ${service}:$" deploy/railway/parity.yaml || {
     printf 'Railway parity is missing service %s.\n' "${service}" >&2
     exit 1
   }
 done
+
+rg -q '^  file: .railway/railway.ts$' deploy/railway/parity.yaml
+rg -q '^  sdk: railway@3.10.0$' deploy/railway/parity.yaml
+rg -q '^  apply_from_automation: false$' deploy/railway/parity.yaml
+rg -q '^    automatic_deploy: false$' deploy/railway/parity.yaml
+rg -q '^    attended_confirmation: DEPLOY_PRODUCTION$' deploy/railway/parity.yaml
+rg -q '"railway": "3.10.0"' package.json
+rg -q 'dockerfilePath: "deploy/docker/api.Dockerfile"' .railway/railway.ts
+rg -q 'dockerfilePath: "deploy/docker/worker.Dockerfile"' .railway/railway.ts
+rg -q 'dockerfilePath: "deploy/docker/web.Dockerfile"' .railway/railway.ts
+rg -q 'dockerfilePath: "deploy/docker/migrate.Dockerfile"' .railway/railway.ts
+rg -q 'startCommand: "/app/migrate up"' .railway/railway.ts
+rg -q 'PUBLIC_BASE_URL: railwayHTTPSOrigin\("web.RAILWAY_PUBLIC_DOMAIN"\)' .railway/railway.ts
 
 for dockerfile in web api worker migrate; do
   rg -q "dockerfile: deploy/docker/${dockerfile}.Dockerfile" deploy/railway/parity.yaml || {
@@ -52,7 +66,7 @@ rg -q '      - PUBLIC_BASE_URL' deploy/railway/parity.yaml
 rg -q 'live_fuse: ALLOW_LIVE_DELIVERY' deploy/railway/parity.yaml
 rg -q 'owner_date_channel_unique: true' deploy/railway/parity.yaml
 for secret in DISCORD_WEBHOOK_URL RESEND_API_KEY; do
-  rg -q "        - ${secret}" deploy/railway/parity.yaml || {
+  rg -q "      - ${secret}" deploy/railway/parity.yaml || {
     printf 'Railway delivery parity is missing %s.\n' "${secret}" >&2
     exit 1
   }
@@ -62,6 +76,13 @@ test "$(rg -c 'DATABASE_PASSWORD_FILE: /run/secrets/database_password' compose.y
 for secret in BETTER_AUTH_SECRET DATABASE_URL GITHUB_OAUTH_CLIENT_SECRET; do
   rg -q "      - ${secret}" deploy/railway/parity.yaml || {
     printf 'Railway web auth parity is missing %s.\n' "${secret}" >&2
+    exit 1
+  }
+done
+
+for reference in ACCESS_KEY_ID BUCKET ENDPOINT REGION SECRET_ACCESS_KEY; do
+  rg -q "    [a-z_]*: ${reference}" deploy/railway/parity.yaml || {
+    printf 'Railway object-storage parity is missing %s.\n' "${reference}" >&2
     exit 1
   }
 done

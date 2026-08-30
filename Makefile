@@ -190,6 +190,12 @@ observability: ## Start the optional local LGTM profile
 config-check: secrets ## Validate Compose, Docker, env, and Railway parity
 	bash scripts/config-check.sh
 
+railway-check: ## Validate the pinned Railway IaC graph without cloud access
+	$(PNPM) railway:check
+
+railway-plan: ## Preview safe Railway drift without applying it
+	bash scripts/railway-plan.sh $(if $(environment),$(environment),staging)
+
 demo: dev ## Open the isolated anonymous fixture demonstration
 	@printf 'Open http://127.0.0.1:3000/demo\n'
 

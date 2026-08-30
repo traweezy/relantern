@@ -1,13 +1,35 @@
-version: 1
+version: 2
+infrastructure_as_code:
+  file: .railway/railway.ts
+  sdk: railway@3.10.0
+  apply_from_automation: false
+environments:
+  staging:
+    source_branch: staging
+    automatic_deploy: true
+    wait_for_ci: true
+    delivery_scope: staging_only
+  production:
+    source_branch: master
+    automatic_deploy: false
+    attended_confirmation: DEPLOY_PRODUCTION
+    signed_tag_required: true
 services:
   api:
     dockerfile: deploy/docker/api.Dockerfile
     target: production
-    healthcheck: /healthz
+    healthcheck: /readyz
     internal_port: 8080
     required_secrets:
       - DATABASE_URL
+      - OPENAI_API_KEY
       - WEB_INTERNAL_SERVICE_TOKEN
+    required_configuration:
+      - APP_ENV
+      - OPENAI_BASE_URL
+      - OPENAI_EMBEDDING_MODEL
+      - OPENAI_PROJECT_ID
+      - SEARCH_HYBRID_ENABLED
   worker:
     dockerfile: deploy/docker/worker.Dockerfile
     target: production
@@ -15,8 +37,10 @@ services:
     internal_port: 8081
     required_secrets:
       - DATABASE_URL
+      - DISCORD_WEBHOOK_URL
       - OBJECT_STORAGE_ACCESS_KEY
       - OBJECT_STORAGE_SECRET_KEY
+      - OPENAI_API_KEY
     conditional_secrets:
       OPENAI_RESEARCH_ENABLED:
         - OPENAI_API_KEY
@@ -30,10 +54,17 @@ services:
         - DELIVERY_EMAIL_TO
     required_configuration:
       - ALLOW_LIVE_DELIVERY
+      - APP_ENV
       - DELIVERY_MODE
       - DISCORD_ENABLED
+      - OBJECT_STORAGE_BUCKET
+      - OBJECT_STORAGE_ENDPOINT
+      - OBJECT_STORAGE_REGION
+      - OPENAI_MONTHLY_HARD_USD
+      - OPENAI_MONTHLY_SOFT_USD
       - PUBLIC_BASE_URL
       - RESEND_ENABLED
+      - SEARCH_HYBRID_ENABLED
   web:
     dockerfile: deploy/docker/web.Dockerfile
     target: production
@@ -54,7 +85,16 @@ services:
   migrate:
     dockerfile: deploy/docker/migrate.Dockerfile
     target: production
-    command: up
+    command: /app/migrate up
+    required_secrets:
+      - DATABASE_URL
+  postgres:
+    image: pgvector/pgvector:0.8.6-pg18-trixie@sha256:78bf48b801e792f99e3ac62b5036fd3876e9be48afda16c1e331af1c75ceb2ff
+    visibility: private
+    volume: postgres-data
+    required_configuration:
+      - POSTGRES_DB
+      - POSTGRES_USER
 database:
   image: pgvector/pgvector:0.8.6-pg18-trixie@sha256:78bf48b801e792f99e3ac62b5036fd3876e9be48afda16c1e331af1c75ceb2ff
 object_storage:
@@ -62,10 +102,21 @@ object_storage:
   visibility: private
   required_by:
     - worker
+  variable_references:
+    access_key: ACCESS_KEY_ID
+    bucket: BUCKET
+    endpoint: ENDPOINT
+    region: REGION
+    secret_key: SECRET_ACCESS_KEY
 clock:
   production_mode: system
 public_services:
   - web
+manual_platform_controls:
+  - Generate a Railway service domain for web only.
+  - Keep production GitHub automatic deployments disabled.
+  - Require an attended production workflow confirmation.
+  - Seal provider and OAuth credentials after setting them out of band.
 openai_background:
   public_receiver: /api/webhooks/openai
   private_receiver: /internal/v1/openai/events

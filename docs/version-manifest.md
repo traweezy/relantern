@@ -43,6 +43,7 @@ Container manifest digests and GitHub Action commit SHAs are recorded below.
 | Playwright | 1.62.1 | Audited; add with browser journey scope |
 | openapi-typescript | 7.13.0 | Pinned for generated platform-neutral schemas |
 | openapi-fetch | 0.17.0 | Pinned in the shared API client |
+| Railway infrastructure SDK | 3.10.0 | Pinned; newest stable release satisfying the seven-day age gate |
 | OpenAI JavaScript SDK | 7.5.0 | Pinned for raw-body webhook verification; released 2026-08-17 and satisfies the seven-day gate |
 
 Primary release sources include the [Next.js August 2026 security
@@ -64,6 +65,7 @@ and [Better Auth 1.7 changelog](https://better-auth.com/changelog).
 | Next.js 16.3.3 | `sha512-tuRTx1nQ/yVw83cwJBo9F+njGUgMn3UHQycreWHB8XsStvvAh1AthbI8/4IpKnFaF58F+iSiHejYOlMQ/eq83g==` |
 | React 19.2.8 | `sha512-PWaYA1L/q9u2u7xYQi+Y3L3Yfnie7XyLeaJICV1MGD6LprsBxcAqGjYyr0eY3p+QdsA+x/Irkt4Qif8D63+Sbw==` |
 | OpenAI JavaScript SDK 7.5.0 | `sha512-ZbDBz8FSB8Mv8fFYIUvzTFMdV5vl93/octp1MdtK2lfYepSpfv/ewmeugpKz/cwGtFSx+YuUM4NwpZ2P55YiPA==` |
+| Railway infrastructure SDK 3.10.0 | `sha512-yQtWGFkeGpIdyfwiQQOkWHLfXvSQH7gW6kz83nlre+ZeH9J1J8vX03pzL4zseTLbLKx2AhWs/e/6lZPASGogEw==` |
 | Better Auth 1.7.1 | `sha512-g8WlTQijxXWJjPVZfFu1+EJg9cwwHrKDmIkcYMzx8CzYA+tDxl6NI7qQbKkbgw5UtHILsT5VH+RMzFzwnVJqAg==` |
 | node-postgres 8.23.0 | `sha512-Ip2EQCngowJLGOfCwkFhPXU7/ljlhn6Rxlmy4XYfL2Y+vyRM59+8uR2xqRWKdYmbXmxCFOAmKxBuSUCdF34qLg==` |
 | `@types/pg` 8.23.1 | `sha512-fKVHpikPdg4GKks3JuLEhvwSyvwzF23hnabPy6DD8ljVbC7+6J5dQzdv4arV6jqq57djnMgs1HKBxX4P8aBI3A==` |
