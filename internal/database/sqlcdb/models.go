@@ -55,6 +55,20 @@ type AppAiRunAttempt struct {
 	ToolCalls          int32              `json:"tool_calls"`
 }
 
+type AppAnnotation struct {
+	ID             pgtype.UUID        `json:"id"`
+	UserID         pgtype.UUID        `json:"user_id"`
+	ItemID         pgtype.UUID        `json:"item_id"`
+	RevisionID     pgtype.UUID        `json:"revision_id"`
+	AnnotationType string             `json:"annotation_type"`
+	StartOffset    pgtype.Int4        `json:"start_offset"`
+	EndOffset      pgtype.Int4        `json:"end_offset"`
+	QuoteHash      []byte             `json:"quote_hash"`
+	Body           string             `json:"body"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+}
+
 type AppAuditEvent struct {
 	ID         int64              `json:"id"`
 	ActorType  string             `json:"actor_type"`
@@ -227,6 +241,18 @@ type AppEvidenceSpan struct {
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
 }
 
+type AppFeedback struct {
+	ID             pgtype.UUID        `json:"id"`
+	UserID         pgtype.UUID        `json:"user_id"`
+	TargetType     string             `json:"target_type"`
+	TargetID       pgtype.UUID        `json:"target_id"`
+	FeedbackType   string             `json:"feedback_type"`
+	Note           pgtype.Text        `json:"note"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	MutationID     pgtype.UUID        `json:"mutation_id"`
+	IdempotencyKey pgtype.Text        `json:"idempotency_key"`
+}
+
 type AppGithubRepository struct {
 	SourceID        string             `json:"source_id"`
 	NodeID          string             `json:"node_id"`
@@ -265,6 +291,27 @@ type AppItemSource struct {
 	SourceTier   string             `json:"source_tier"`
 	SortOrder    int32              `json:"sort_order"`
 	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+}
+
+type AppItemStateMutation struct {
+	ID             pgtype.UUID        `json:"id"`
+	UserID         pgtype.UUID        `json:"user_id"`
+	ItemID         pgtype.UUID        `json:"item_id"`
+	MutationType   string             `json:"mutation_type"`
+	BeforeState    []byte             `json:"before_state"`
+	AfterState     []byte             `json:"after_state"`
+	IdempotencyKey string             `json:"idempotency_key"`
+	BulkID         pgtype.UUID        `json:"bulk_id"`
+	UndoDeadline   pgtype.Timestamptz `json:"undo_deadline"`
+	UndoneAt       pgtype.Timestamptz `json:"undone_at"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+}
+
+type AppItemTag struct {
+	UserID    pgtype.UUID        `json:"user_id"`
+	ItemID    pgtype.UUID        `json:"item_id"`
+	TagID     pgtype.UUID        `json:"tag_id"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
 }
 
 type AppModelConfig struct {
@@ -528,6 +575,16 @@ type AppStoryCluster struct {
 	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
 }
 
+type AppTag struct {
+	ID             pgtype.UUID        `json:"id"`
+	UserID         pgtype.UUID        `json:"user_id"`
+	Name           string             `json:"name"`
+	NormalizedName string             `json:"normalized_name"`
+	ColorToken     string             `json:"color_token"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+}
+
 type AppUser struct {
 	ID            pgtype.UUID        `json:"id"`
 	GithubUserID  int64              `json:"github_user_id"`
@@ -539,4 +596,42 @@ type AppUser struct {
 	Email         string             `json:"email"`
 	EmailVerified bool               `json:"email_verified"`
 	ImageUrl      pgtype.Text        `json:"image_url"`
+}
+
+type AppUserItemState struct {
+	UserID              pgtype.UUID        `json:"user_id"`
+	ItemID              pgtype.UUID        `json:"item_id"`
+	Location            string             `json:"location"`
+	IsRead              bool               `json:"is_read"`
+	ReadAt              pgtype.Timestamptz `json:"read_at"`
+	StarredAt           pgtype.Timestamptz `json:"starred_at"`
+	SnoozedUntil        pgtype.Timestamptz `json:"snoozed_until"`
+	SnoozedFromLocation pgtype.Text        `json:"snoozed_from_location"`
+	ReadingProgress     pgtype.Numeric     `json:"reading_progress"`
+	LastParagraphID     pgtype.Text        `json:"last_paragraph_id"`
+	LaterPosition       pgtype.Int8        `json:"later_position"`
+	DismissedReason     pgtype.Text        `json:"dismissed_reason"`
+	Version             int64              `json:"version"`
+	CreatedAt           pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt           pgtype.Timestamptz `json:"updated_at"`
+}
+
+type AppVStorySummary struct {
+	StoryID           pgtype.UUID        `json:"story_id"`
+	ItemID            pgtype.UUID        `json:"item_id"`
+	Headline          string             `json:"headline"`
+	Summary           string             `json:"summary"`
+	WhyItMatters      string             `json:"why_it_matters"`
+	RecommendedAction string             `json:"recommended_action"`
+	Confidence        string             `json:"confidence"`
+	FirstSeenAt       pgtype.Timestamptz `json:"first_seen_at"`
+	LastChangedAt     pgtype.Timestamptz `json:"last_changed_at"`
+	Status            string             `json:"status"`
+	Signal            string             `json:"signal"`
+	SourceTier        interface{}        `json:"source_tier"`
+	SourceCount       int32              `json:"source_count"`
+	ReadTimeMinutes   int32              `json:"read_time_minutes"`
+	Uncertainties     []byte             `json:"uncertainties"`
+	BriefCreatedAt    pgtype.Timestamptz `json:"brief_created_at"`
+	PrimarySourceUrl  string             `json:"primary_source_url"`
 }

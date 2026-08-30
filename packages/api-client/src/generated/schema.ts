@@ -4,6 +4,41 @@
  */
 
 export interface paths {
+    "/api/v1/annotations/{annotationId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete an owner annotation */
+        delete: operations["delete-annotation"];
+        options?: never;
+        head?: never;
+        /** Update an owner annotation body */
+        patch: operations["update-annotation"];
+        trace?: never;
+    };
+    "/api/v1/archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get the owner archive reading collection */
+        get: operations["get-archive"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/healthz": {
         parameters: {
             query?: never;
@@ -14,6 +49,57 @@ export interface paths {
         /** Get API process health */
         get: operations["get-health"];
         put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/inbox": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get the owner inbox reading collection */
+        get: operations["get-inbox"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/later": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get the owner later reading collection */
+        get: operations["get-later"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/later/order": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Persist an optimistic owner-confirmed Later ordering */
+        put: operations["reorder-later"];
         post?: never;
         delete?: never;
         options?: never;
@@ -38,6 +124,91 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/snoozed": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get the owner snoozed reading collection */
+        get: operations["get-snoozed"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/starred": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get the owner starred reading collection */
+        get: operations["get-starred"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/stories/bulk-state": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Apply an atomic state command to a confirmed story selection */
+        post: operations["bulk-update-story-state"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/stories/bulk-state/undo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Atomically undo a bulk reading-state command within ten seconds */
+        post: operations["undo-bulk-story-state"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/stories/state-query": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Read a bounded ordered set of owner story states */
+        post: operations["query-story-states"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/stories/{storyId}": {
         parameters: {
             query?: never;
@@ -53,6 +224,112 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/api/v1/stories/{storyId}/annotations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get revision-bound story annotations */
+        get: operations["get-story-annotations"];
+        put?: never;
+        /** Create a revision-bound story annotation */
+        post: operations["create-story-annotation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/stories/{storyId}/feedback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Record explicit owner relevance feedback independently of reading state */
+        post: operations["create-story-feedback"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/stories/{storyId}/state": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get the current owner reading state for one story */
+        get: operations["get-story-state"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Apply one optimistic owner reading-state command */
+        patch: operations["update-story-state"];
+        trace?: never;
+    };
+    "/api/v1/stories/{storyId}/undo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Undo the latest non-conflicting story mutation within ten seconds */
+        post: operations["undo-story-state"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tags": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get owner tags */
+        get: operations["get-tags"];
+        put?: never;
+        /** Create an owner tag */
+        post: operations["create-tag"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tags/{tagId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete an owner tag */
+        delete: operations["delete-tag"];
+        options?: never;
+        head?: never;
+        /** Update an owner tag */
+        patch: operations["update-tag"];
         trace?: never;
     };
     "/api/v1/today": {
@@ -76,10 +353,143 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        Annotation: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/Annotation.json
+             */
+            readonly $schema?: string;
+            body: string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: int64 */
+            endOffset: number | null;
+            id: string;
+            orphaned: boolean;
+            quoteHash: string | null;
+            revisionId: string;
+            /** Format: int64 */
+            startOffset: number | null;
+            storyId: string;
+            type: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        AnnotationInput: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/AnnotationInput.json
+             */
+            readonly $schema?: string;
+            body: string;
+            /** Format: int64 */
+            endOffset?: number;
+            quoteHash?: string;
+            revisionId?: string;
+            /** Format: int64 */
+            startOffset?: number;
+            type: string;
+        };
+        AnnotationsOutputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/AnnotationsOutputBody.json
+             */
+            readonly $schema?: string;
+            annotations: components["schemas"]["Annotation"][] | null;
+        };
+        BulkCommand: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/BulkCommand.json
+             */
+            readonly $schema?: string;
+            action: string;
+            dismissedReason?: string;
+            /** Format: int64 */
+            expectedCount: number;
+            idempotencyKey: string;
+            items: components["schemas"]["BulkItem"][] | null;
+            /** Format: date-time */
+            snoozedUntil?: string;
+            tagId?: string;
+        };
+        BulkItem: {
+            storyId: string;
+            /** Format: int64 */
+            version: number;
+        };
+        BulkMutationResult: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/BulkMutationResult.json
+             */
+            readonly $schema?: string;
+            /** Format: int64 */
+            affectedCount: number;
+            bulkId: string;
+            mutations: components["schemas"]["MutationResult"][] | null;
+            /** Format: date-time */
+            undoDeadline: string;
+        };
+        BulkUndoBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/BulkUndoBody.json
+             */
+            readonly $schema?: string;
+            bulkId: string;
+        };
         ClaimEvidence: {
             claim: string;
             material: boolean;
             sources: components["schemas"]["Source"][] | null;
+        };
+        Collection: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/Collection.json
+             */
+            readonly $schema?: string;
+            items: components["schemas"]["StoryListItem"][] | null;
+            nextCursor: string | null;
+            /** Format: int64 */
+            total: number;
+        };
+        Command: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/Command.json
+             */
+            readonly $schema?: string;
+            action: string;
+            dismissedReason?: string;
+            idempotencyKey: string;
+            lastParagraphId?: string;
+            /** Format: double */
+            readingProgress?: number;
+            /** Format: date-time */
+            snoozedUntil?: string;
+            tagId?: string;
+            /** Format: int64 */
+            version: number;
+        };
+        DeleteOutputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/DeleteOutputBody.json
+             */
+            readonly $schema?: string;
+            deleted: boolean;
         };
         ErrorDetail: {
             /** @description Where the error occurred, e.g. 'body.items[3].tags' or 'path.thing-id' */
@@ -128,6 +538,31 @@ export interface components {
              */
             type: string;
         };
+        Feedback: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/Feedback.json
+             */
+            readonly $schema?: string;
+            /** Format: date-time */
+            createdAt: string;
+            id: string;
+            note: string | null;
+            storyId: string;
+            type: string;
+        };
+        FeedbackCommand: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/FeedbackCommand.json
+             */
+            readonly $schema?: string;
+            idempotencyKey: string;
+            note?: string;
+            type: string;
+        };
         HealthBody: {
             /**
              * Format: uri
@@ -139,6 +574,18 @@ export interface components {
             service: string;
             status: string;
             version: string;
+        };
+        LaterOrderCommand: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/LaterOrderCommand.json
+             */
+            readonly $schema?: string;
+            /** Format: int64 */
+            expectedCount: number;
+            idempotencyKey: string;
+            items: components["schemas"]["BulkItem"][] | null;
         };
         LiveEvent: {
             id: string;
@@ -157,6 +604,18 @@ export interface components {
             events: components["schemas"]["LiveEvent"][] | null;
             /** Format: date-time */
             generatedAt: string;
+        };
+        MutationResult: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/MutationResult.json
+             */
+            readonly $schema?: string;
+            mutationId: string;
+            state: components["schemas"]["StoryState"];
+            /** Format: date-time */
+            undoDeadline: string;
         };
         Source: {
             domain: string;
@@ -179,10 +638,13 @@ export interface components {
             id: string;
             /** Format: date-time */
             lastChangedAt: string;
+            normalizedContent: string;
+            primarySourceUrl: string;
             /** Format: int64 */
             readTimeMinutes: number;
             recommendedAction: string;
             related: components["schemas"]["StorySummary"][] | null;
+            revisionId: string;
             signal: string;
             /** Format: int64 */
             sourceCount: number;
@@ -193,6 +655,57 @@ export interface components {
             uncertainties: string[] | null;
             whyItMatters: string;
         };
+        StoryListItem: {
+            state: components["schemas"]["StoryState"];
+            story: components["schemas"]["StorySummary"];
+        };
+        StoryState: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/StoryState.json
+             */
+            readonly $schema?: string;
+            dismissedReason: string | null;
+            isRead: boolean;
+            lastParagraphId: string | null;
+            /** Format: int64 */
+            laterPosition: number | null;
+            location: string;
+            /** Format: date-time */
+            readAt: string | null;
+            /** Format: double */
+            readingProgress: number;
+            snoozedFromLocation: string | null;
+            /** Format: date-time */
+            snoozedUntil: string | null;
+            /** Format: date-time */
+            starredAt: string | null;
+            storyId: string;
+            tagIds: string[] | null;
+            /** Format: date-time */
+            updatedAt: string;
+            /** Format: int64 */
+            version: number;
+        };
+        StoryStates: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/StoryStates.json
+             */
+            readonly $schema?: string;
+            states: components["schemas"]["StoryState"][] | null;
+        };
+        StoryStatesBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/StoryStatesBody.json
+             */
+            readonly $schema?: string;
+            storyIds: string[] | null;
+        };
         StorySummary: {
             confidence: string;
             /** Format: date-time */
@@ -201,6 +714,7 @@ export interface components {
             id: string;
             /** Format: date-time */
             lastChangedAt: string;
+            primarySourceUrl: string;
             /** Format: int64 */
             readTimeMinutes: number;
             recommendedAction: string;
@@ -211,6 +725,40 @@ export interface components {
             status: string;
             summary: string;
             whyItMatters: string;
+        };
+        Tag: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/Tag.json
+             */
+            readonly $schema?: string;
+            colorToken: string;
+            /** Format: date-time */
+            createdAt: string;
+            id: string;
+            name: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        TagInput: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/TagInput.json
+             */
+            readonly $schema?: string;
+            colorToken: string;
+            name: string;
+        };
+        TagsOutputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/TagsOutputBody.json
+             */
+            readonly $schema?: string;
+            tags: components["schemas"]["Tag"][] | null;
         };
         TodaySnapshot: {
             /**
@@ -242,6 +790,24 @@ export interface components {
             /** Format: int64 */
             sourceCoverage: number;
         };
+        UndoBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/UndoBody.json
+             */
+            readonly $schema?: string;
+            mutationId: string;
+        };
+        UpdateAnnotationBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/UpdateAnnotationBody.json
+             */
+            readonly $schema?: string;
+            body: string;
+        };
     };
     responses: never;
     parameters: never;
@@ -251,6 +817,113 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    "delete-annotation": {
+        parameters: {
+            query?: never;
+            header?: {
+                Authorization?: string;
+                "X-Relantern-User-ID"?: string;
+            };
+            path: {
+                annotationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeleteOutputBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "update-annotation": {
+        parameters: {
+            query?: never;
+            header?: {
+                Authorization?: string;
+                "X-Relantern-User-ID"?: string;
+            };
+            path: {
+                annotationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateAnnotationBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Annotation"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-archive": {
+        parameters: {
+            query?: {
+                cursor?: string;
+                limit?: number;
+            };
+            header?: {
+                Authorization?: string;
+                "X-Relantern-User-ID"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Collection"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     "get-health": {
         parameters: {
             query?: never;
@@ -267,6 +940,112 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HealthBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-inbox": {
+        parameters: {
+            query?: {
+                cursor?: string;
+                limit?: number;
+            };
+            header?: {
+                Authorization?: string;
+                "X-Relantern-User-ID"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Collection"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-later": {
+        parameters: {
+            query?: {
+                cursor?: string;
+                limit?: number;
+            };
+            header?: {
+                Authorization?: string;
+                "X-Relantern-User-ID"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Collection"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "reorder-later": {
+        parameters: {
+            query?: never;
+            header?: {
+                Authorization?: string;
+                "X-Relantern-User-ID"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LaterOrderCommand"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BulkMutationResult"];
                 };
             };
             /** @description Error */
@@ -311,6 +1090,184 @@ export interface operations {
             };
         };
     };
+    "get-snoozed": {
+        parameters: {
+            query?: {
+                cursor?: string;
+                limit?: number;
+            };
+            header?: {
+                Authorization?: string;
+                "X-Relantern-User-ID"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Collection"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-starred": {
+        parameters: {
+            query?: {
+                cursor?: string;
+                limit?: number;
+            };
+            header?: {
+                Authorization?: string;
+                "X-Relantern-User-ID"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Collection"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "bulk-update-story-state": {
+        parameters: {
+            query?: never;
+            header?: {
+                Authorization?: string;
+                "X-Relantern-User-ID"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BulkCommand"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BulkMutationResult"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "undo-bulk-story-state": {
+        parameters: {
+            query?: never;
+            header?: {
+                Authorization?: string;
+                "X-Relantern-User-ID"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BulkUndoBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BulkMutationResult"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "query-story-states": {
+        parameters: {
+            query?: never;
+            header?: {
+                Authorization?: string;
+                "X-Relantern-User-ID"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StoryStatesBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StoryStates"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     "get-story": {
         parameters: {
             query?: never;
@@ -331,6 +1288,366 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["StoryDetail"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-story-annotations": {
+        parameters: {
+            query?: never;
+            header?: {
+                Authorization?: string;
+                "X-Relantern-User-ID"?: string;
+            };
+            path: {
+                storyId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnnotationsOutputBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "create-story-annotation": {
+        parameters: {
+            query?: never;
+            header?: {
+                Authorization?: string;
+                "X-Relantern-User-ID"?: string;
+            };
+            path: {
+                storyId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AnnotationInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Annotation"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "create-story-feedback": {
+        parameters: {
+            query?: never;
+            header?: {
+                Authorization?: string;
+                "X-Relantern-User-ID"?: string;
+            };
+            path: {
+                storyId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FeedbackCommand"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Feedback"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-story-state": {
+        parameters: {
+            query?: never;
+            header?: {
+                Authorization?: string;
+                "X-Relantern-User-ID"?: string;
+            };
+            path: {
+                storyId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StoryState"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "update-story-state": {
+        parameters: {
+            query?: never;
+            header?: {
+                Authorization?: string;
+                "X-Relantern-User-ID"?: string;
+            };
+            path: {
+                storyId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Command"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MutationResult"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "undo-story-state": {
+        parameters: {
+            query?: never;
+            header?: {
+                Authorization?: string;
+                "X-Relantern-User-ID"?: string;
+            };
+            path: {
+                storyId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UndoBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MutationResult"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-tags": {
+        parameters: {
+            query?: never;
+            header?: {
+                Authorization?: string;
+                "X-Relantern-User-ID"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TagsOutputBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "create-tag": {
+        parameters: {
+            query?: never;
+            header?: {
+                Authorization?: string;
+                "X-Relantern-User-ID"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TagInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Tag"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "delete-tag": {
+        parameters: {
+            query?: never;
+            header?: {
+                Authorization?: string;
+                "X-Relantern-User-ID"?: string;
+            };
+            path: {
+                tagId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeleteOutputBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "update-tag": {
+        parameters: {
+            query?: never;
+            header?: {
+                Authorization?: string;
+                "X-Relantern-User-ID"?: string;
+            };
+            path: {
+                tagId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TagInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Tag"];
                 };
             };
             /** @description Error */

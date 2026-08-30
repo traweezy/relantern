@@ -19,6 +19,7 @@ import (
 	extractionstore "github.com/traweezy/relantern/internal/extraction/pgstore"
 	"github.com/traweezy/relantern/internal/jobqueue"
 	"github.com/traweezy/relantern/internal/openaiwebhook"
+	readingstatestore "github.com/traweezy/relantern/internal/readingstate/pgstore"
 	"github.com/traweezy/relantern/internal/reembedding"
 	"github.com/traweezy/relantern/internal/research"
 	researchstore "github.com/traweezy/relantern/internal/research/pgstore"
@@ -227,7 +228,14 @@ func run(arguments []string, logger *slog.Logger) error {
 	)
 	processor := worker.NewProcessor(pool, workerConfig.DeliveryURL, workerConfig.RequestTimeout)
 	health := worker.NewSchedulerHealth(pool, clock.System{}, workerConfig.ReconcileInterval)
-	riverOptions := make([]worker.RiverOption, 0, 1)
+	readingStateStore, err := readingstatestore.New(
+		pool,
+		readingstatestore.WithClock(common.Clock.Now),
+	)
+	if err != nil {
+		return fmt.Errorf("create reading-state worker store: %w", err)
+	}
+	riverOptions := []worker.RiverOption{worker.WithSnoozeReturner(readingStateStore)}
 	if researcher != nil {
 		riverOptions = append(riverOptions, worker.WithResearchWorkers(
 			researcher,

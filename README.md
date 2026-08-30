@@ -33,6 +33,11 @@ private Today and Live read models, an evidence/provenance Story reader, a
 responsive owner workspace, and an anonymous fixture-only demonstration with
 local resettable triage. Strict nonce CSP keeps every document request-rendered;
 the demo remains independent of auth, the database, APIs, SSE, and providers.
+PR 13 adds independent Inbox/Later/Archive state, Starred and Snoozed views,
+optimistic command triage, atomic bulk actions and Later ordering, server-backed
+ten-second Undo, owner tags, revision-bound notes and verified highlights, and
+state-aware Today filtering. The default local profile remains disconnected
+from live providers and delivery APIs.
 
 ## Safe local workflow
 
@@ -108,7 +113,12 @@ For owner lockout, credential rotation, or session revocation, use
 [the owner authentication runbook](docs/runbooks/owner-authentication.md).
 The private intelligence and anonymous fixture dependency boundaries are
 recorded in
-[ADR-018](docs/adr/018-private-intelligence-and-demo-boundaries.md).
+[ADR-020](docs/adr/020-private-intelligence-and-demo-boundaries.md). Reading
+semantics and recovery are recorded in
+[ADR-018](docs/adr/018-independent-reading-state.md),
+[ADR-019](docs/adr/019-command-driven-triage-and-undo.md), and the
+[bulk mutation](docs/runbooks/bulk-state-mutation-recovery.md) and
+[snooze recovery](docs/runbooks/snoozed-item-not-returned.md) runbooks.
 
 `make reset` is destructive and requires confirmation. It targets only the
 validated Relantern Compose project and its volumes.

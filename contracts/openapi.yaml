@@ -1,5 +1,202 @@
 components:
   schemas:
+    Annotation:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/Annotation.json
+          format: uri
+          readOnly: true
+          type: string
+        body:
+          type: string
+        createdAt:
+          format: date-time
+          type: string
+        endOffset:
+          format: int64
+          type:
+            - integer
+            - "null"
+        id:
+          type: string
+        orphaned:
+          type: boolean
+        quoteHash:
+          type:
+            - string
+            - "null"
+        revisionId:
+          type: string
+        startOffset:
+          format: int64
+          type:
+            - integer
+            - "null"
+        storyId:
+          type: string
+        type:
+          type: string
+        updatedAt:
+          format: date-time
+          type: string
+      required:
+        - body
+        - createdAt
+        - endOffset
+        - id
+        - orphaned
+        - quoteHash
+        - revisionId
+        - startOffset
+        - storyId
+        - type
+        - updatedAt
+      type: object
+    AnnotationInput:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/AnnotationInput.json
+          format: uri
+          readOnly: true
+          type: string
+        body:
+          type: string
+        endOffset:
+          format: int64
+          type: integer
+        quoteHash:
+          type: string
+        revisionId:
+          type: string
+        startOffset:
+          format: int64
+          type: integer
+        type:
+          type: string
+      required:
+        - body
+        - type
+      type: object
+    AnnotationsOutputBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/AnnotationsOutputBody.json
+          format: uri
+          readOnly: true
+          type: string
+        annotations:
+          items:
+            $ref: "#/components/schemas/Annotation"
+          type:
+            - array
+            - "null"
+      required:
+        - annotations
+      type: object
+    BulkCommand:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/BulkCommand.json
+          format: uri
+          readOnly: true
+          type: string
+        action:
+          type: string
+        dismissedReason:
+          type: string
+        expectedCount:
+          format: int64
+          type: integer
+        idempotencyKey:
+          type: string
+        items:
+          items:
+            $ref: "#/components/schemas/BulkItem"
+          type:
+            - array
+            - "null"
+        snoozedUntil:
+          format: date-time
+          type: string
+        tagId:
+          type: string
+      required:
+        - action
+        - expectedCount
+        - idempotencyKey
+        - items
+      type: object
+    BulkItem:
+      additionalProperties: false
+      properties:
+        storyId:
+          type: string
+        version:
+          format: int64
+          type: integer
+      required:
+        - storyId
+        - version
+      type: object
+    BulkMutationResult:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/BulkMutationResult.json
+          format: uri
+          readOnly: true
+          type: string
+        affectedCount:
+          format: int64
+          type: integer
+        bulkId:
+          type: string
+        mutations:
+          items:
+            $ref: "#/components/schemas/MutationResult"
+          type:
+            - array
+            - "null"
+        undoDeadline:
+          format: date-time
+          type: string
+      required:
+        - affectedCount
+        - bulkId
+        - mutations
+        - undoDeadline
+      type: object
+    BulkUndoBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/BulkUndoBody.json
+          format: uri
+          readOnly: true
+          type: string
+        bulkId:
+          maxLength: 36
+          minLength: 36
+          type: string
+      required:
+        - bulkId
+      type: object
     ClaimEvidence:
       additionalProperties: false
       properties:
@@ -17,6 +214,83 @@ components:
         - claim
         - material
         - sources
+      type: object
+    Collection:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/Collection.json
+          format: uri
+          readOnly: true
+          type: string
+        items:
+          items:
+            $ref: "#/components/schemas/StoryListItem"
+          type:
+            - array
+            - "null"
+        nextCursor:
+          type:
+            - string
+            - "null"
+        total:
+          format: int64
+          type: integer
+      required:
+        - items
+        - nextCursor
+        - total
+      type: object
+    Command:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/Command.json
+          format: uri
+          readOnly: true
+          type: string
+        action:
+          type: string
+        dismissedReason:
+          type: string
+        idempotencyKey:
+          type: string
+        lastParagraphId:
+          type: string
+        readingProgress:
+          format: double
+          type: number
+        snoozedUntil:
+          format: date-time
+          type: string
+        tagId:
+          type: string
+        version:
+          format: int64
+          type: integer
+      required:
+        - action
+        - version
+        - idempotencyKey
+      type: object
+    DeleteOutputBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/DeleteOutputBody.json
+          format: uri
+          readOnly: true
+          type: string
+        deleted:
+          type: boolean
+      required:
+        - deleted
       type: object
     ErrorDetail:
       additionalProperties: false
@@ -77,6 +351,56 @@ components:
           format: uri
           type: string
       type: object
+    Feedback:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/Feedback.json
+          format: uri
+          readOnly: true
+          type: string
+        createdAt:
+          format: date-time
+          type: string
+        id:
+          type: string
+        note:
+          type:
+            - string
+            - "null"
+        storyId:
+          type: string
+        type:
+          type: string
+      required:
+        - createdAt
+        - id
+        - note
+        - storyId
+        - type
+      type: object
+    FeedbackCommand:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/FeedbackCommand.json
+          format: uri
+          readOnly: true
+          type: string
+        idempotencyKey:
+          type: string
+        note:
+          type: string
+        type:
+          type: string
+      required:
+        - idempotencyKey
+        - type
+      type: object
     HealthBody:
       additionalProperties: false
       properties:
@@ -100,6 +424,32 @@ components:
         - status
         - version
         - gitSha
+      type: object
+    LaterOrderCommand:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/LaterOrderCommand.json
+          format: uri
+          readOnly: true
+          type: string
+        expectedCount:
+          format: int64
+          type: integer
+        idempotencyKey:
+          type: string
+        items:
+          items:
+            $ref: "#/components/schemas/BulkItem"
+          type:
+            - array
+            - "null"
+      required:
+        - expectedCount
+        - idempotencyKey
+        - items
       type: object
     LiveEvent:
       additionalProperties: false
@@ -141,6 +491,28 @@ components:
       required:
         - events
         - generatedAt
+      type: object
+    MutationResult:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/MutationResult.json
+          format: uri
+          readOnly: true
+          type: string
+        mutationId:
+          type: string
+        state:
+          $ref: "#/components/schemas/StoryState"
+        undoDeadline:
+          format: date-time
+          type: string
+      required:
+        - mutationId
+        - state
+        - undoDeadline
       type: object
     Source:
       additionalProperties: false
@@ -187,6 +559,10 @@ components:
         lastChangedAt:
           format: date-time
           type: string
+        normalizedContent:
+          type: string
+        primarySourceUrl:
+          type: string
         readTimeMinutes:
           format: int64
           type: integer
@@ -198,6 +574,8 @@ components:
           type:
             - array
             - "null"
+        revisionId:
+          type: string
         signal:
           type: string
         sourceCount:
@@ -225,7 +603,9 @@ components:
           type: string
       required:
         - assertions
+        - normalizedContent
         - related
+        - revisionId
         - sources
         - uncertainties
         - confidence
@@ -233,6 +613,7 @@ components:
         - headline
         - id
         - lastChangedAt
+        - primarySourceUrl
         - readTimeMinutes
         - recommendedAction
         - signal
@@ -241,6 +622,136 @@ components:
         - status
         - summary
         - whyItMatters
+      type: object
+    StoryListItem:
+      additionalProperties: false
+      properties:
+        state:
+          $ref: "#/components/schemas/StoryState"
+        story:
+          $ref: "#/components/schemas/StorySummary"
+      required:
+        - state
+        - story
+      type: object
+    StoryState:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/StoryState.json
+          format: uri
+          readOnly: true
+          type: string
+        dismissedReason:
+          type:
+            - string
+            - "null"
+        isRead:
+          type: boolean
+        lastParagraphId:
+          type:
+            - string
+            - "null"
+        laterPosition:
+          format: int64
+          type:
+            - integer
+            - "null"
+        location:
+          type: string
+        readAt:
+          format: date-time
+          type:
+            - string
+            - "null"
+        readingProgress:
+          format: double
+          type: number
+        snoozedFromLocation:
+          type:
+            - string
+            - "null"
+        snoozedUntil:
+          format: date-time
+          type:
+            - string
+            - "null"
+        starredAt:
+          format: date-time
+          type:
+            - string
+            - "null"
+        storyId:
+          type: string
+        tagIds:
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        updatedAt:
+          format: date-time
+          type: string
+        version:
+          format: int64
+          type: integer
+      required:
+        - dismissedReason
+        - isRead
+        - lastParagraphId
+        - laterPosition
+        - location
+        - readAt
+        - readingProgress
+        - snoozedFromLocation
+        - snoozedUntil
+        - starredAt
+        - storyId
+        - tagIds
+        - updatedAt
+        - version
+      type: object
+    StoryStates:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/StoryStates.json
+          format: uri
+          readOnly: true
+          type: string
+        states:
+          items:
+            $ref: "#/components/schemas/StoryState"
+          type:
+            - array
+            - "null"
+      required:
+        - states
+      type: object
+    StoryStatesBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/StoryStatesBody.json
+          format: uri
+          readOnly: true
+          type: string
+        storyIds:
+          items:
+            type: string
+          maxItems: 100
+          minItems: 1
+          type:
+            - array
+            - "null"
+      required:
+        - storyIds
       type: object
     StorySummary:
       additionalProperties: false
@@ -256,6 +767,8 @@ components:
           type: string
         lastChangedAt:
           format: date-time
+          type: string
+        primarySourceUrl:
           type: string
         readTimeMinutes:
           format: int64
@@ -281,6 +794,7 @@ components:
         - headline
         - id
         - lastChangedAt
+        - primarySourceUrl
         - readTimeMinutes
         - recommendedAction
         - signal
@@ -289,6 +803,72 @@ components:
         - status
         - summary
         - whyItMatters
+      type: object
+    Tag:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/Tag.json
+          format: uri
+          readOnly: true
+          type: string
+        colorToken:
+          type: string
+        createdAt:
+          format: date-time
+          type: string
+        id:
+          type: string
+        name:
+          type: string
+        updatedAt:
+          format: date-time
+          type: string
+      required:
+        - colorToken
+        - createdAt
+        - id
+        - name
+        - updatedAt
+      type: object
+    TagInput:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/TagInput.json
+          format: uri
+          readOnly: true
+          type: string
+        colorToken:
+          type: string
+        name:
+          type: string
+      required:
+        - colorToken
+        - name
+      type: object
+    TagsOutputBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/TagsOutputBody.json
+          format: uri
+          readOnly: true
+          type: string
+        tags:
+          items:
+            $ref: "#/components/schemas/Tag"
+          type:
+            - array
+            - "null"
+      required:
+        - tags
       type: object
     TodaySnapshot:
       additionalProperties: false
@@ -357,11 +937,169 @@ components:
         - reviewRequired
         - sourceCoverage
       type: object
+    UndoBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/UndoBody.json
+          format: uri
+          readOnly: true
+          type: string
+        mutationId:
+          maxLength: 36
+          minLength: 36
+          type: string
+      required:
+        - mutationId
+      type: object
+    UpdateAnnotationBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/UpdateAnnotationBody.json
+          format: uri
+          readOnly: true
+          type: string
+        body:
+          maxLength: 20000
+          minLength: 1
+          type: string
+      required:
+        - body
+      type: object
 info:
   title: Relantern API
   version: 0.0.0
 openapi: 3.1.0
 paths:
+  /api/v1/annotations/{annotationId}:
+    delete:
+      operationId: delete-annotation
+      parameters:
+        - in: path
+          name: annotationId
+          required: true
+          schema:
+            maxLength: 36
+            minLength: 36
+            type: string
+        - in: header
+          name: Authorization
+          schema:
+            type: string
+        - in: header
+          name: X-Relantern-User-ID
+          schema:
+            maxLength: 36
+            minLength: 36
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteOutputBody"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Delete an owner annotation
+      tags:
+        - reading-state
+    patch:
+      operationId: update-annotation
+      parameters:
+        - in: path
+          name: annotationId
+          required: true
+          schema:
+            maxLength: 36
+            minLength: 36
+            type: string
+        - in: header
+          name: Authorization
+          schema:
+            type: string
+        - in: header
+          name: X-Relantern-User-ID
+          schema:
+            maxLength: 36
+            minLength: 36
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateAnnotationBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Annotation"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Update an owner annotation body
+      tags:
+        - reading-state
+  /api/v1/archive:
+    get:
+      operationId: get-archive
+      parameters:
+        - in: header
+          name: Authorization
+          schema:
+            type: string
+        - explode: false
+          in: query
+          name: cursor
+          schema:
+            maxLength: 512
+            type: string
+        - explode: false
+          in: query
+          name: limit
+          schema:
+            default: 50
+            format: int64
+            maximum: 100
+            minimum: 1
+            type: integer
+        - in: header
+          name: X-Relantern-User-ID
+          schema:
+            maxLength: 36
+            minLength: 36
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Collection"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Get the owner archive reading collection
+      tags:
+        - reading-state
   /api/v1/healthz:
     get:
       operationId: get-health
@@ -381,6 +1119,132 @@ paths:
       summary: Get API process health
       tags:
         - operations
+  /api/v1/inbox:
+    get:
+      operationId: get-inbox
+      parameters:
+        - in: header
+          name: Authorization
+          schema:
+            type: string
+        - explode: false
+          in: query
+          name: cursor
+          schema:
+            maxLength: 512
+            type: string
+        - explode: false
+          in: query
+          name: limit
+          schema:
+            default: 50
+            format: int64
+            maximum: 100
+            minimum: 1
+            type: integer
+        - in: header
+          name: X-Relantern-User-ID
+          schema:
+            maxLength: 36
+            minLength: 36
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Collection"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Get the owner inbox reading collection
+      tags:
+        - reading-state
+  /api/v1/later:
+    get:
+      operationId: get-later
+      parameters:
+        - in: header
+          name: Authorization
+          schema:
+            type: string
+        - explode: false
+          in: query
+          name: cursor
+          schema:
+            maxLength: 512
+            type: string
+        - explode: false
+          in: query
+          name: limit
+          schema:
+            default: 50
+            format: int64
+            maximum: 100
+            minimum: 1
+            type: integer
+        - in: header
+          name: X-Relantern-User-ID
+          schema:
+            maxLength: 36
+            minLength: 36
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Collection"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Get the owner later reading collection
+      tags:
+        - reading-state
+  /api/v1/later/order:
+    put:
+      operationId: reorder-later
+      parameters:
+        - in: header
+          name: Authorization
+          schema:
+            type: string
+        - in: header
+          name: X-Relantern-User-ID
+          schema:
+            maxLength: 36
+            minLength: 36
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LaterOrderCommand"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BulkMutationResult"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Persist an optimistic owner-confirmed Later ordering
+      tags:
+        - reading-state
   /api/v1/live:
     get:
       operationId: get-live-intelligence
@@ -405,6 +1269,204 @@ paths:
       summary: Get the current owner intelligence stream snapshot
       tags:
         - intelligence
+  /api/v1/snoozed:
+    get:
+      operationId: get-snoozed
+      parameters:
+        - in: header
+          name: Authorization
+          schema:
+            type: string
+        - explode: false
+          in: query
+          name: cursor
+          schema:
+            maxLength: 512
+            type: string
+        - explode: false
+          in: query
+          name: limit
+          schema:
+            default: 50
+            format: int64
+            maximum: 100
+            minimum: 1
+            type: integer
+        - in: header
+          name: X-Relantern-User-ID
+          schema:
+            maxLength: 36
+            minLength: 36
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Collection"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Get the owner snoozed reading collection
+      tags:
+        - reading-state
+  /api/v1/starred:
+    get:
+      operationId: get-starred
+      parameters:
+        - in: header
+          name: Authorization
+          schema:
+            type: string
+        - explode: false
+          in: query
+          name: cursor
+          schema:
+            maxLength: 512
+            type: string
+        - explode: false
+          in: query
+          name: limit
+          schema:
+            default: 50
+            format: int64
+            maximum: 100
+            minimum: 1
+            type: integer
+        - in: header
+          name: X-Relantern-User-ID
+          schema:
+            maxLength: 36
+            minLength: 36
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Collection"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Get the owner starred reading collection
+      tags:
+        - reading-state
+  /api/v1/stories/bulk-state:
+    post:
+      operationId: bulk-update-story-state
+      parameters:
+        - in: header
+          name: Authorization
+          schema:
+            type: string
+        - in: header
+          name: X-Relantern-User-ID
+          schema:
+            maxLength: 36
+            minLength: 36
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BulkCommand"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BulkMutationResult"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Apply an atomic state command to a confirmed story selection
+      tags:
+        - reading-state
+  /api/v1/stories/bulk-state/undo:
+    post:
+      operationId: undo-bulk-story-state
+      parameters:
+        - in: header
+          name: Authorization
+          schema:
+            type: string
+        - in: header
+          name: X-Relantern-User-ID
+          schema:
+            maxLength: 36
+            minLength: 36
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BulkUndoBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BulkMutationResult"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Atomically undo a bulk reading-state command within ten seconds
+      tags:
+        - reading-state
+  /api/v1/stories/state-query:
+    post:
+      operationId: query-story-states
+      parameters:
+        - in: header
+          name: Authorization
+          schema:
+            type: string
+        - in: header
+          name: X-Relantern-User-ID
+          schema:
+            maxLength: 36
+            minLength: 36
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StoryStatesBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StoryStates"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Read a bounded ordered set of owner story states
+      tags:
+        - reading-state
   /api/v1/stories/{storyId}:
     get:
       operationId: get-story
@@ -436,6 +1498,394 @@ paths:
       summary: Get an evidence-backed owner intelligence story
       tags:
         - intelligence
+  /api/v1/stories/{storyId}/annotations:
+    get:
+      operationId: get-story-annotations
+      parameters:
+        - in: header
+          name: Authorization
+          schema:
+            type: string
+        - in: path
+          name: storyId
+          required: true
+          schema:
+            maxLength: 36
+            minLength: 36
+            type: string
+        - in: header
+          name: X-Relantern-User-ID
+          schema:
+            maxLength: 36
+            minLength: 36
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AnnotationsOutputBody"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Get revision-bound story annotations
+      tags:
+        - reading-state
+    post:
+      operationId: create-story-annotation
+      parameters:
+        - in: header
+          name: Authorization
+          schema:
+            type: string
+        - in: path
+          name: storyId
+          required: true
+          schema:
+            maxLength: 36
+            minLength: 36
+            type: string
+        - in: header
+          name: X-Relantern-User-ID
+          schema:
+            maxLength: 36
+            minLength: 36
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AnnotationInput"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Annotation"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Create a revision-bound story annotation
+      tags:
+        - reading-state
+  /api/v1/stories/{storyId}/feedback:
+    post:
+      operationId: create-story-feedback
+      parameters:
+        - in: header
+          name: Authorization
+          schema:
+            type: string
+        - in: path
+          name: storyId
+          required: true
+          schema:
+            maxLength: 36
+            minLength: 36
+            type: string
+        - in: header
+          name: X-Relantern-User-ID
+          schema:
+            maxLength: 36
+            minLength: 36
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FeedbackCommand"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Feedback"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Record explicit owner relevance feedback independently of reading state
+      tags:
+        - reading-state
+  /api/v1/stories/{storyId}/state:
+    get:
+      operationId: get-story-state
+      parameters:
+        - in: header
+          name: Authorization
+          schema:
+            type: string
+        - in: path
+          name: storyId
+          required: true
+          schema:
+            maxLength: 36
+            minLength: 36
+            type: string
+        - in: header
+          name: X-Relantern-User-ID
+          schema:
+            maxLength: 36
+            minLength: 36
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StoryState"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Get the current owner reading state for one story
+      tags:
+        - reading-state
+    patch:
+      operationId: update-story-state
+      parameters:
+        - in: header
+          name: Authorization
+          schema:
+            type: string
+        - in: path
+          name: storyId
+          required: true
+          schema:
+            maxLength: 36
+            minLength: 36
+            type: string
+        - in: header
+          name: X-Relantern-User-ID
+          schema:
+            maxLength: 36
+            minLength: 36
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Command"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MutationResult"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Apply one optimistic owner reading-state command
+      tags:
+        - reading-state
+  /api/v1/stories/{storyId}/undo:
+    post:
+      operationId: undo-story-state
+      parameters:
+        - in: header
+          name: Authorization
+          schema:
+            type: string
+        - in: path
+          name: storyId
+          required: true
+          schema:
+            maxLength: 36
+            minLength: 36
+            type: string
+        - in: header
+          name: X-Relantern-User-ID
+          schema:
+            maxLength: 36
+            minLength: 36
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UndoBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MutationResult"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Undo the latest non-conflicting story mutation within ten seconds
+      tags:
+        - reading-state
+  /api/v1/tags:
+    get:
+      operationId: get-tags
+      parameters:
+        - in: header
+          name: Authorization
+          schema:
+            type: string
+        - in: header
+          name: X-Relantern-User-ID
+          schema:
+            maxLength: 36
+            minLength: 36
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TagsOutputBody"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Get owner tags
+      tags:
+        - reading-state
+    post:
+      operationId: create-tag
+      parameters:
+        - in: header
+          name: Authorization
+          schema:
+            type: string
+        - in: header
+          name: X-Relantern-User-ID
+          schema:
+            maxLength: 36
+            minLength: 36
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TagInput"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tag"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Create an owner tag
+      tags:
+        - reading-state
+  /api/v1/tags/{tagId}:
+    delete:
+      operationId: delete-tag
+      parameters:
+        - in: header
+          name: Authorization
+          schema:
+            type: string
+        - in: path
+          name: tagId
+          required: true
+          schema:
+            maxLength: 36
+            minLength: 36
+            type: string
+        - in: header
+          name: X-Relantern-User-ID
+          schema:
+            maxLength: 36
+            minLength: 36
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteOutputBody"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Delete an owner tag
+      tags:
+        - reading-state
+    patch:
+      operationId: update-tag
+      parameters:
+        - in: header
+          name: Authorization
+          schema:
+            type: string
+        - in: path
+          name: tagId
+          required: true
+          schema:
+            maxLength: 36
+            minLength: 36
+            type: string
+        - in: header
+          name: X-Relantern-User-ID
+          schema:
+            maxLength: 36
+            minLength: 36
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TagInput"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tag"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Update an owner tag
+      tags:
+        - reading-state
   /api/v1/today:
     get:
       operationId: get-today

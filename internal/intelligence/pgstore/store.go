@@ -17,58 +17,23 @@ import (
 
 const storySummarySelect = `
 	select
-		cluster.id::text,
-		brief.headline,
-		brief.summary,
-		brief.why_it_matters,
-		brief.recommended_action,
-		brief.confidence,
-		cluster.first_seen_at,
-		cluster.last_changed_at,
-		case when item.status = 'updated' then 'updated' else 'new' end,
-		case
-			when exists (
-				select 1 from app.claims claim
-				join app.cluster_members member on member.item_id = claim.item_id
-				where member.cluster_id = cluster.id and claim.claim_type = 'security'
-			) then 'security'
-			when exists (
-				select 1 from app.claims claim
-				join app.cluster_members member on member.item_id = claim.item_id
-				where member.cluster_id = cluster.id and claim.claim_type = 'breaking_change'
-			) then 'breaking-change'
-			when exists (
-				select 1 from app.claims claim
-				join app.cluster_members member on member.item_id = claim.item_id
-				where member.cluster_id = cluster.id and claim.claim_type = 'deprecation'
-			) then 'deprecation'
-			when item.event_type = 'release' then 'release'
-			else 'general'
-		end,
-		coalesce((
-			select source.source_tier
-			from app.item_sources source
-			where source.item_id = item.id
-			order by source.sort_order, source.source_tier
-			limit 1
-		), 'T3'),
-		(
-			select count(*) from (
-				select source_url from app.research_sources source
-				where source.ai_run_id = brief.ai_run_id
-				union
-				select canonical_url from app.item_sources source
-				where source.item_id = item.id
-			) story_sources
-		)::integer,
-		greatest(1, ceil((length(brief.summary) + length(brief.why_it_matters)
-			+ length(brief.recommended_action))::numeric / 1000))::integer,
-		brief.uncertainties
-	from app.research_briefs brief
-	join app.ai_runs run on run.id = brief.ai_run_id
-	join app.story_clusters cluster on cluster.id = brief.cluster_id
-	join app.items item on item.id = cluster.primary_item_id
-	where run.state in ('completed', 'needs_review')`
+		story_id::text,
+		headline,
+		summary,
+		why_it_matters,
+		recommended_action,
+		confidence,
+		first_seen_at,
+		last_changed_at,
+		status,
+		signal,
+		source_tier,
+		source_count,
+		read_time_minutes,
+		primary_source_url,
+		uncertainties
+	from app.v_story_summaries
+	where true`
 
 type Store struct {
 	pool *pgxpool.Pool
@@ -172,8 +137,8 @@ func (store *Store) Story(ctx context.Context, storyID string) (intelligence.Sto
 		return intelligence.StoryDetail{}, intelligence.ErrStoryNotFound
 	}
 	row := store.pool.QueryRow(ctx, storySummarySelect+`
-		and cluster.id = $1::uuid
-		order by brief.created_at desc
+		and story_id = $1::uuid
+		order by brief_created_at desc
 		limit 1`, storyID)
 	story, uncertainties, err := scanStory(row)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -183,6 +148,10 @@ func (store *Store) Story(ctx context.Context, storyID string) (intelligence.Sto
 		return intelligence.StoryDetail{}, fmt.Errorf("select intelligence story: %w", err)
 	}
 	detail := intelligence.StoryDetail{StorySummary: story, Uncertainties: uncertainties}
+	detail.RevisionID, detail.NormalizedContent, err = store.storyReaderContent(ctx, storyID)
+	if err != nil {
+		return intelligence.StoryDetail{}, err
+	}
 	detail.Sources, err = store.storySources(ctx, storyID)
 	if err != nil {
 		return intelligence.StoryDetail{}, err
@@ -198,6 +167,23 @@ func (store *Store) Story(ctx context.Context, storyID string) (intelligence.Sto
 	return detail, nil
 }
 
+func (store *Store) storyReaderContent(ctx context.Context, storyID string) (string, string, error) {
+	var revisionID string
+	var content string
+	err := store.pool.QueryRow(ctx, `
+		select document.revision_id::text, document.normalized_content
+		from app.story_clusters cluster
+		join app.search_documents document on document.item_id = cluster.primary_item_id
+		where cluster.id = $1::uuid`, storyID).Scan(&revisionID, &content)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", "", intelligence.ErrStoryNotFound
+	}
+	if err != nil {
+		return "", "", fmt.Errorf("select story reader content: %w", err)
+	}
+	return revisionID, content, nil
+}
+
 type rowScanner interface {
 	Scan(...any) error
 }
@@ -209,7 +195,8 @@ func scanStory(row rowScanner) (intelligence.StorySummary, []string, error) {
 		&story.ID, &story.Headline, &story.Summary, &story.WhyItMatters,
 		&story.RecommendedAction, &story.Confidence, &story.FirstSeenAt,
 		&story.LastChangedAt, &story.Status, &story.Signal, &story.SourceTier,
-		&story.SourceCount, &story.ReadTimeMinutes, &uncertaintiesJSON,
+		&story.SourceCount, &story.ReadTimeMinutes, &story.PrimarySourceURL,
+		&uncertaintiesJSON,
 	)
 	if err != nil {
 		return intelligence.StorySummary{}, nil, err
@@ -231,13 +218,8 @@ func (store *Store) listStories(
 	limit int,
 ) ([]intelligence.StorySummary, error) {
 	rows, err := store.pool.Query(ctx, storySummarySelect+`
-		and cluster.last_changed_at >= $1
-		and not exists (
-			select 1 from app.research_briefs newer
-			where newer.cluster_id = brief.cluster_id
-				and (newer.created_at, newer.id) > (brief.created_at, brief.id)
-		)
-		order by cluster.last_changed_at desc, cluster.id desc
+		and last_changed_at >= $1
+		order by last_changed_at desc, story_id desc
 		limit $2`, changedAfter.UTC(), limit)
 	if err != nil {
 		return nil, fmt.Errorf("list intelligence stories: %w", err)
@@ -356,13 +338,8 @@ func (store *Store) relatedStories(
 	limit int,
 ) ([]intelligence.StorySummary, error) {
 	rows, err := store.pool.Query(ctx, storySummarySelect+`
-		and cluster.id <> $1::uuid
-		and not exists (
-			select 1 from app.research_briefs newer
-			where newer.cluster_id = brief.cluster_id
-				and (newer.created_at, newer.id) > (brief.created_at, brief.id)
-		)
-		order by cluster.last_changed_at desc, cluster.id desc
+		and story_id <> $1::uuid
+		order by last_changed_at desc, story_id desc
 		limit $2`, storyID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("select related intelligence stories: %w", err)

@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
 import { EmptyState } from "@/features/intelligence/empty-state";
-import { StoryCard } from "@/features/intelligence/story-card";
+import { TriageCollection } from "@/features/reading-state/triage-collection";
 import { requireOwnerSession } from "@/server/auth/session";
 import { getTodaySnapshot } from "@/server/intelligence/client";
+import { getStoryStates, getTags } from "@/server/reading-state/client";
 
 export const metadata: Metadata = {
   title: "Today | Relantern",
@@ -48,6 +49,29 @@ const TodayPage = async () => {
     timeStyle: "short",
     timeZone: owner.timezone,
   }).format(new Date(snapshot.generatedAt));
+  const [states, tags] =
+    snapshot.stories.length === 0
+      ? ([[], []] as const)
+      : await Promise.all([
+          getStoryStates(
+            owner.userID,
+            snapshot.stories.map((story) => story.id),
+          ),
+          getTags(owner.userID),
+        ]);
+  const stateByStoryID = new Map(states.map((state) => [state.storyId, state] as const));
+  const now = Date.now();
+  const activeStories = snapshot.stories.flatMap((story) => {
+    const state = stateByStoryID.get(story.id);
+    if (
+      state === undefined ||
+      state.location === "archive" ||
+      (state.snoozedUntil !== null && Date.parse(state.snoozedUntil) > now)
+    ) {
+      return [];
+    }
+    return [{ state, story }];
+  });
 
   return (
     <>
@@ -56,7 +80,7 @@ const TodayPage = async () => {
           <p className="eyebrow">Today · Private brief</p>
           <h1>Signal for the work ahead.</h1>
           <p>
-            {snapshot.stories.length} evidence-backed stories across the last 24 hours, ordered for
+            {activeStories.length} evidence-backed stories across the last 24 hours, ordered for
             action rather than attention.
           </p>
         </div>
@@ -112,23 +136,23 @@ const TodayPage = async () => {
             <span>Delivery {snapshot.deliveryState}</span>
           </div>
         </div>
-        {snapshot.stories.length === 0 ? (
+        {activeStories.length === 0 ? (
           <EmptyState
             detail="Continuous ingestion is active. New material stories will appear after evidence and provenance checks pass."
             eyebrow="Coverage complete"
             title="No material changes in this window"
           />
         ) : (
-          <div className="story-list">
-            {snapshot.stories.map((story) => (
-              <StoryCard
-                href={`/story/${story.id}`}
-                key={story.id}
-                story={story}
-                timezone={owner.timezone}
-              />
-            ))}
-          </div>
+          <TriageCollection
+            initialCollection={{
+              items: activeStories,
+              nextCursor: null,
+              total: activeStories.length,
+            }}
+            kind="today"
+            tags={tags}
+            timezone={owner.timezone}
+          />
         )}
       </section>
     </>

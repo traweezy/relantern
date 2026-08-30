@@ -147,6 +147,33 @@ type reconcileOpenAIBackgroundWorker struct {
 	store  *openaiwebhook.Store
 }
 
+type snoozeReturner interface {
+	ReturnDueSnoozes(context.Context, int) (int, error)
+}
+
+type returnSnoozedItemsWorker struct {
+	river.WorkerDefaults[jobqueue.ReturnSnoozedItemsArgs]
+	logger   *slog.Logger
+	returner snoozeReturner
+}
+
+func (worker *returnSnoozedItemsWorker) Work(
+	ctx context.Context,
+	job *river.Job[jobqueue.ReturnSnoozedItemsArgs],
+) error {
+	count, err := worker.returner.ReturnDueSnoozes(ctx, 200)
+	if err != nil {
+		return err
+	}
+	worker.logger.InfoContext(
+		ctx,
+		"due snoozes returned",
+		"job_id", job.ID,
+		"returned_count", count,
+	)
+	return nil
+}
+
 func (worker *reconcileOpenAIBackgroundWorker) Work(
 	ctx context.Context,
 	job *river.Job[jobqueue.ReconcileOpenAIBackgroundArgs],
@@ -320,10 +347,21 @@ func NewRiverClient(
 			return nil, fmt.Errorf("register OpenAI background reconciliation worker: %w", err)
 		}
 	}
+	if configuration.snoozeReturner != nil {
+		if err := river.AddWorkerSafely(workers, &returnSnoozedItemsWorker{
+			logger: logger, returner: configuration.snoozeReturner,
+		}); err != nil {
+			return nil, fmt.Errorf("register returned-snooze worker: %w", err)
+		}
+	}
 
 	var periodicJobs []*river.PeriodicJob
 	if enablePeriodicJobs {
-		periodicJobs = jobqueue.PeriodicJobs(interval, configuration.researcher != nil)
+		periodicJobs = jobqueue.PeriodicJobs(
+			interval,
+			configuration.researcher != nil,
+			configuration.snoozeReturner != nil,
+		)
 	}
 	queues := jobqueue.QueueConfigs()
 	if configuration.queueConfigs != nil {
@@ -359,7 +397,14 @@ type riverOptions struct {
 	researcher         *research.Processor
 	openAIWebhookStore *openaiwebhook.Store
 	researchTimeout    time.Duration
+	snoozeReturner     snoozeReturner
 	queueConfigs       map[string]river.QueueConfig
+}
+
+func WithSnoozeReturner(returner snoozeReturner) RiverOption {
+	return func(configuration *riverOptions) {
+		configuration.snoozeReturner = returner
+	}
 }
 
 type RiverOption func(*riverOptions)

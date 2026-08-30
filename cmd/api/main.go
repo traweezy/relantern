@@ -17,9 +17,10 @@ import (
 	"github.com/traweezy/relantern/internal/api"
 	"github.com/traweezy/relantern/internal/config"
 	"github.com/traweezy/relantern/internal/database"
-	"github.com/traweezy/relantern/internal/intelligence/pgstore"
+	intelligencepgstore "github.com/traweezy/relantern/internal/intelligence/pgstore"
 	"github.com/traweezy/relantern/internal/jobqueue"
 	"github.com/traweezy/relantern/internal/openaiwebhook"
+	readingstatepgstore "github.com/traweezy/relantern/internal/readingstate/pgstore"
 	"github.com/traweezy/relantern/internal/service"
 )
 
@@ -78,7 +79,11 @@ func run(arguments []string, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	intelligenceStore, err := pgstore.New(pool)
+	intelligenceStore, err := intelligencepgstore.New(pool)
+	if err != nil {
+		return err
+	}
+	readingStateStore, err := readingstatepgstore.New(pool)
 	if err != nil {
 		return err
 	}
@@ -86,7 +91,11 @@ func run(arguments []string, logger *slog.Logger) error {
 		pingContext, cancel := context.WithTimeout(ctx, 2*time.Second)
 		defer cancel()
 		return pool.Ping(pingContext)
-	}, api.WithIntelligence(intelligenceStore, webhookConfig.ServiceToken), api.WithOpenAIWebhook(webhookHandler))
+	},
+		api.WithIntelligence(intelligenceStore, webhookConfig.ServiceToken),
+		api.WithReadingState(readingStateStore, webhookConfig.ServiceToken),
+		api.WithOpenAIWebhook(webhookHandler),
+	)
 
 	return service.RunHTTP(rootContext, logger, service.HTTPServerConfig{
 		Host:            "0.0.0.0",

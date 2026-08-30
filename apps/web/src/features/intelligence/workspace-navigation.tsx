@@ -5,12 +5,25 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { memo, useMemo } from "react";
 
-const navigation = [
+const desktopNavigation = [
   { href: "/", label: "Today", shortLabel: "Today" },
   { href: "/live", label: "Live", shortLabel: "Live" },
+  { href: "/inbox", label: "Inbox", shortLabel: "Inbox" },
+  { href: "/later", label: "Read Later", shortLabel: "Later" },
+  { href: "/starred", label: "Starred", shortLabel: "Starred" },
+  { href: "/snoozed", label: "Snoozed", shortLabel: "Snoozed" },
+  { href: "/archive", label: "Archive", shortLabel: "Archive" },
   { href: "/radar", label: "Radar", shortLabel: "Radar" },
   { href: "/sources", label: "Sources", shortLabel: "Sources" },
   { href: "/ops", label: "Operations", shortLabel: "Ops" },
+] as const;
+
+const mobileNavigation = [
+  { href: "/", label: "Today", shortLabel: "Today" },
+  { href: "/inbox", label: "Inbox", shortLabel: "Inbox" },
+  { href: "/later", label: "Read Later", shortLabel: "Later" },
+  { href: "/starred", label: "Starred", shortLabel: "Starred" },
+  { href: "/search", label: "Search", shortLabel: "Search" },
 ] as const;
 
 type NavigationListProps = Readonly<{
@@ -21,15 +34,15 @@ const NavigationListComponent = ({ compact = false }: NavigationListProps) => {
   const pathname = usePathname();
   const items = useMemo(
     () =>
-      navigation.map((item) => ({
+      (compact ? mobileNavigation : desktopNavigation).map((item) => ({
         ...item,
         current:
           item.href === "/"
             ? pathname === "/" || pathname.startsWith("/story/")
             : pathname === item.href,
-        enabled: item.href === "/" || item.href === "/live",
+        enabled: !["/radar", "/sources", "/ops", "/search"].includes(item.href),
       })),
-    [pathname],
+    [compact, pathname],
   );
   return (
     <ul className={compact ? "mobile-nav-list" : "sidebar-nav"}>

@@ -38,10 +38,12 @@ func (fixtureReader) Story(_ context.Context, requestedID string) (intelligence.
 		StorySummary: intelligence.StorySummary{
 			Confidence: "high", FirstSeenAt: time.Unix(1, 0).UTC(), Headline: "Fixture story",
 			ID: storyID, LastChangedAt: time.Unix(2, 0).UTC(), ReadTimeMinutes: 1,
+			PrimarySourceURL:  "https://example.com/source",
 			RecommendedAction: "Review the fixture.", Signal: "general", SourceTier: "T0",
 			Status: "new", Summary: "A bounded fixture summary.", WhyItMatters: "It tests the API boundary.",
 		},
-		Assertions: []intelligence.ClaimEvidence{}, Related: []intelligence.StorySummary{},
+		Assertions: []intelligence.ClaimEvidence{}, NormalizedContent: "Fixture source content.",
+		Related: []intelligence.StorySummary{}, RevisionID: storyID,
 		Sources: []intelligence.Source{}, Uncertainties: []string{},
 	}, nil
 }

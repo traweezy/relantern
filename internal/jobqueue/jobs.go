@@ -23,10 +23,12 @@ const (
 	ResearchStoryKind             = "research_story"
 	PollOpenAIBackgroundKind      = "poll_openai_background"
 	ReconcileOpenAIBackgroundKind = "reconcile_openai_background"
+	ReturnSnoozedItemsKind        = "return_snoozed_items"
 )
 
 const reconcileSchedulesPeriodicID = "reconcile-schedules-v1"
 const reconcileOpenAIBackgroundPeriodicID = "reconcile-openai-background-v1"
+const returnSnoozedItemsPeriodicID = "return-snoozed-items-v1"
 
 type ReconcileSchedulesArgs struct {
 	RunID string `json:"runId,omitempty" river:"unique"`
@@ -114,6 +116,24 @@ type ReconcileOpenAIBackgroundArgs struct{}
 
 func (ReconcileOpenAIBackgroundArgs) Kind() string {
 	return ReconcileOpenAIBackgroundKind
+}
+
+type ReturnSnoozedItemsArgs struct{}
+
+func (ReturnSnoozedItemsArgs) Kind() string {
+	return ReturnSnoozedItemsKind
+}
+
+func (ReturnSnoozedItemsArgs) InsertOpts() river.InsertOpts {
+	return river.InsertOpts{
+		MaxAttempts: 5,
+		Priority:    2,
+		Queue:       QueueMaintenance,
+		Tags:        []string{"reading-state", "snooze", "return"},
+		UniqueOpts: river.UniqueOpts{
+			ByPeriod: time.Minute, ByQueue: true, ByState: rivertype.JobStates(),
+		},
+	}
 }
 
 func (ReconcileOpenAIBackgroundArgs) InsertOpts() river.InsertOpts {
@@ -211,6 +231,15 @@ func PeriodicJobs(interval time.Duration, includeOpenAIReconciliation ...bool) [
 				return ReconcileOpenAIBackgroundArgs{}, nil
 			},
 			&river.PeriodicJobOpts{ID: reconcileOpenAIBackgroundPeriodicID, RunOnStart: true},
+		))
+	}
+	if len(includeOpenAIReconciliation) > 1 && includeOpenAIReconciliation[1] {
+		jobs = append(jobs, river.NewPeriodicJob(
+			river.PeriodicInterval(time.Minute),
+			func() (river.JobArgs, *river.InsertOpts) {
+				return ReturnSnoozedItemsArgs{}, nil
+			},
+			&river.PeriodicJobOpts{ID: returnSnoozedItemsPeriodicID, RunOnStart: true},
 		))
 	}
 	return jobs

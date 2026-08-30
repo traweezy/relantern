@@ -34,6 +34,7 @@ Container manifest digests and GitHub Action commit SHAs are recorded below.
 | TanStack Table | 9.2.4 | Audited stable; add with table scope |
 | TanStack Virtual | 3.14.10 | Audited; add with long-list scope |
 | TanStack Form | 1.33.5 | Audited; Form 2 remains pre-release |
+| Zod | 4.4.3 | Pinned mature validation release; 4.5.4 was below the seven-day age floor |
 | Zustand | 5.0.15 | Audited; add only for ephemeral client state |
 | Motion | 13.1.1 | Audited; add only for measured interaction value |
 | Better Auth | 1.7.1 | Pinned for owner OAuth; newest 1.7.x satisfying the seven-day release-age gate |
@@ -66,6 +67,8 @@ and [Better Auth 1.7 changelog](https://better-auth.com/changelog).
 | Better Auth 1.7.1 | `sha512-g8WlTQijxXWJjPVZfFu1+EJg9cwwHrKDmIkcYMzx8CzYA+tDxl6NI7qQbKkbgw5UtHILsT5VH+RMzFzwnVJqAg==` |
 | node-postgres 8.23.0 | `sha512-Ip2EQCngowJLGOfCwkFhPXU7/ljlhn6Rxlmy4XYfL2Y+vyRM59+8uR2xqRWKdYmbXmxCFOAmKxBuSUCdF34qLg==` |
 | `@types/pg` 8.23.1 | `sha512-fKVHpikPdg4GKks3JuLEhvwSyvwzF23hnabPy6DD8ljVbC7+6J5dQzdv4arV6jqq57djnMgs1HKBxX4P8aBI3A==` |
+| TanStack Form 1.33.5 | `sha512-LlRB28qJwO/QCGaHvWnbdh4haBgTFiZVmzA2uzxSBS3YA7/IqrQ6HOBK70CkFQ+DbflZ7NawsmSln13h5iIdTA==` |
+| Zod 4.4.3 | `sha512-ytENFjIJFl2UwYglde2jchW2Hwm4GJFLDiSXWdTrJQBIN9Fcyp7n4DhxJEiWNAJMV1/BqWfW/kkg71UDcHJyTQ==` |
 
 ## Go release set
 

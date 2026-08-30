@@ -1,6 +1,7 @@
-# ADR 018: Private intelligence reads and isolated demonstration
+# ADR-020: Private intelligence reads and isolated demonstration
 
-Status: accepted on 2026-08-29.
+Status: Accepted
+Date: 2026-08-29
 
 ## Context
 

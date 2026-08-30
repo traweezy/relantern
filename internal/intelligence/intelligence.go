@@ -27,6 +27,7 @@ type StorySummary struct {
 	Headline          string    `json:"headline"`
 	ID                string    `json:"id"`
 	LastChangedAt     time.Time `json:"lastChangedAt"`
+	PrimarySourceURL  string    `json:"primarySourceUrl"`
 	ReadTimeMinutes   int       `json:"readTimeMinutes"`
 	RecommendedAction string    `json:"recommendedAction"`
 	Signal            string    `json:"signal"`
@@ -39,10 +40,12 @@ type StorySummary struct {
 
 type StoryDetail struct {
 	StorySummary
-	Assertions    []ClaimEvidence `json:"assertions"`
-	Related       []StorySummary  `json:"related"`
-	Sources       []Source        `json:"sources"`
-	Uncertainties []string        `json:"uncertainties"`
+	Assertions        []ClaimEvidence `json:"assertions"`
+	NormalizedContent string          `json:"normalizedContent"`
+	Related           []StorySummary  `json:"related"`
+	RevisionID        string          `json:"revisionId"`
+	Sources           []Source        `json:"sources"`
+	Uncertainties     []string        `json:"uncertainties"`
 }
 
 type TodayStats struct {

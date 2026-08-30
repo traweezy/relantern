@@ -86,6 +86,19 @@ func TestPeriodicJobsDeclareRunOnStartSchedule(t *testing.T) {
 	if defaultJobs := jobqueue.PeriodicJobs(time.Minute); len(defaultJobs) != 1 {
 		t.Fatalf("default PeriodicJobs() = %+v", defaultJobs)
 	}
+	if completeJobs := jobqueue.PeriodicJobs(time.Minute, true, true); len(completeJobs) != 3 {
+		t.Fatalf("complete PeriodicJobs() = %+v", completeJobs)
+	}
+}
+
+func TestReturnSnoozedJobIsBoundedUniqueMaintenanceWork(t *testing.T) {
+	t.Parallel()
+	options := (jobqueue.ReturnSnoozedItemsArgs{}).InsertOpts()
+	if (jobqueue.ReturnSnoozedItemsArgs{}).Kind() != jobqueue.ReturnSnoozedItemsKind ||
+		options.Queue != jobqueue.QueueMaintenance || options.MaxAttempts != 5 ||
+		options.UniqueOpts.ByPeriod != time.Minute || !options.UniqueOpts.ByQueue {
+		t.Fatalf("return-snoozed options = %+v", options)
+	}
 }
 
 func TestResearchJobsAreBoundedAndUseResearchQueue(t *testing.T) {

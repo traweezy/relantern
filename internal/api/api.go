@@ -15,6 +15,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/traweezy/relantern/internal/httpx"
 	"github.com/traweezy/relantern/internal/intelligence"
+	"github.com/traweezy/relantern/internal/readingstate"
 )
 
 type ReadyCheck func(context.Context) error
@@ -64,6 +65,7 @@ type Application struct {
 type options struct {
 	clock         func() time.Time
 	intelligence  intelligence.Reader
+	readingState  readingstate.Repository
 	serviceToken  string
 	openAIWebhook http.Handler
 }
@@ -79,6 +81,13 @@ func WithOpenAIWebhook(handler http.Handler) Option {
 func WithIntelligence(reader intelligence.Reader, serviceToken string) Option {
 	return func(configuration *options) {
 		configuration.intelligence = reader
+		configuration.serviceToken = serviceToken
+	}
+}
+
+func WithReadingState(repository readingstate.Repository, serviceToken string) Option {
+	return func(configuration *options) {
+		configuration.readingState = repository
 		configuration.serviceToken = serviceToken
 	}
 }
@@ -148,6 +157,7 @@ func New(logger *slog.Logger, info Info, ready ReadyCheck, configuredOptions ...
 		}}, nil
 	})
 	registerIntelligence(api, configuration, logger)
+	registerReadingState(api, configuration, logger)
 
 	return Application{Handler: router, API: api}
 }
@@ -160,7 +170,7 @@ func registerIntelligence(api huma.API, configuration options, logger *slog.Logg
 		Summary:     "Get the owner daily intelligence snapshot",
 		Tags:        []string{"intelligence"},
 	}, func(ctx context.Context, input *InternalInput) (*TodayOutput, error) {
-		if err := authorizeInternal(input.Authorization, configuration); err != nil {
+		if err := authorizeInternal(input.Authorization, configuration, configuration.intelligence != nil); err != nil {
 			return nil, err
 		}
 		snapshot, err := configuration.intelligence.Today(ctx, configuration.clock().UTC())
@@ -178,7 +188,7 @@ func registerIntelligence(api huma.API, configuration options, logger *slog.Logg
 		Summary:     "Get the current owner intelligence stream snapshot",
 		Tags:        []string{"intelligence"},
 	}, func(ctx context.Context, input *InternalInput) (*LiveOutput, error) {
-		if err := authorizeInternal(input.Authorization, configuration); err != nil {
+		if err := authorizeInternal(input.Authorization, configuration, configuration.intelligence != nil); err != nil {
 			return nil, err
 		}
 		snapshot, err := configuration.intelligence.Live(ctx, configuration.clock().UTC())
@@ -196,7 +206,7 @@ func registerIntelligence(api huma.API, configuration options, logger *slog.Logg
 		Summary:     "Get an evidence-backed owner intelligence story",
 		Tags:        []string{"intelligence"},
 	}, func(ctx context.Context, input *StoryInput) (*StoryOutput, error) {
-		if err := authorizeInternal(input.Authorization, configuration); err != nil {
+		if err := authorizeInternal(input.Authorization, configuration, configuration.intelligence != nil); err != nil {
 			return nil, err
 		}
 		story, err := configuration.intelligence.Story(ctx, input.StoryID)
@@ -211,8 +221,8 @@ func registerIntelligence(api huma.API, configuration options, logger *slog.Logg
 	})
 }
 
-func authorizeInternal(authorization string, configuration options) error {
-	if configuration.intelligence == nil || len(configuration.serviceToken) < 32 {
+func authorizeInternal(authorization string, configuration options, available bool) error {
+	if !available || len(configuration.serviceToken) < 32 {
 		return huma.Error503ServiceUnavailable("The private intelligence service is not configured.")
 	}
 	expected := "Bearer " + configuration.serviceToken

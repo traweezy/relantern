@@ -75,14 +75,13 @@ const signalValues = new Set([
   "security",
 ] as const);
 
-const parseSource = (value: unknown, name: string): StorySource => {
-  const source = recordValue(value, name);
-  const url = stringValue(source.url, `${name}.url`);
+const sourceURLValue = (value: unknown, name: string): string => {
+  const url = stringValue(value, name);
   let parsed: URL;
   try {
     parsed = new URL(url);
   } catch {
-    throw new IntelligenceContractError(`${name}.url must be an absolute URL`);
+    throw new IntelligenceContractError(`${name} must be an absolute URL`);
   }
   const localHTTP =
     parsed.protocol === "http:" &&
@@ -90,13 +89,18 @@ const parseSource = (value: unknown, name: string): StorySource => {
       parsed.hostname === "localhost" ||
       parsed.hostname === "fake-source");
   if (parsed.protocol !== "https:" && !localHTTP) {
-    throw new IntelligenceContractError(`${name}.url must use HTTPS outside local fixtures`);
+    throw new IntelligenceContractError(`${name} must use HTTPS outside local fixtures`);
   }
+  return parsed.toString();
+};
+
+const parseSource = (value: unknown, name: string): StorySource => {
+  const source = recordValue(value, name);
   return {
     domain: stringValue(source.domain, `${name}.domain`, 253),
     label: stringValue(source.label, `${name}.label`, 253),
     tier: enumValue<SourceTier>(source.tier, `${name}.tier`, sourceTierValues),
-    url: parsed.toString(),
+    url: sourceURLValue(source.url, `${name}.url`),
   };
 };
 
@@ -108,6 +112,7 @@ export const parseStorySummary = (value: unknown, name = "story"): StorySummary 
     headline: stringValue(story.headline, `${name}.headline`, 180),
     id: stringValue(story.id, `${name}.id`, 80),
     lastChangedAt: timestampValue(story.lastChangedAt, `${name}.lastChangedAt`),
+    primarySourceUrl: sourceURLValue(story.primarySourceUrl, `${name}.primarySourceUrl`),
     readTimeMinutes: integerValue(story.readTimeMinutes, `${name}.readTimeMinutes`, 120),
     recommendedAction: stringValue(story.recommendedAction, `${name}.recommendedAction`, 1500),
     signal: enumValue<StorySignal>(story.signal, `${name}.signal`, signalValues),
@@ -146,9 +151,11 @@ export const parseStoryDetail = (value: unknown): StoryDetail => {
     assertions: story.assertions.map((claim, index) =>
       parseClaimEvidence(claim, `story.assertions[${index}]`),
     ),
+    normalizedContent: stringValue(story.normalizedContent, "story.normalizedContent", 1_000_000),
     related: story.related.map((related, index) =>
       parseStorySummary(related, `story.related[${index}]`),
     ),
+    revisionId: stringValue(story.revisionId, "story.revisionId", 36),
     sources: story.sources.map((source, index) => parseSource(source, `story.sources[${index}]`)),
     uncertainties: story.uncertainties.map((uncertainty, index) =>
       stringValue(uncertainty, `story.uncertainties[${index}]`, 1000),

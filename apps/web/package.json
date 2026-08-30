@@ -13,12 +13,14 @@
   "dependencies": {
     "@relantern/design-tokens": "workspace:0.0.0",
     "@relantern/domain": "workspace:0.0.0",
+    "@tanstack/react-form": "1.33.5",
     "better-auth": "1.7.1",
     "next": "16.3.3",
     "openai": "7.5.0",
     "pg": "8.23.0",
     "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "react-dom": "19.2.8",
+    "zod": "4.4.3"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "4.3.3",
