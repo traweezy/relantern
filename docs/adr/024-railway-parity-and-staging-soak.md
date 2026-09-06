@@ -27,9 +27,11 @@ environment contains a service, volume, or bucket, so no hosted soak has begun.
 - Keep database, API, worker, migration, and object storage private. A public
   domain is a separately reviewed platform control and may exist only for
   `web`; public TCP proxies are forbidden for every service.
-- Generate and seal internal database, auth, webhook-signing, and service-token
-  secrets per environment. Preserve external credentials for attended,
-  out-of-band entry; never print variables from an audit command.
+- Preserve all secret values for attended, out-of-band entry and seal every
+  hosted copy. Railway sealed variables cannot be unsealed, retrieved, or used
+  as cross-service references, so database URLs, the internal service token,
+  and the OpenAI API key are entered identically at each consumer in one
+  maintenance window. Never print variables from an audit command.
 - Stage with distinct provider credentials, a test delivery destination, and a
   low OpenAI cap. Keep production delivery, extraction, and research disabled
   until the production launch procedure explicitly enables them.
