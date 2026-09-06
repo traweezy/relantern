@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { cp, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { inlineScriptHashes } from "./demo-csp.mjs";
 
 const repository = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const source = join(repository, "apps/web/demo/out");
@@ -35,11 +36,7 @@ const inspectDirectory = async (directory, prefix = "") => {
     const content = await readFile(join(directory, entry.name));
     if (relative.endsWith(".html")) {
       if (!allowedHTML.has(relative)) throw new Error(`Private route in demo export: ${relative}`);
-      for (const match of content.toString().matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)) {
-        if (!/\bsrc\s*=/i.test(match[1])) {
-          hashes.add(`'sha256-${createHash("sha256").update(match[2]).digest("base64")}'`);
-        }
-      }
+      for (const hash of inlineScriptHashes(content.toString())) hashes.add(hash);
     }
     files.push({ path: relative, sha256: createHash("sha256").update(content).digest("hex") });
   }

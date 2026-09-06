@@ -27,7 +27,10 @@ The build reuses the existing root pnpm lockfile, installed toolchain, styles,
 and demo components. It exports only admitted public routes. The packager
 rejects additional HTML routes, symlinks, unexpected asset types, and missing
 required pages; computes inline-script CSP hashes; and records SHA-256 checksums
-for every served asset.
+for every served asset. Inline scripts are extracted with the build-only
+parse5 HTML parser so CSP hashes follow browser parsing, including valid
+end-tag whitespace and quoted attribute delimiters. Regression tests also
+cover external scripts, inert markup, and newline normalization.
 
 The generated `.local/public-demo` directory contains the deployable artifact.
 Only its static assets, checksum manifest, CSP, and dependency-free server are
@@ -89,3 +92,11 @@ reports are temporary; retain them with release evidence when approving a commit
 Redeploy the last verified demo artifact to the same explicit demo service and
 environment. To take the demo offline, remove its public domain or stop only
 its demo deployment. Do not change private staging or production services.
+
+## Publication security follow-up
+
+GitHub CodeQL identified incomplete script end-tag handling in the original
+packaging regex; the HTML-parser implementation above replaces it. The source
+scan also required golang.org/x/crypto 0.56.0 for GO-2026-6354 and GO-2026-6355.
+The pinned module and checksums are updated; source and demo runtime permissions
+are unchanged. These are source/build corrections, not provider activation.

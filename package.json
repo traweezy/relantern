@@ -21,11 +21,12 @@
     "test": "vitest run .railway/railway.test.ts && pnpm --recursive --if-present test",
     "typecheck": "tsc --project tsconfig.railway.json && pnpm --recursive --if-present typecheck",
     "demo:build": "pnpm --filter @relantern/web exec next build demo && node scripts/package-public-demo.mjs",
-    "demo:test": "node --test deploy/demo/server.test.mjs"
+    "demo:test": "node --test scripts/demo-csp.test.mjs deploy/demo/server.test.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.10",
     "openapi-typescript": "7.13.0",
+    "parse5": "8.0.1",
     "railway": "3.10.0",
     "typescript": "5.9.3",
     "vitest": "4.1.11"
