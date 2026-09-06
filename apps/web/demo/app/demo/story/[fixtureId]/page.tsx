@@ -1,28 +1,19 @@
-import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { connection } from "next/server";
 import { getDemoStory } from "@/features/demo/demo-adapter";
 import { DemoItemControls } from "@/features/demo/demo-item-controls";
+import { demoFixtureIDs } from "@/features/demo/demo-route";
 import { StoryDetail } from "@/features/intelligence/story-detail";
 
-type DemoStoryPageProps = Readonly<{
-  params: Promise<Readonly<{ fixtureId: string }>>;
-}>;
+export const generateStaticParams = () => demoFixtureIDs.map((fixtureId) => ({ fixtureId }));
+export const dynamicParams = false;
 
-export const metadata: Metadata = {
-  robots: { follow: false, index: false },
-  title: "Illustrative story | Relantern demonstration",
-};
-
-export const instant = false;
-
-const DemoStoryPage = async ({ params }: DemoStoryPageProps) => {
-  await connection();
+const DemoStoryPage = async ({
+  params,
+}: Readonly<{ params: Promise<Readonly<{ fixtureId: string }>> }>) => {
   const { fixtureId } = await params;
   const story = getDemoStory(fixtureId);
-  if (story === null) {
-    notFound();
-  }
+  if (story === null) notFound();
+
   return (
     <div className="demo-story-page">
       <DemoItemControls storyID={story.id} />

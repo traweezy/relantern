@@ -6,6 +6,7 @@ import { ReadingProgress } from "./reading-progress";
 
 type StoryDetailProps = Readonly<{
   relatedHrefPrefix?: string;
+  showAnnotationHelp?: boolean;
   story: StoryDetailModel;
   timezone?: string;
 }>;
@@ -23,6 +24,7 @@ const isParagraphSeparator = (segment: string): boolean => /^\n{2,}$/.test(segme
 
 const StoryDetailComponent = ({
   relatedHrefPrefix = "/story",
+  showAnnotationHelp = true,
   story,
   timezone = "UTC",
 }: StoryDetailProps) => {
@@ -135,8 +137,9 @@ const StoryDetailComponent = ({
           <span>Revision {story.revisionId.slice(0, 8)}</span>
         </div>
         <p className="reader-muted">
-          Select a passage here, then use the private annotation controls below to retain its exact
-          revision and quote hash.
+          {showAnnotationHelp
+            ? "Select a passage here, then use the private annotation controls below to retain its exact revision and quote hash."
+            : "Compare the illustrative summary with its source text. Private annotation tools are not part of this demonstration."}
         </p>
         <pre className="normalized-source-content" id="normalized-source-content">
           {sourceSegments(story.normalizedContent).map((segment) => {
