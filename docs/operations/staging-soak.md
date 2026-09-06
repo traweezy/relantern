@@ -4,6 +4,10 @@ P9 requires at least 336 continuous hours on one frozen release SHA. This
 procedure never authorizes a production deploy. The specification remains the
 authority when a result is ambiguous.
 
+The living [staging provisioning status](staging-provisioning-status.md)
+records the current attended setup state. It is not soak evidence and does not
+replace any gate below.
+
 ## Preconditions
 
 1. Freeze a full 40- or 64-character lowercase Git SHA from `staging`. Run
@@ -15,9 +19,14 @@ authority when a result is ambiguous.
 3. Enter distinct staging GitHub OAuth, OpenAI, Discord test-channel, and
    optional Resend test-recipient credentials out of band. Never copy a
    production credential or destination into staging.
-4. Confirm the OpenAI project hard cap, off-platform encrypted backup, and
+4. Enter identical attended copies of the staging `DATABASE_URL` for
+   `postgres`, `migrate`, `api`, `worker`, and `web`, and of the staging
+   `WEB_INTERNAL_SERVICE_TOKEN` for `api` and `web`, and `OPENAI_API_KEY` for
+   `api` and `worker`; then seal every copy. Railway sealed variables cannot be
+   cross-service references.
+5. Confirm the OpenAI project hard cap, off-platform encrypted backup, and
    staging-only delivery recipient in their provider control planes.
-5. Generate a Railway domain for `web` only. Keep all TCP proxies disabled.
+6. Generate a Railway domain for `web` only. Keep all TCP proxies disabled.
    Run:
 
    ```sh
@@ -26,7 +35,7 @@ authority when a result is ambiguous.
 
    The audit reads topology, deployment metadata, domains, and TCP exposure.
    It does not request or print Railway variable values.
-6. Copy `docs/evidence/staging/soak-template.json` to a dated ledger, then set
+7. Copy `docs/evidence/staging/soak-template.json` to a dated ledger, then set
    the Railway project ID, frozen SHA, RFC3339 start time, and confirmed
    profile. Do not set `endedAt` until the review is concluded.
 

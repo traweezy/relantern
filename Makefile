@@ -234,7 +234,7 @@ demo-audit: ## Validate the demo fixture and emitted isolation contract
 	@test ! -s apps/web/.next/server/app/demo.html
 	@test ! -s 'apps/web/.next/server/app/demo/story/[fixtureId].html'
 
-prepush: lint workflow-lint typecheck test generate-check config-check sources-verify ## Run required local fast release gates
+prepush: demo-check lint workflow-lint typecheck test generate-check config-check sources-verify ## Run required local fast release gates
 	bash scripts/policy-check.sh
 	$(GO) test -race ./...
 	$(PNPM) build
@@ -267,3 +267,8 @@ clean: ## Remove build outputs while preserving local volumes
 
 reset: ## Confirm and remove only Relantern local containers and volumes
 	bash scripts/reset.sh
+
+.PHONY: demo-check
+demo-check: ## Build and verify the isolated public demo artifact
+	@pnpm demo:build
+	@pnpm demo:test

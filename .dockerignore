@@ -30,3 +30,14 @@ tmp
 *.test
 *.trace
 *.tsbuildinfo
+
+# Keep local credentials out of build contexts and intermediate images.
+**/.env*
+!**/.env.example
+!**/.env.local.example
+!**/.env.*.example
+**/*.pem
+**/*.key
+**/*.p12
+**/*.pfx
+docs/operations/staging-provisioning-status.md

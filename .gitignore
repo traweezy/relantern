@@ -89,3 +89,8 @@ dist/
 *.bak
 *.orig
 *.rej
+
+# Generated type declarations for the isolated demo export
+/apps/web/demo/next-env.d.ts
+# Local account-provisioning handoff; keep provider/account details private.
+/docs/operations/staging-provisioning-status.md

@@ -22,8 +22,18 @@ describe("Railway infrastructure contract", () => {
       evaluated.graph.resources.filter((item) => item.type === "bucket").map((item) => item.name),
     ).toEqual(["bucket"]);
     expect(
-      evaluated.graph.resources.filter((item) => item.type === "volume").map((item) => item.name),
-    ).toEqual(["postgres-data"]);
+      evaluated.graph.resources
+        .filter((item) => item.type === "volume")
+        .map((item) => ({ config: item.config, name: item.name })),
+    ).toEqual([
+      {
+        config: {
+          region: "us-east4-eqdc4a",
+          sizeMB: 5_000,
+        },
+        name: "postgres-data",
+      },
+    ]);
 
     expect(services.get("postgres")?.source?.image).toContain("@sha256:");
     expect(services.get("postgres")?.networking).toBeUndefined();
@@ -100,20 +110,35 @@ describe("Railway infrastructure contract", () => {
     });
   });
 
-  it("generates internal secrets while preserving external credentials", async () => {
+  it("preserves attended sealed secret copies at every consumer", async () => {
     const evaluated = await evaluate("staging");
     const services = servicesByName(
       evaluated.graph.resources.filter((item) => item.type === "service"),
     );
-    expect(services.get("api")?.variables?.WEB_INTERNAL_SERVICE_TOKEN).toMatchObject({
-      type: "raw",
-      value: { isSealed: true },
+    expect(services.get("postgres")?.variables).toMatchObject({
+      DATABASE_URL: { type: "preserve" },
+      POSTGRES_PASSWORD: { type: "preserve" },
+    });
+    expect(services.get("api")?.variables).toMatchObject({
+      DATABASE_URL: { type: "preserve" },
+      OPENAI_API_KEY: { type: "preserve" },
+      OPENAI_PROJECT_ID: { type: "preserve" },
+      WEB_INTERNAL_SERVICE_TOKEN: { type: "preserve" },
+    });
+    expect(services.get("worker")?.variables).toMatchObject({
+      DATABASE_URL: { type: "preserve" },
+      OPENAI_API_KEY: { type: "preserve" },
+    });
+    expect(services.get("migrate")?.variables).toMatchObject({
+      DATABASE_URL: { type: "preserve" },
     });
     expect(services.get("web")?.variables).toMatchObject({
-      BETTER_AUTH_SECRET: { type: "raw", value: { isSealed: true } },
+      BETTER_AUTH_SECRET: { type: "preserve" },
+      DATABASE_URL: { type: "preserve" },
       GITHUB_OAUTH_CLIENT_ID: { type: "preserve" },
       GITHUB_OAUTH_CLIENT_SECRET: { type: "preserve" },
-      OPENAI_WEBHOOK_SECRET: { type: "raw", value: { isSealed: true } },
+      OPENAI_WEBHOOK_SECRET: { type: "preserve" },
+      WEB_INTERNAL_SERVICE_TOKEN: { type: "preserve" },
     });
   });
 });
