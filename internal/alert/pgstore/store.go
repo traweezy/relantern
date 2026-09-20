@@ -52,13 +52,14 @@ type evidence struct {
 	title            string
 	observedAt       time.Time
 	itemID           string
+	itemStatus       string
 }
 
 const evidenceQuery = `
 	select child.object_key, child.raw_sha256, child.source_id,
 		child.canonical_url, entry.id::text, entry.external_id, entry.first_seen_at,
 		endpoint.url, parent.canonical_url, revision.title,
-		child.first_seen_at, item.id::text
+		child.first_seen_at, item.id::text, item.status
 	from app.raw_documents child
 	join app.raw_documents parent on parent.id = child.parent_raw_document_id
 	join app.source_entries entry on entry.id = child.source_entry_id
@@ -91,7 +92,6 @@ const evidenceQuery = `
 		and child.ingestion_error_code is null and parent.ingestion_error_code is null
 		and source.enabled and source.validation_state = 'active'
 		and source.trust_tier in ('T0', 'T1')
-		and item.status in ('active', 'updated')
 		and item_source.source_tier = source.trust_tier
 		and item_source.canonical_url = child.canonical_url
 		and not exists (
@@ -114,7 +114,7 @@ func loadEvidence(ctx context.Context, query rowQuerier, rawDocumentID, revision
 		&found.objectKey, &found.rawSHA256, &found.sourceID, &found.canonicalURL,
 		&found.entryRowID, &found.entryID, &found.entryFirstSeenAt,
 		&found.endpointURL, &found.parentURL,
-		&found.title, &found.observedAt, &found.itemID,
+		&found.title, &found.observedAt, &found.itemID, &found.itemStatus,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return evidence{}, false, nil
@@ -343,13 +343,24 @@ func (store *Store) Assess(ctx context.Context, rawDocumentID, revisionID string
 		current.canonicalURL != preflight.canonicalURL || current.endpointURL != preflight.endpointURL ||
 		current.parentURL != preflight.parentURL ||
 		!current.entryFirstSeenAt.Equal(preflight.entryFirstSeenAt) ||
-		current.itemID != preflight.itemID || current.title != preflight.title ||
+		current.itemID != preflight.itemID || current.itemStatus != preflight.itemStatus ||
+		current.title != preflight.title ||
 		!current.observedAt.Equal(preflight.observedAt) {
 		return errors.New("advisory evidence changed during assessment")
 	}
 	if current.title == "" || len(current.title) > 500 ||
 		sourceURL == "" || len(sourceURL) > 4096 {
 		return errors.New("advisory title or source URL exceeds alert bounds")
+	}
+	if reason := advisoryCorrectionReason(advisory); reason != "" {
+		if err := store.suppressCorrectedAlertDeliveries(ctx, tx, current,
+			rawDocumentID, revisionID, advisory.ID, reason, now); err != nil {
+			return err
+		}
+		return tx.Commit(ctx)
+	}
+	if current.itemStatus != "active" && current.itemStatus != "updated" {
+		return nil
 	}
 	owners, err := loadOwnerWatches(ctx, tx, advisory)
 	if err != nil {
@@ -373,6 +384,107 @@ func (store *Store) Assess(ctx context.Context, rawDocumentID, revisionID string
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit critical advisory assessment: %w", err)
+	}
+	return nil
+}
+
+func advisoryCorrectionReason(advisory alert.Advisory) string {
+	if !validCorrectionTimestamp(advisory.PublishedAt) {
+		return ""
+	}
+	if advisory.Kind == "reviewed" {
+		if !validCorrectionTimestamp(advisory.ReviewedAt) {
+			return ""
+		}
+	} else if advisory.Kind != "" {
+		return ""
+	}
+	if advisory.WithdrawnAt != "" {
+		if !validCorrectionTimestamp(advisory.WithdrawnAt) ||
+			(advisory.State != "" && advisory.State != "published" && advisory.State != "closed") ||
+			(advisory.Kind == "" && advisory.State != "published" && advisory.State != "closed") {
+			return ""
+		}
+		return "withdrawn"
+	}
+	if advisory.Kind == "" && advisory.State == "closed" {
+		return "no_longer_published"
+	}
+	if (advisory.State != "" && advisory.State != "published") ||
+		(advisory.Kind == "" && advisory.State != "published") {
+		return ""
+	}
+	switch advisory.Severity {
+	case "high", "medium", "low":
+		return "severity_downgraded"
+	case "unknown":
+		return "severity_unconfirmed"
+	default:
+		return ""
+	}
+}
+
+func validCorrectionTimestamp(value string) bool {
+	parsed, err := time.Parse(time.RFC3339, value)
+	return err == nil && !parsed.IsZero()
+}
+
+func (store *Store) suppressCorrectedAlertDeliveries(ctx context.Context, tx pgx.Tx,
+	current evidence, rawDocumentID, revisionID, advisoryID, reason string, now time.Time,
+) error {
+	_, err := tx.Exec(ctx, `
+		update app.critical_alerts admitted
+			set correction_reason = $5,
+				correction_revision_id = $6::uuid,
+				corrected_at = $7::timestamptz
+			from app.raw_documents original
+			where admitted.raw_document_id = original.id
+				and original.source_entry_id = $1::uuid
+				and admitted.advisory_id = $2
+				and admitted.correction_revision_id is distinct from $6::uuid
+				and (original.first_seen_at, original.id) < ($3::timestamptz, $4::uuid)`,
+		current.entryRowID, advisoryID, current.observedAt, rawDocumentID,
+		reason, revisionID, now.UTC())
+	if err != nil {
+		return fmt.Errorf("record critical advisory correction: %w", err)
+	}
+	// Lock every channel row, including an in-flight send. A failure that
+	// settles while this transaction waits must be observed before suppression.
+	rows, err := tx.Query(ctx, `
+		select delivery.id::text
+		from app.critical_alert_deliveries delivery
+		join app.critical_alerts admitted on admitted.id = delivery.alert_id
+		join app.raw_documents original on original.id = admitted.raw_document_id
+		where original.source_entry_id = $1::uuid and admitted.advisory_id = $2
+			and (original.first_seen_at, original.id) < ($3::timestamptz, $4::uuid)
+		for update of delivery`, current.entryRowID, advisoryID, current.observedAt, rawDocumentID)
+	if err != nil {
+		return fmt.Errorf("lock corrected critical advisory deliveries: %w", err)
+	}
+	for rows.Next() {
+		var deliveryID string
+		if err := rows.Scan(&deliveryID); err != nil {
+			rows.Close()
+			return fmt.Errorf("scan corrected critical advisory delivery: %w", err)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return fmt.Errorf("iterate corrected critical advisory deliveries: %w", err)
+	}
+	rows.Close()
+	_, err = tx.Exec(ctx, `
+		update app.critical_alert_deliveries delivery
+		set state = 'suppressed', updated_at = $5::timestamptz
+		from app.critical_alerts admitted
+		join app.raw_documents original on original.id = admitted.raw_document_id
+		where delivery.alert_id = admitted.id
+			and original.source_entry_id = $1::uuid and admitted.advisory_id = $2
+			and (original.first_seen_at, original.id) < ($3::timestamptz, $4::uuid)
+			and delivery.state in ('pending', 'failed')`,
+		current.entryRowID, advisoryID, current.observedAt, rawDocumentID, now.UTC())
+	if err != nil {
+		return fmt.Errorf("suppress corrected critical advisory deliveries: %w", err)
 	}
 	return nil
 }

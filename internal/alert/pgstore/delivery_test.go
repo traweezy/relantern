@@ -76,6 +76,255 @@ func TestCriticalAlertDeliveryLifecycle(t *testing.T) {
 	}
 }
 
+func TestCorrectionPreservesInFlightReceiptAndSuppressesFailedSend(t *testing.T) {
+	pool := openAssessmentPool(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	fixture := seedAssessment(t, ctx, pool)
+	reader := &fixtureReader{payload: bytes.Clone(fixture.payload), byObjectKey: map[string][]byte{}}
+	jobs, err := jobqueue.NewIsolatedTestInserter("test_alert_assessment")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := New(pool, jobs, reader, clock.NewFixed(fixture.now))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Assess(ctx, fixture.childID, fixture.revisionID); err != nil {
+		t.Fatal(err)
+	}
+	var discordID, emailID string
+	var due time.Time
+	if err := pool.QueryRow(ctx, `
+		select delivery.id::text, delivery.next_attempt_at
+		from app.critical_alert_deliveries delivery
+		join app.critical_alerts admitted on admitted.id = delivery.alert_id
+		where admitted.user_id = $1::uuid and delivery.channel = 'discord'`, fixture.userID).
+		Scan(&discordID, &due); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `
+		select delivery.id::text from app.critical_alert_deliveries delivery
+		join app.critical_alerts admitted on admitted.id = delivery.alert_id
+		where admitted.user_id = $1::uuid and delivery.channel = 'email'`, fixture.userID).
+		Scan(&emailID); err != nil {
+		t.Fatal(err)
+	}
+	for _, deliveryID := range []string{discordID, emailID} {
+		request, err := store.BeginDelivery(ctx, deliveryID, due)
+		if err != nil || request == nil {
+			t.Fatalf("BeginDelivery(%s) = %+v, %v", deliveryID, request, err)
+		}
+	}
+	childID, revisionID, objectKey, payload := seedCorrectionRevision(t, ctx, fixture,
+		"high", "", false)
+	reader.byObjectKey[objectKey] = payload
+	correctingStore, err := New(pool, jobs, reader, clock.NewFixed(due.Add(time.Second)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := correctingStore.Assess(ctx, childID, revisionID); err != nil {
+		t.Fatal(err)
+	}
+	if err := correctingStore.CompleteDelivery(ctx, discordID,
+		alert.Receipt{ProviderID: "capture:accepted"}, due.Add(2*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if err := correctingStore.FailDelivery(ctx, emailID, "provider_retryable", false,
+		due.Add(2*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct{ id, want string }{
+		{discordID, "sent"}, {emailID, "suppressed"},
+	} {
+		var state string
+		var attempts int
+		if err := pool.QueryRow(ctx, `select state, attempt_count from app.critical_alert_deliveries
+			where id = $1::uuid`, test.id).Scan(&state, &attempts); err != nil {
+			t.Fatal(err)
+		}
+		if state != test.want || attempts != 1 {
+			t.Fatalf("delivery %s = %q with %d attempts, want %q with 1", test.id,
+				state, attempts, test.want)
+		}
+	}
+	request, err := correctingStore.BeginDelivery(ctx, emailID, due.Add(3*time.Second))
+	if err != nil || request != nil {
+		t.Fatalf("corrected retry = %+v, %v", request, err)
+	}
+}
+
+func TestCorrectionSuppressesInterruptedSendRecovery(t *testing.T) {
+	pool := openAssessmentPool(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	fixture := seedAssessment(t, ctx, pool)
+	reader := &fixtureReader{payload: bytes.Clone(fixture.payload), byObjectKey: map[string][]byte{}}
+	jobs, err := jobqueue.NewIsolatedTestInserter("test_alert_assessment")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := New(pool, jobs, reader, clock.NewFixed(fixture.now))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Assess(ctx, fixture.childID, fixture.revisionID); err != nil {
+		t.Fatal(err)
+	}
+	var deliveryID string
+	var due time.Time
+	if err := pool.QueryRow(ctx, `
+		select delivery.id::text, delivery.next_attempt_at
+		from app.critical_alert_deliveries delivery
+		join app.critical_alerts admitted on admitted.id = delivery.alert_id
+		where admitted.user_id = $1::uuid and delivery.channel = 'discord'`, fixture.userID).
+		Scan(&deliveryID, &due); err != nil {
+		t.Fatal(err)
+	}
+	if request, err := store.BeginDelivery(ctx, deliveryID, due); err != nil || request == nil {
+		t.Fatalf("BeginDelivery = %+v, %v", request, err)
+	}
+	childID, revisionID, objectKey, payload := seedCorrectionRevision(t, ctx, fixture,
+		"critical", "2026-09-20T23:31:00Z", false)
+	reader.byObjectKey[objectKey] = payload
+	correctingStore, err := New(pool, jobs, reader, clock.NewFixed(due.Add(time.Second)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := correctingStore.Assess(ctx, childID, revisionID); err != nil {
+		t.Fatal(err)
+	}
+	setAlertJobInactive(t, ctx, pool, deliveryID, due.Add(3*time.Minute))
+	result, err := correctingStore.ReconcileDeliveries(ctx, due.Add(3*time.Minute))
+	if err != nil || result.Requeued != 0 {
+		t.Fatalf("corrected recovery = %+v, %v", result, err)
+	}
+	var state, outcome, code string
+	if err := pool.QueryRow(ctx, `
+		select state from app.critical_alert_deliveries where id = $1::uuid`, deliveryID).
+		Scan(&state); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `
+		select outcome, error_code from app.critical_alert_attempts
+		where delivery_id = $1::uuid and attempt_number = 1`, deliveryID).
+		Scan(&outcome, &code); err != nil {
+		t.Fatal(err)
+	}
+	if state != "suppressed" || outcome != "retryable" || code != "worker_interrupted" {
+		t.Fatalf("interrupted corrected send = %q, %q, %q", state, outcome, code)
+	}
+}
+
+func TestWaitingClaimObservesCommittedCorrection(t *testing.T) {
+	pool := openAssessmentPool(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	fixture := seedAssessment(t, ctx, pool)
+	reader := &fixtureReader{payload: bytes.Clone(fixture.payload), byObjectKey: map[string][]byte{}}
+	jobs, err := jobqueue.NewIsolatedTestInserter("test_alert_assessment")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := New(pool, jobs, reader, clock.NewFixed(fixture.now))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Assess(ctx, fixture.childID, fixture.revisionID); err != nil {
+		t.Fatal(err)
+	}
+	var deliveryID string
+	var due time.Time
+	if err := pool.QueryRow(ctx, `
+		select delivery.id::text, delivery.next_attempt_at
+		from app.critical_alert_deliveries delivery
+		join app.critical_alerts admitted on admitted.id = delivery.alert_id
+		where admitted.user_id = $1::uuid and delivery.channel = 'discord'`, fixture.userID).
+		Scan(&deliveryID, &due); err != nil {
+		t.Fatal(err)
+	}
+	childID, revisionID, objectKey, payload := seedCorrectionRevision(t, ctx, fixture,
+		"high", "", false)
+	reader.byObjectKey[objectKey] = payload
+	correctingStore, err := New(pool, jobs, reader, clock.NewFixed(due.Add(time.Second)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	blocker, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = blocker.Rollback(ctx) }()
+	if _, err := blocker.Exec(ctx, `select id from app.critical_alert_deliveries
+		where id = $1::uuid for update`, deliveryID); err != nil {
+		t.Fatal(err)
+	}
+	assessmentDone := make(chan error, 1)
+	go func() { assessmentDone <- correctingStore.Assess(ctx, childID, revisionID) }()
+	waitForBlockedDeliveryQuery(t, ctx, pool, "%join app.raw_documents original%")
+	type claimResult struct {
+		request *alert.Delivery
+		err     error
+	}
+	claimDone := make(chan claimResult, 1)
+	go func() {
+		request, err := correctingStore.BeginDelivery(ctx, deliveryID, due.Add(2*time.Second))
+		claimDone <- claimResult{request, err}
+	}()
+	waitForBlockedDeliveryQuery(t, ctx, pool, "%select alert.id::text, delivery.channel%")
+	if err := blocker.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-assessmentDone:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+	select {
+	case result := <-claimDone:
+		if result.err != nil || result.request != nil {
+			t.Fatalf("claim after queued correction = %+v, %v", result.request, result.err)
+		}
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+	var state string
+	if err := pool.QueryRow(ctx, `select state from app.critical_alert_deliveries
+		where id = $1::uuid`, deliveryID).Scan(&state); err != nil {
+		t.Fatal(err)
+	}
+	if state != "suppressed" {
+		t.Fatalf("delivery state after claim race = %q, want suppressed", state)
+	}
+}
+
+func waitForBlockedDeliveryQuery(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
+	queryPattern string,
+) {
+	t.Helper()
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		var count int
+		if err := pool.QueryRow(ctx, `select count(*) from pg_stat_activity
+			where datname = current_database() and wait_event_type = 'Lock'
+				and query like $1`, queryPattern).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		if count > 0 {
+			return
+		}
+		select {
+		case <-ticker.C:
+		case <-ctx.Done():
+			t.Fatalf("query %q did not block: %v", queryPattern, ctx.Err())
+		}
+	}
+}
+
 func TestCriticalAlertDeliveryRejectsPayloadTampering(t *testing.T) {
 	pool := openAssessmentPool(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

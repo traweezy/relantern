@@ -8,7 +8,11 @@
   `critical_alert_undelivered_count` is above zero in private metrics. This
   counts permanently failed external deliveries and deliveries still unsent
   ten minutes after they became due or were first attempted. A delivery
-  waiting for its configured quiet-hour end is excluded until due.
+  waiting for its configured quiet-hour end is excluded until due. A later
+  verified withdrawal, closure, or explicit severity change away from critical
+  suppresses queued deliveries and removes that alert from this live overdue
+  count; owner history retains the original finding, correction, and any
+  completed provider receipt.
 - `reviewed_advisory_scan_stalled` fires after the reviewed global feed has an
   unfinished page cursor for more than 24 hours.
 - `reviewed_advisory_scan_invalid` fires when the validated cursor chain
