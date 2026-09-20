@@ -129,19 +129,210 @@ func (poller *Poller) Poll(ctx context.Context, registryID string) error {
 		// An operator can pause a source after its durable job was inserted.
 		return nil
 	}
-	result, fetchErr := poller.fetcher.Fetch(ctx, *endpoint)
+	if endpoint.RegistryID == "github-global-advisories" && endpoint.SourceID == "github-global-advisories" &&
+		endpoint.Connector == sources.ConnectorGitHubAdvisories && endpoint.URL == sources.GlobalReviewedAdvisoriesURL {
+		return poller.pollGlobalAdvisories(ctx, *endpoint)
+	}
+	_, err = poller.fetchAndRecord(ctx, *endpoint)
+	return err
+}
+
+// A poll always refreshes the first, update-ordered page. Two additional pages
+// advance a durable cursor without allowing a large catalog to monopolize the
+// fetch queue. Each page and its next cursor commit in one storage transaction.
+func (poller *Poller) pollGlobalAdvisories(ctx context.Context, endpoint Endpoint) error {
+	const continuationPagesPerPoll = 2
+	priorCursor := endpoint.Checkpoint.Cursor
+	if priorCursor != "" && !sources.IsGlobalAdvisoryPageURL(priorCursor) {
+		return errors.New("reviewed advisory checkpoint contains an invalid continuation URL")
+	}
+	rootEndpoint := endpoint
+	if advisoryScanDue(endpoint.Checkpoint, poller.clock.Now().UTC()) {
+		// A conditional 304 cannot start a second catalog pass. Refresh the
+		// pinned root unconditionally once a day after a completed scan.
+		rootEndpoint.Checkpoint.ETag = ""
+		rootEndpoint.Checkpoint.LastModified = ""
+	}
+	root, err := poller.fetchAndRecord(ctx, rootEndpoint, func(result *fetcher.Result) {
+		if result.Outcome == fetcher.OutcomeNotModified && priorCursor == "" {
+			return
+		}
+		if result.Outcome == fetcher.OutcomeStored && result.NextPageURL == "" {
+			result.Checkpoint.Cursor = ""
+		} else if priorCursor != "" {
+			result.Checkpoint.Cursor = priorCursor
+		} else {
+			result.Checkpoint.Cursor = result.NextPageURL
+		}
+		setAdvisoryScanState(&result.Checkpoint, poller.clock.Now().UTC(), result.Checkpoint.Cursor, priorCursor == "", "")
+	})
+	if err != nil || root.Outcome == fetcher.OutcomeFailed {
+		return err
+	}
+	checkpoint := root.Checkpoint
+	if advisoryScanIssue(checkpoint) != "" {
+		poller.logger.WarnContext(ctx, "reviewed advisory scan requires operator review",
+			"registry_id", endpoint.RegistryID, "issue", advisoryScanIssue(checkpoint))
+		return nil
+	}
+	for page := 0; page < continuationPagesPerPoll && checkpoint.Cursor != ""; page++ {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		pageEndpoint := endpoint
+		pageEndpoint.URL = checkpoint.Cursor
+		// Conditional validators belong to the pinned first page. A 304 for a
+		// continuation cannot advance the cursor or prove older coverage.
+		pageEndpoint.Checkpoint = fetcher.Checkpoint{}
+		result, err := poller.fetchAndRecord(ctx, pageEndpoint, func(result *fetcher.Result) {
+			result.Checkpoint = checkpoint
+			result.Checkpoint.Cursor = result.NextPageURL
+			setAdvisoryScanState(&result.Checkpoint, poller.clock.Now().UTC(), result.Checkpoint.Cursor, false, pageEndpoint.URL)
+		})
+		if err != nil || result.Outcome == fetcher.OutcomeFailed {
+			return err
+		}
+		checkpoint = result.Checkpoint
+		if advisoryScanIssue(checkpoint) != "" {
+			poller.logger.WarnContext(ctx, "reviewed advisory scan requires operator review",
+				"registry_id", endpoint.RegistryID, "issue", advisoryScanIssue(checkpoint))
+			return nil
+		}
+	}
+	if checkpoint.Cursor != "" {
+		poller.logger.InfoContext(ctx, "reviewed advisory scan continues", "registry_id", endpoint.RegistryID)
+	}
+	return nil
+}
+
+func advisoryScanDue(checkpoint fetcher.Checkpoint, now time.Time) bool {
+	if checkpoint.Cursor != "" {
+		return false
+	}
+	completedAt, ok := checkpoint.ProviderState["advisoryScanCompletedAt"].(string)
+	if !ok {
+		return true
+	}
+	completed, err := time.Parse(time.RFC3339Nano, completedAt)
+	return err != nil || !now.Before(completed.Add(24*time.Hour))
+}
+
+func setAdvisoryScanState(checkpoint *fetcher.Checkpoint, now time.Time, nextURL string, newScan bool, fetchedPageURL string) {
+	const maximumPagesPerScan = 10000
+	const recentPagesLimit = 32
+	state := make(map[string]any, len(checkpoint.ProviderState)+5)
+	for key, value := range checkpoint.ProviderState {
+		state[key] = value
+	}
+	if nextURL == "" {
+		delete(state, "advisoryScanStartedAt")
+		delete(state, "advisoryScanPages")
+		delete(state, "advisoryScanRecentPages")
+		delete(state, "advisoryScanIssue")
+		state["advisoryScanCompletedAt"] = now.Format(time.RFC3339Nano)
+	} else {
+		if newScan {
+			state["advisoryScanPages"] = 0
+			state["advisoryScanRecentPages"] = []string{}
+			delete(state, "advisoryScanIssue")
+		}
+		if newScan || state["advisoryScanStartedAt"] == nil {
+			state["advisoryScanStartedAt"] = now.Format(time.RFC3339Nano)
+		}
+		if fetchedPageURL != "" {
+			pages := advisoryScanPageCount(state["advisoryScanPages"]) + 1
+			state["advisoryScanPages"] = pages
+			recent := advisoryRecentPages(state["advisoryScanRecentPages"])
+			nextDigest := fmt.Sprintf("%x", sha256.Sum256([]byte(nextURL)))
+			for _, previous := range recent {
+				if previous == nextDigest {
+					state["advisoryScanIssue"] = "cursor_cycle"
+					break
+				}
+			}
+			recent = append(recent, fmt.Sprintf("%x", sha256.Sum256([]byte(fetchedPageURL))))
+			if len(recent) > recentPagesLimit {
+				recent = recent[len(recent)-recentPagesLimit:]
+			}
+			state["advisoryScanRecentPages"] = recent
+			if pages > maximumPagesPerScan {
+				state["advisoryScanIssue"] = "page_limit"
+			}
+		}
+	}
+	checkpoint.ProviderState = state
+}
+
+func advisoryScanPageCount(value any) int {
+	switch pages := value.(type) {
+	case int:
+		return pages
+	case float64:
+		if pages >= 0 && pages <= 10001 {
+			return int(pages)
+		}
+		return 10001
+	}
+	return 0
+}
+
+func advisoryRecentPages(value any) []string {
+	const recentPagesLimit = 32
+	var recent []string
+	switch values := value.(type) {
+	case []string:
+		recent = append(recent, values...)
+	case []any:
+		for _, value := range values {
+			if digest, ok := value.(string); ok && len(digest) == 64 {
+				recent = append(recent, digest)
+			}
+		}
+	}
+	if len(recent) > recentPagesLimit {
+		recent = recent[len(recent)-recentPagesLimit:]
+	}
+	return recent
+}
+
+func advisoryScanIssue(checkpoint fetcher.Checkpoint) string {
+	issue, _ := checkpoint.ProviderState["advisoryScanIssue"].(string)
+	return issue
+}
+
+func (poller *Poller) fetchAndRecord(ctx context.Context, endpoint Endpoint, prepare ...func(*fetcher.Result)) (fetcher.Result, error) {
+	result, fetchErr := poller.fetcher.Fetch(ctx, endpoint)
 	if len(result.Attempts) == 0 {
 		if fetchErr != nil {
-			return fmt.Errorf("fetch source %s without a recorded attempt: %w", registryID, fetchErr)
+			return result, fmt.Errorf("fetch source %s without a recorded attempt: %w", endpoint.RegistryID, fetchErr)
 		}
-		return fmt.Errorf("fetch source %s returned no attempt", registryID)
+		return result, fmt.Errorf("fetch source %s returned no attempt", endpoint.RegistryID)
 	}
-	if err := poller.repository.RecordFetch(ctx, *endpoint, result, fetchErr); err != nil {
-		return fmt.Errorf("record source %s fetch: %w", registryID, err)
+	if endpoint.RegistryID == "github-global-advisories" && endpoint.URL != sources.GlobalReviewedAdvisoriesURL &&
+		result.Outcome == fetcher.OutcomeNotModified {
+		result.Outcome = fetcher.OutcomeFailed
+		result.Attempts[len(result.Attempts)-1].ErrorCode = fetcher.ErrorUnexpectedStatus
+		fetchErr = &fetcher.FetchError{
+			Code: fetcher.ErrorUnexpectedStatus, Retryable: true,
+			Err: errors.New("reviewed advisory continuation returned 304 without a conditional validator"),
+		}
+	}
+	if fetchErr == nil && result.Outcome != fetcher.OutcomeFailed {
+		for _, apply := range prepare {
+			apply(&result)
+		}
+	}
+	if err := poller.repository.RecordFetch(ctx, endpoint, result, fetchErr); err != nil {
+		return result, fmt.Errorf("record source %s fetch: %w", endpoint.RegistryID, err)
 	}
 	finalAttempt := result.Attempts[len(result.Attempts)-1]
+	pageKind := "root"
+	if endpoint.Connector == sources.ConnectorGitHubAdvisories && endpoint.URL != sources.GlobalReviewedAdvisoriesURL {
+		pageKind = "continuation"
+	}
 	poller.logger.InfoContext(ctx, "source poll complete",
-		"registry_id", registryID,
+		"registry_id", endpoint.RegistryID,
+		"page_kind", pageKind,
 		"outcome", result.Outcome,
 		"status_code", finalAttempt.StatusCode,
 		"error_code", finalAttempt.ErrorCode,
@@ -150,7 +341,7 @@ func (poller *Poller) Poll(ctx context.Context, registryID string) error {
 	)
 	// Fetch failures are persisted and rescheduled from their checkpoint. River
 	// retries only storage failures, avoiding a burst of repeat provider calls.
-	return nil
+	return result, nil
 }
 
 type RawReader interface {
