@@ -1,4 +1,6 @@
 import type {
+  AlertDeliveryStatus,
+  AlertHistoryPage,
   ClaimEvidence,
   CriticalAlert,
   LiveEvent,
@@ -164,6 +166,85 @@ export const parseStoryDetail = (value: unknown): StoryDetail => {
   };
 };
 
+const parseCriticalAlert = (value: unknown, name: string): CriticalAlert => {
+  const item = recordValue(value, name);
+  return {
+    id: stringValue(item.id, `${name}.id`, 80),
+    advisoryId: stringValue(item.advisoryId, `${name}.advisoryId`, 19),
+    title: stringValue(item.title, `${name}.title`, 500),
+    ecosystem: stringValue(item.ecosystem, `${name}.ecosystem`, 32),
+    packageName: stringValue(item.packageName, `${name}.packageName`, 255),
+    currentVersion: stringValue(item.currentVersion, `${name}.currentVersion`, 100),
+    versionRange: stringValue(item.versionRange, `${name}.versionRange`, 200),
+    patchedVersion:
+      item.patchedVersion === ""
+        ? ""
+        : stringValue(item.patchedVersion, `${name}.patchedVersion`, 100),
+    sourceUrl: sourceURLValue(item.sourceUrl, `${name}.sourceUrl`),
+    observedAt: timestampValue(item.observedAt, `${name}.observedAt`),
+    alertedAt: timestampValue(item.alertedAt, `${name}.alertedAt`),
+    reason: stringValue(item.reason, `${name}.reason`, 500),
+  };
+};
+
+export const parseAlertHistoryPage = (value: unknown): AlertHistoryPage => {
+  const page = recordValue(value, "alert history");
+  if (!Array.isArray(page.alerts) || page.alerts.length > 100) {
+    throw new IntelligenceContractError("alert history alerts must be a bounded array");
+  }
+  const nextCursor =
+    page.nextCursor === null ? null : stringValue(page.nextCursor, "alert history.nextCursor", 512);
+  if (nextCursor !== null && !/^[A-Za-z0-9_-]+$/.test(nextCursor)) {
+    throw new IntelligenceContractError("alert history.nextCursor must be a base64url token");
+  }
+  return {
+    alerts: page.alerts.map((value, index) => {
+      const name = `alert history.alerts[${index}]`;
+      const item = recordValue(value, name);
+      if (!Array.isArray(item.deliveries) || item.deliveries.length > 2) {
+        throw new IntelligenceContractError(`${name}.deliveries must be a bounded array`);
+      }
+      const channels = new Set<string>();
+      const deliveries = item.deliveries.map((value, deliveryIndex): AlertDeliveryStatus => {
+        const deliveryName = `${name}.deliveries[${deliveryIndex}]`;
+        const delivery = recordValue(value, deliveryName);
+        const channel = enumValue(
+          delivery.channel,
+          `${deliveryName}.channel`,
+          new Set(["discord", "email"] as const),
+        );
+        if (channels.has(channel)) {
+          throw new IntelligenceContractError(`${name}.deliveries has a duplicate channel`);
+        }
+        channels.add(channel);
+        return {
+          attemptCount: integerValue(
+            delivery.attemptCount,
+            `${deliveryName}.attemptCount`,
+            1_000_000,
+          ),
+          channel,
+          deliveredAt:
+            delivery.deliveredAt === null
+              ? null
+              : timestampValue(delivery.deliveredAt, `${deliveryName}.deliveredAt`),
+          nextAttemptAt:
+            delivery.nextAttemptAt === null
+              ? null
+              : timestampValue(delivery.nextAttemptAt, `${deliveryName}.nextAttemptAt`),
+          state: enumValue(
+            delivery.state,
+            `${deliveryName}.state`,
+            new Set(["pending", "sending", "sent", "failed", "permanent"] as const),
+          ),
+        };
+      });
+      return { ...parseCriticalAlert(item, name), deliveries };
+    }),
+    nextCursor,
+  };
+};
+
 export const parseTodaySnapshot = (value: unknown): TodaySnapshot => {
   const snapshot = recordValue(value, "today");
   const stats = recordValue(snapshot.stats, "today.stats");
@@ -171,27 +252,9 @@ export const parseTodaySnapshot = (value: unknown): TodaySnapshot => {
     throw new IntelligenceContractError("today collections must be arrays");
   }
   return {
-    alerts: snapshot.alerts.map((value, index): CriticalAlert => {
-      const name = `today.alerts[${index}]`;
-      const item = recordValue(value, name);
-      return {
-        id: stringValue(item.id, `${name}.id`, 80),
-        advisoryId: stringValue(item.advisoryId, `${name}.advisoryId`, 19),
-        title: stringValue(item.title, `${name}.title`, 500),
-        ecosystem: stringValue(item.ecosystem, `${name}.ecosystem`, 32),
-        packageName: stringValue(item.packageName, `${name}.packageName`, 255),
-        currentVersion: stringValue(item.currentVersion, `${name}.currentVersion`, 100),
-        versionRange: stringValue(item.versionRange, `${name}.versionRange`, 200),
-        patchedVersion:
-          item.patchedVersion === ""
-            ? ""
-            : stringValue(item.patchedVersion, `${name}.patchedVersion`, 100),
-        sourceUrl: sourceURLValue(item.sourceUrl, `${name}.sourceUrl`),
-        observedAt: timestampValue(item.observedAt, `${name}.observedAt`),
-        alertedAt: timestampValue(item.alertedAt, `${name}.alertedAt`),
-        reason: stringValue(item.reason, `${name}.reason`, 500),
-      };
-    }),
+    alerts: snapshot.alerts.map((alert, index) =>
+      parseCriticalAlert(alert, `today.alerts[${index}]`),
+    ),
     coverageEndAt: timestampValue(snapshot.coverageEndAt, "today.coverageEndAt"),
     coverageStartAt: timestampValue(snapshot.coverageStartAt, "today.coverageStartAt"),
     deliveryState: enumValue(

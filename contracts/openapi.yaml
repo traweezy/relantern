@@ -1,5 +1,106 @@
 components:
   schemas:
+    AlertDeliveryStatus:
+      additionalProperties: false
+      properties:
+        attemptCount:
+          format: int64
+          type: integer
+        channel:
+          type: string
+        deliveredAt:
+          format: date-time
+          type:
+            - string
+            - "null"
+        nextAttemptAt:
+          format: date-time
+          type:
+            - string
+            - "null"
+        state:
+          type: string
+      required:
+        - channel
+        - state
+        - attemptCount
+        - deliveredAt
+        - nextAttemptAt
+      type: object
+    AlertHistoryItem:
+      additionalProperties: false
+      properties:
+        advisoryId:
+          type: string
+        alertedAt:
+          format: date-time
+          type: string
+        currentVersion:
+          type: string
+        deliveries:
+          items:
+            $ref: "#/components/schemas/AlertDeliveryStatus"
+          type:
+            - array
+            - "null"
+        ecosystem:
+          type: string
+        id:
+          type: string
+        observedAt:
+          format: date-time
+          type: string
+        packageName:
+          type: string
+        patchedVersion:
+          type: string
+        reason:
+          type: string
+        sourceUrl:
+          type: string
+        title:
+          type: string
+        versionRange:
+          type: string
+      required:
+        - deliveries
+        - id
+        - advisoryId
+        - title
+        - ecosystem
+        - packageName
+        - currentVersion
+        - versionRange
+        - patchedVersion
+        - sourceUrl
+        - observedAt
+        - alertedAt
+        - reason
+      type: object
+    AlertHistoryPage:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - https://example.com/AlertHistoryPage.json
+          format: uri
+          readOnly: true
+          type: string
+        alerts:
+          items:
+            $ref: "#/components/schemas/AlertHistoryItem"
+          type:
+            - array
+            - "null"
+        nextCursor:
+          type:
+            - string
+            - "null"
+      required:
+        - alerts
+        - nextCursor
+      type: object
     Annotation:
       additionalProperties: false
       properties:
@@ -3151,6 +3252,58 @@ info:
   version: 0.0.0
 openapi: 3.1.0
 paths:
+  /api/v1/alerts:
+    get:
+      operationId: get-alert-history
+      parameters:
+        - in: header
+          name: Authorization
+          schema:
+            type: string
+        - explode: false
+          in: query
+          name: cursor
+          schema:
+            maxLength: 512
+            type: string
+        - explode: false
+          in: query
+          name: limit
+          schema:
+            default: 20
+            format: int64
+            maximum: 100
+            minimum: 1
+            type: integer
+        - in: header
+          name: X-Relantern-User-ID
+          schema:
+            maxLength: 36
+            minLength: 36
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AlertHistoryPage"
+          description: OK
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            Link:
+              schema:
+                type: string
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: List confirmed owner advisory alerts with delivery status
+      tags:
+        - intelligence
   /api/v1/annotations/{annotationId}:
     delete:
       operationId: delete-annotation

@@ -104,6 +104,24 @@ export type CriticalAlert = Readonly<{
   versionRange: string;
 }>;
 
+export type AlertDeliveryStatus = Readonly<{
+  attemptCount: number;
+  channel: "discord" | "email";
+  deliveredAt: string | null;
+  nextAttemptAt: string | null;
+  state: "pending" | "sending" | "sent" | "failed" | "permanent";
+}>;
+
+export type AlertHistoryItem = CriticalAlert &
+  Readonly<{
+    deliveries: readonly AlertDeliveryStatus[];
+  }>;
+
+export type AlertHistoryPage = Readonly<{
+  alerts: readonly AlertHistoryItem[];
+  nextCursor: string | null;
+}>;
+
 export type TodaySnapshot = Readonly<{
   alerts: readonly CriticalAlert[];
   coverageEndAt: string;

@@ -1,7 +1,8 @@
 import "server-only";
 
-import type { LiveSnapshot, StoryDetail, TodaySnapshot } from "@relantern/domain";
+import type { AlertHistoryPage, LiveSnapshot, StoryDetail, TodaySnapshot } from "@relantern/domain";
 import {
+  parseAlertHistoryPage,
   parseLiveSnapshot,
   parseStoryDetail,
   parseTodaySnapshot,
@@ -35,6 +36,9 @@ const request = async <T>(
     },
     signal: AbortSignal.timeout(5_000),
   });
+  if (!response.ok) {
+    throw new IntelligenceResponseError("The private API request failed.", response.status);
+  }
   const contentType = response.headers.get("content-type") ?? "";
   if (!contentType.toLowerCase().startsWith("application/json")) {
     throw new IntelligenceResponseError("The private API returned an unsupported response.", 502);
@@ -42,9 +46,6 @@ const request = async <T>(
   const encoded = await response.text();
   if (encoded.length > maximumResponseCharacters) {
     throw new IntelligenceResponseError("The private API response exceeded its size limit.", 502);
-  }
-  if (!response.ok) {
-    throw new IntelligenceResponseError("The private API request failed.", response.status);
   }
   let decoded: unknown;
   try {
@@ -57,6 +58,18 @@ const request = async <T>(
 
 export const getTodaySnapshot = (userID: string): Promise<TodaySnapshot> =>
   request("/api/v1/today", parseTodaySnapshot, userID);
+
+export const getAlertHistory = async (
+  userID: string,
+  cursor?: string,
+): Promise<AlertHistoryPage> => {
+  if (cursor !== undefined && (cursor.length > 512 || !/^[A-Za-z0-9_-]+$/.test(cursor))) {
+    throw new IntelligenceResponseError("The alert history cursor is invalid.", 400);
+  }
+  const path =
+    cursor === undefined ? "/api/v1/alerts" : `/api/v1/alerts?cursor=${encodeURIComponent(cursor)}`;
+  return request(path, parseAlertHistoryPage, userID);
+};
 
 export const getLiveSnapshot = (): Promise<LiveSnapshot> =>
   request("/api/v1/live", parseLiveSnapshot);

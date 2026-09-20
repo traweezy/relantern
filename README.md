@@ -109,6 +109,9 @@ are always on; optional Discord and email deliveries follow separate owner
 settings and remain disconnected in the default local profile. Unsupported
 ecosystem/version-range combinations stay out of the urgent path, and changing
 an active typed watch queues a bounded recheck of retained advisories.
+The private Alerts page retains older admitted alerts in owner-scoped cursor
+pages and shows the state of each selected external delivery. Today remains a
+24-hour summary with a link to the full history.
 
 ## Safe local workflow
 

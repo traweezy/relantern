@@ -7,6 +7,7 @@ import (
 )
 
 var ErrStoryNotFound = errors.New("intelligence story not found")
+var ErrInvalidAlertHistory = errors.New("invalid alert history query")
 
 type Source struct {
 	Domain string `json:"domain"`
@@ -71,6 +72,24 @@ type CriticalAlert struct {
 	Reason         string    `json:"reason"`
 }
 
+type AlertDeliveryStatus struct {
+	Channel       string     `json:"channel"`
+	State         string     `json:"state"`
+	AttemptCount  int        `json:"attemptCount"`
+	DeliveredAt   *time.Time `json:"deliveredAt"`
+	NextAttemptAt *time.Time `json:"nextAttemptAt"`
+}
+
+type AlertHistoryItem struct {
+	CriticalAlert
+	Deliveries []AlertDeliveryStatus `json:"deliveries"`
+}
+
+type AlertHistoryPage struct {
+	Alerts     []AlertHistoryItem `json:"alerts"`
+	NextCursor *string            `json:"nextCursor"`
+}
+
 type TodaySnapshot struct {
 	Alerts          []CriticalAlert `json:"alerts"`
 	CoverageEndAt   time.Time       `json:"coverageEndAt"`
@@ -118,6 +137,7 @@ type LiveReplay interface {
 }
 
 type Reader interface {
+	AlertHistory(context.Context, string, string, int) (AlertHistoryPage, error)
 	Live(context.Context, time.Time) (LiveSnapshot, error)
 	Story(context.Context, string) (StoryDetail, error)
 	Today(context.Context, string, time.Time) (TodaySnapshot, error)
