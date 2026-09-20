@@ -5,6 +5,9 @@
 .idea
 .local
 .next
+apps/web/.next
+apps/web/demo/.next
+apps/web/demo/out
 .pnpm-store
 .turbo
 .vercel
@@ -16,6 +19,7 @@ coverage
 dist
 lhci_reports
 node_modules
+apps/web/node_modules
 out
 playwright-report
 storybook-static
