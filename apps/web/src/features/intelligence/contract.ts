@@ -187,6 +187,13 @@ const parseCriticalAlert = (value: unknown, name: string): CriticalAlert => {
   };
 };
 
+const correctionReasonValues = new Set([
+  "withdrawn",
+  "no_longer_published",
+  "severity_downgraded",
+  "severity_unconfirmed",
+] as const);
+
 export const parseAlertHistoryPage = (value: unknown): AlertHistoryPage => {
   const page = recordValue(value, "alert history");
   if (!Array.isArray(page.alerts) || page.alerts.length > 100) {
@@ -235,11 +242,22 @@ export const parseAlertHistoryPage = (value: unknown): AlertHistoryPage => {
           state: enumValue(
             delivery.state,
             `${deliveryName}.state`,
-            new Set(["pending", "sending", "sent", "failed", "permanent"] as const),
+            new Set(["pending", "sending", "sent", "failed", "permanent", "suppressed"] as const),
           ),
         };
       });
-      return { ...parseCriticalAlert(item, name), deliveries };
+      const correctionReason =
+        item.correctionReason === null
+          ? null
+          : enumValue(item.correctionReason, `${name}.correctionReason`, correctionReasonValues);
+      const correctedAt =
+        item.correctedAt === null ? null : timestampValue(item.correctedAt, `${name}.correctedAt`);
+      if ((correctionReason === null) !== (correctedAt === null)) {
+        throw new IntelligenceContractError(
+          `${name} correction reason and time must appear together`,
+        );
+      }
+      return { ...parseCriticalAlert(item, name), correctionReason, correctedAt, deliveries };
     }),
     nextCursor,
   };

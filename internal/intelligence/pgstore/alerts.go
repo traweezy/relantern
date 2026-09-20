@@ -46,7 +46,7 @@ func (store *Store) AlertHistory(
 	const projection = `
 		select id::text, advisory_id, title, ecosystem, package_name,
 			current_version, vulnerable_range, patched_version, source_url,
-			observed_at, created_at
+			observed_at, created_at, correction_reason, corrected_at
 		from app.critical_alerts
 		where user_id = $1::uuid`
 	const order = ` order by created_at desc, id desc`
@@ -67,16 +67,27 @@ func (store *Store) AlertHistory(
 	items := make([]intelligence.AlertHistoryItem, 0, limit+1)
 	for rows.Next() {
 		var item intelligence.AlertHistoryItem
+		var correctionReason pgtype.Text
+		var correctedAt pgtype.Timestamptz
 		if err := rows.Scan(
 			&item.ID, &item.AdvisoryID, &item.Title, &item.Ecosystem,
 			&item.PackageName, &item.CurrentVersion, &item.VersionRange,
 			&item.PatchedVersion, &item.SourceURL, &item.ObservedAt, &item.AlertedAt,
+			&correctionReason, &correctedAt,
 		); err != nil {
 			rows.Close()
 			return intelligence.AlertHistoryPage{}, fmt.Errorf("scan owner alert history: %w", err)
 		}
 		item.ObservedAt = item.ObservedAt.UTC()
 		item.AlertedAt = item.AlertedAt.UTC()
+		if correctionReason.Valid {
+			reason := correctionReason.String
+			item.CorrectionReason = &reason
+		}
+		if correctedAt.Valid {
+			at := correctedAt.Time.UTC()
+			item.CorrectedAt = &at
+		}
 		item.Reason = "Confirmed critical advisory affects a watched dependency."
 		item.Deliveries = []intelligence.AlertDeliveryStatus{}
 		items = append(items, item)

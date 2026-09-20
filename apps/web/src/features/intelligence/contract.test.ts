@@ -65,6 +65,8 @@ describe("intelligence API contract validation", () => {
       alerts: [
         {
           ...alert,
+          correctionReason: null,
+          correctedAt: null,
           deliveries: [
             {
               channel: "discord",
@@ -80,7 +82,47 @@ describe("intelligence API contract validation", () => {
     } as const;
 
     expect(parseAlertHistoryPage(history).alerts[0]?.deliveries[0]?.state).toBe("sent");
+    expect(parseAlertHistoryPage(history).alerts[0]?.correctionReason).toBeNull();
     expect(parseAlertHistoryPage(history).nextCursor).toBe("YWxlcnRzXzE");
+    const corrected = {
+      ...history,
+      alerts: [
+        {
+          ...history.alerts[0],
+          correctionReason: "withdrawn",
+          correctedAt: "2026-09-20T14:00:00Z",
+          deliveries: [{ ...history.alerts[0].deliveries[0], state: "suppressed" }],
+        },
+      ],
+    } as const;
+    expect(parseAlertHistoryPage(corrected).alerts[0]?.correctionReason).toBe("withdrawn");
+    expect(parseAlertHistoryPage(corrected).alerts[0]?.deliveries[0]?.state).toBe("suppressed");
+    expect(
+      parseAlertHistoryPage({
+        ...corrected,
+        alerts: [{ ...corrected.alerts[0], correctionReason: "severity_downgraded" }],
+      }).alerts[0]?.correctionReason,
+    ).toBe("severity_downgraded");
+    for (const reason of ["no_longer_published", "severity_unconfirmed"] as const) {
+      expect(
+        parseAlertHistoryPage({
+          ...corrected,
+          alerts: [{ ...corrected.alerts[0], correctionReason: reason }],
+        }).alerts[0]?.correctionReason,
+      ).toBe(reason);
+    }
+    expect(() =>
+      parseAlertHistoryPage({
+        ...corrected,
+        alerts: [{ ...corrected.alerts[0], correctedAt: null }],
+      }),
+    ).toThrow("correction reason and time must appear together");
+    expect(() =>
+      parseAlertHistoryPage({
+        ...corrected,
+        alerts: [{ ...corrected.alerts[0], correctionReason: "invalid" }],
+      }),
+    ).toThrow(IntelligenceContractError);
     expect(() =>
       parseAlertHistoryPage({
         ...history,

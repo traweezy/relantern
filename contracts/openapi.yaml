@@ -19,6 +19,13 @@ components:
             - string
             - "null"
         state:
+          enum:
+            - pending
+            - sending
+            - sent
+            - failed
+            - permanent
+            - suppressed
           type: string
       required:
         - channel
@@ -35,6 +42,21 @@ components:
         alertedAt:
           format: date-time
           type: string
+        correctedAt:
+          format: date-time
+          type:
+            - string
+            - "null"
+        correctionReason:
+          enum:
+            - withdrawn
+            - no_longer_published
+            - severity_downgraded
+            - severity_unconfirmed
+            - null
+          type:
+            - string
+            - "null"
         currentVersion:
           type: string
         deliveries:
@@ -63,6 +85,8 @@ components:
         versionRange:
           type: string
       required:
+        - correctionReason
+        - correctedAt
         - deliveries
         - id
         - advisoryId

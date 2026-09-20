@@ -129,6 +129,7 @@ func (store *Store) recentCriticalAlerts(ctx context.Context, userID string, now
 			observed_at, created_at, count(*) over()
 		from app.critical_alerts
 		where user_id = $1::uuid and created_at >= $2 and created_at <= $3
+			and correction_reason is null
 		order by created_at desc, id desc
 		limit 20`, userID, now.Add(-24*time.Hour), now)
 	if err != nil {

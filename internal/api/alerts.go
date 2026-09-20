@@ -60,4 +60,12 @@ func registerAlertHistory(api huma.API, configuration options, logger *slog.Logg
 		}
 		return output, nil
 	})
+	// Huma retains the pointer's null type but omits null from enum tags.
+	// Include it so uncorrected history items satisfy the emitted contract.
+	alertSchema := api.OpenAPI().Components.Schemas.Map()["AlertHistoryItem"]
+	if alertSchema == nil || alertSchema.Properties["correctionReason"] == nil {
+		panic("alert history correction schema is missing")
+	}
+	correctionSchema := alertSchema.Properties["correctionReason"]
+	correctionSchema.Enum = append(correctionSchema.Enum, nil)
 }

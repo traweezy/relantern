@@ -27,8 +27,8 @@ const AlertsPage = async ({ searchParams }: PageProps) => {
           <p className="eyebrow">Alert history · Owner only</p>
           <h1>Confirmed dependency alerts.</h1>
           <p>
-            Review official critical advisories affecting watched package versions and the status of
-            each enabled delivery channel.
+            Review alerts issued for watched package versions, later advisory corrections, and the
+            status of each enabled delivery channel.
           </p>
         </div>
       </header>
@@ -74,7 +74,7 @@ const AlertsPage = async ({ searchParams }: PageProps) => {
           <div className="collection-toolbar">
             <div>
               <p className="eyebrow">Newest first</p>
-              <h2 id="alert-history-title">Confirmed advisories</h2>
+              <h2 id="alert-history-title">Alert and correction history</h2>
             </div>
             <p>{history.alerts.length} on this page</p>
           </div>

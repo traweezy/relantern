@@ -114,8 +114,12 @@ validated pages per run, resuming its cursor after restart; private metrics
 show when a catalog scan remains incomplete. A completed catalog receives a
 fresh traversal at least daily.
 The private Alerts page retains older admitted alerts in owner-scoped cursor
-pages and shows the state of each selected external delivery. Today remains a
-24-hour summary with a link to the full history.
+pages and shows the state of each selected external delivery. A later verified
+withdrawal, closed advisory, or explicit change away from critical severity
+stops queued external sends while preserving the original alert, correction
+evidence, and any completed receipt in history.
+Today remains a 24-hour summary of current critical alerts with a link to the
+full history.
 
 ## Safe local workflow
 
