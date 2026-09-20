@@ -37,6 +37,8 @@ docker compose logs --since=30m worker fake-delivery
 ## Data-integrity checks
 
 - One advisory identity maps to one urgent alert identity.
+- One `(user_id, advisory_id, ecosystem, package_name)` alert maps to at most
+  one delivery per selected external channel.
 - One owner/date/channel maps to one digest and one immutable payload hash.
 - Ambiguous provider acceptance is manually verified before retry.
 
