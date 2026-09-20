@@ -346,7 +346,7 @@ jobs:
     name: db-integration
     needs: go-setup
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 25
     services:
       postgres:
         image: pgvector/pgvector:0.8.6-pg18-trixie@sha256:78bf48b801e792f99e3ac62b5036fd3876e9be48afda16c1e331af1c75ceb2ff
@@ -377,7 +377,16 @@ jobs:
           go run ./cmd/migrate up
           go run ./cmd/seed
       - name: Verify database adapters
-        run: go test -p 1 ./internal/database/... ./internal/dedupe/... ./internal/embedding/... ./internal/extraction/... ./internal/fetcher/pgstore/... ./internal/jobqueue/... ./internal/openaiwebhook/... ./internal/operability/... ./internal/parsing/pgstore/... ./internal/reembedding/... ./internal/research/... ./internal/retention/... ./internal/scheduler/... ./internal/search/... ./internal/sources/... ./internal/worker/...
+        run: |
+          go test -race -p 1 \
+            ./internal/database/... ./internal/dedupe/... ./internal/embedding/... \
+            ./internal/extraction/... ./internal/fetcher/pgstore/... \
+            ./internal/ingestion/pgstore/... ./internal/intelligence/pgstore/... \
+            ./internal/jobqueue/... ./internal/openaiwebhook/... \
+            ./internal/operability/... ./internal/parsing/pgstore/... \
+            ./internal/reembedding/... ./internal/research/... \
+            ./internal/retention/... ./internal/scheduler/... \
+            ./internal/search/... ./internal/sources/... ./internal/worker/...
 
   contract-drift:
     name: contract-drift
@@ -508,25 +517,54 @@ jobs:
   e2e:
     name: e2e
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 35
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Record PR 0 browser-test boundary
-        run: test -f docs/demo-route-contract.md
+      - name: Set up repository toolchains
+        uses: ./.github/actions/setup
+      - name: Install pinned Chromium browser
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Test the disconnected owner journey
+        run: make test-e2e
+      - name: Upload browser failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: owner-browser-${{ github.sha }}
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Stop isolated CI containers
+        if: always()
+        run: docker compose -f compose.yaml down --remove-orphans
 
   demo:
     name: demo
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 20
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Verify anonymous demo isolation contract
-        run: |
-          grep -Eq 'noindex,nofollow' docs/demo-route-contract.md
-          ! grep -REn '@relantern/api-client|/api/v1|/api/auth' apps/web/src/app/demo
+      - name: Set up Node workspace
+        uses: ./.github/actions/setup
+        with:
+          go: "false"
+      - name: Install pinned Chromium browser
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Verify fixture-only demo contract
+        run: make demo-check
+      - name: Test demo isolation and accessibility in Chromium
+        run: make test-demo-e2e
+      - name: Upload browser failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: demo-browser-${{ github.sha }}
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 7

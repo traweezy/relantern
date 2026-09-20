@@ -12,7 +12,7 @@ fail() {
   failures=$((failures + 1))
 }
 
-for command_name in docker git make; do
+for command_name in docker git make setfacl getfacl; do
   if command -v "${command_name}" >/dev/null 2>&1; then
     pass "${command_name} is installed"
   else
@@ -75,11 +75,22 @@ for optional_command in go node pnpm; do
 done
 
 if [[ -d .local/secrets ]]; then
-  insecure="$(find .local/secrets -type f ! -perm 600 -print -quit)"
-  if [[ -n "${insecure}" ]]; then
-    fail "local secret files must use mode 0600"
-  else
-    pass "existing local secret files use mode 0600"
+  if [[ -L .local/secrets || "$(stat -c '%u %a' -- .local/secrets)" != "$(id -u) 700" ]]; then
+    fail "local secret directory must be owned by the current user with mode 0700"
+  fi
+  expected_acl=$'user::rw-\nuser:65532:r--\ngroup::---\nmask::r--\nother::---'
+  secrets_valid=true
+  for secret_path in .local/secrets/*; do
+    [[ -e "${secret_path}" || -L "${secret_path}" ]] || continue
+    if [[ ! -f "${secret_path}" || -L "${secret_path}" ]] ||
+       [[ "$(stat -c '%u %a' -- "${secret_path}")" != "$(id -u) 640" ]] ||
+       [[ "$(getfacl -cpn -- "${secret_path}")" != "${expected_acl}" ]]; then
+      fail "local secret ${secret_path} must be readable only by its owner and container UID 65532"
+      secrets_valid=false
+    fi
+  done
+  if [[ "${secrets_valid}" == true ]]; then
+    pass "checked local secret ownership and container read ACLs"
   fi
 else
   printf 'INFO  local secrets do not exist yet; make secrets will create them\n'

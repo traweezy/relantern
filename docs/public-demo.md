@@ -21,6 +21,7 @@ is needed. The private application and its existing environments stay separate.
 ```sh
 pnpm demo:build
 pnpm demo:test
+make test-demo-e2e
 ```
 
 The build reuses the existing root pnpm lockfile, installed toolchain, styles,
@@ -42,6 +43,10 @@ Request URLs never access the filesystem.
 `make prepush` includes the demo build and HTTP boundary tests. The HTTP tests
 cover private paths, metadata/credential paths, rejected write methods, CSP,
 cache revalidation, health, and asset-integrity failures.
+`make test-demo-e2e` starts only the packaged demo server and runs the guided
+journey in pinned Chromium. It checks the anonymous request graph, local triage
+reset, narrow-width rendering, reduced motion, and axe accessibility. No private
+service is required.
 
 ## Railway configuration
 

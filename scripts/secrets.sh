@@ -8,15 +8,26 @@ case "$(realpath -m "${secret_directory}")" in
 esac
 
 umask 077
+if ! command -v setfacl >/dev/null 2>&1; then
+  printf 'setfacl is required to grant the nonroot local containers read access to secrets.\n' >&2
+  exit 1
+fi
 mkdir -p "${secret_directory}"
+chmod 700 "${secret_directory}"
 
 generate_secret() {
   local secret_name="$1"
   local secret_path="${secret_directory}/${secret_name}"
+  if [[ -L "${secret_path}" || ( -e "${secret_path}" && ! -f "${secret_path}" ) ]]; then
+    printf 'Refusing unexpected secret path %s.\n' "${secret_path}" >&2
+    exit 1
+  fi
   if [[ ! -f "${secret_path}" ]]; then
     od -An -N32 -tx1 /dev/urandom | tr -d ' \n' >"${secret_path}"
   fi
   chmod 600 "${secret_path}"
+  setfacl -b "${secret_path}"
+  setfacl -m u:65532:r-- "${secret_path}"
 }
 
 generate_secret database_password

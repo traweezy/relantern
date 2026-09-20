@@ -71,16 +71,23 @@ flowchart LR
   SI --> G
 
   P[policy]
-  E[e2e boundary]
-  D[demo boundary]
+  E[production-like browser journey]
+  D[fixture-only demo browser journey]
   C[container matrix] --> CA[container-build]
 ```
 
-The policy, browser-boundary, demo, and container checks start immediately
+The policy, browser, demo, and container checks start immediately
 alongside both setup gates. Database, storage, security, and source-fixture
 jobs depend only on `go / setup`; contract drift depends on both setup gates so
 it restores warm Go and pnpm caches. Storage joins the stable `go` aggregate so
 an S3 regression cannot be hidden by otherwise green unit checks.
+The database job runs the source-entry and Live replay adapter suites with the
+race detector after applying fresh migrations.
+
+The browser job builds the disconnected production-like stack and runs the
+owner sign-in, navigation, and sign-out journey in pinned Chromium. The demo job
+builds the isolated static fixture artifact and runs its guided journey,
+request-graph assertions, and axe accessibility checks without private services.
 
 ## Consequences
 
