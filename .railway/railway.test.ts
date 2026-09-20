@@ -54,8 +54,49 @@ describe("Railway infrastructure contract", () => {
         repo: "traweezy/relantern",
         type: "github",
       });
+      expect(services.get(name)?.variables?.GIT_SHA).toEqual({
+        type: "literal",
+        value: ["$", "{{", "RAILWAY_GIT_COMMIT_SHA", "}}"].join(""),
+      });
     }
+    expect(services.get("web")?.deploy?.healthcheckPath).toBe("/readyz");
+    expect(services.get("worker")?.deploy?.healthcheckPath).toBe("/readyz");
   });
+
+  it.each(["staging", "production"] as const)(
+    "keeps every %s application deployment on one runtime-input watch set",
+    async (environment) => {
+      const evaluated = await evaluate(environment);
+      const services = servicesByName(
+        evaluated.graph.resources.filter((item) => item.type === "service"),
+      );
+      const patterns = services.get("web")?.build?.watchPatterns;
+      expect(patterns).toEqual(
+        expect.arrayContaining([
+          ".dockerignore",
+          ".railway/**",
+          "apps/**",
+          "cmd/**",
+          "contracts/**",
+          "deploy/**",
+          "internal/**",
+          "migrations/**",
+          "packages/**",
+          "prompts/**",
+          "queries/**",
+          "scripts/**",
+          "sources/**",
+        ]),
+      );
+      expect(patterns).not.toContain("docs/**");
+      for (const name of ["api", "migrate", "worker"]) {
+        expect(services.get(name)?.build?.watchPatterns).toEqual(patterns);
+      }
+      for (const name of ["api", "worker", "web"]) {
+        expect(services.get(name)?.deploy?.healthcheckTimeout).toBe(600);
+      }
+    },
+  );
 
   it("disconnects production from mutable branch deployments", async () => {
     const evaluated = await evaluate("production");
@@ -65,7 +106,9 @@ describe("Railway infrastructure contract", () => {
     for (const name of ["api", "migrate", "web", "worker"]) {
       expect(services.get(name)?.kind).toBe("empty");
       expect(services.get(name)?.source).toEqual({ type: "empty" });
+      expect(services.get(name)?.variables?.GIT_SHA).toEqual({ type: "preserve" });
     }
+    expect(services.get("web")?.deploy?.healthcheckPath).toBe("/readyz");
   });
 
   it("keeps production delivery and AI activation disabled", async () => {

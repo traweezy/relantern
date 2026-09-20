@@ -27,6 +27,7 @@ services:
       - WEB_INTERNAL_SERVICE_TOKEN
     required_configuration:
       - APP_ENV
+      - GIT_SHA
       - OPENAI_BASE_URL
       - OPENAI_EMBEDDING_MODEL
       - OPENAI_PROJECT_ID
@@ -34,7 +35,7 @@ services:
   worker:
     dockerfile: deploy/docker/worker.Dockerfile
     target: production
-    healthcheck: /healthz
+    healthcheck: /readyz
     internal_port: 8081
     required_secrets:
       - DATABASE_URL
@@ -58,6 +59,7 @@ services:
       - APP_ENV
       - DELIVERY_MODE
       - DISCORD_ENABLED
+      - GIT_SHA
       - OBJECT_STORAGE_BUCKET
       - OBJECT_STORAGE_ENDPOINT
       - OBJECT_STORAGE_REGION
@@ -69,7 +71,7 @@ services:
   web:
     dockerfile: deploy/docker/web.Dockerfile
     target: production
-    healthcheck: /healthz
+    healthcheck: /readyz
     internal_port: 3000
     required_secrets:
       - BETTER_AUTH_SECRET
@@ -81,6 +83,7 @@ services:
       - AUTH_ALLOWED_GITHUB_USER_ID
       - BETTER_AUTH_URL
       - GITHUB_OAUTH_CLIENT_ID
+      - GIT_SHA
       - INTERNAL_API_URL
       - PUBLIC_BASE_URL
   migrate:
@@ -89,6 +92,8 @@ services:
     command: /app/migrate up
     required_secrets:
       - DATABASE_URL
+    required_configuration:
+      - GIT_SHA
   postgres:
     image: pgvector/pgvector:0.8.6-pg18-trixie@sha256:78bf48b801e792f99e3ac62b5036fd3876e9be48afda16c1e331af1c75ceb2ff
     visibility: private

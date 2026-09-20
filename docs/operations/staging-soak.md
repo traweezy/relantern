@@ -33,8 +33,9 @@ replace any gate below.
    make railway-readiness environment=staging release_sha=<full-sha>
    ```
 
-   The audit reads topology, deployment metadata, domains, and TCP exposure.
-   It does not request or print Railway variable values.
+   The audit reads topology, deployment metadata, domains, and TCP exposure,
+   then anonymously requests the sole web domain over HTTPS at `/readyz`. It
+   does not request or print Railway variable values.
 7. Copy `docs/evidence/staging/soak-template.json` to a dated ledger, then set
    the Railway project ID, frozen SHA, RFC3339 start time, and confirmed
    profile. Do not set `endedAt` until the review is concluded.

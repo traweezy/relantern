@@ -15,7 +15,9 @@ if bash scripts/go-tool.sh run ./cmd/soakctl \
   printf 'The empty staging soak template unexpectedly passed.\n' >&2
   exit 1
 fi
-if rg -n 'railway (config apply|deploy|up|redeploy|restart)' scripts/railway-*.sh; then
+railway_mutation_pattern='railway[[:space:]]+(config[[:space:]]+apply|deploy|up|redeploy|restart)([[:space:]]|$)'
+if rg -n "${railway_mutation_pattern}" scripts \
+  --glob 'railway-*.sh' --glob 'railway-*.mjs'; then
   printf 'Railway automation must remain read-only before release approval.\n' >&2
   exit 1
 fi
@@ -40,7 +42,7 @@ for check in release-source release-tree release-evidence; do
 done
 rg -q "test .*CONFIRMATION.*DEPLOY_PRODUCTION" .github/workflows/production-authorization.yml
 rg -q 'vars.RELEASE_SIGNING_EMAIL' .github/workflows/release.yml
-if rg -n 'railway (config apply|deploy|up|redeploy|restart)' \
+if rg -n "${railway_mutation_pattern}" \
   .github/workflows/release.yml \
   .github/workflows/production-authorization.yml; then
   printf 'Release authorization must not deploy production.\n' >&2
