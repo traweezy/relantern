@@ -3,6 +3,7 @@ package ingestion
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
@@ -99,14 +100,285 @@ func (repository *memoryRepository) CompleteParsedRevision(
 }
 
 type fixtureFetcher struct {
-	result fetcher.Result
-	err    error
-	calls  int
+	result    fetcher.Result
+	err       error
+	results   []fetcher.Result
+	errors    []error
+	endpoints []Endpoint
+	calls     int
 }
 
-func (fixture *fixtureFetcher) Fetch(context.Context, Endpoint) (fetcher.Result, error) {
+func (fixture *fixtureFetcher) Fetch(_ context.Context, endpoint Endpoint) (fetcher.Result, error) {
+	fixture.endpoints = append(fixture.endpoints, endpoint)
+	index := fixture.calls
 	fixture.calls++
+	if index < len(fixture.results) {
+		var err error
+		if index < len(fixture.errors) {
+			err = fixture.errors[index]
+		}
+		return fixture.results[index], err
+	}
 	return fixture.result, fixture.err
+}
+
+func advisoryResult(now time.Time, url string, next string, etag string) fetcher.Result {
+	return fetcher.Result{
+		Outcome:     fetcher.OutcomeStored,
+		NextPageURL: next,
+		Checkpoint:  fetcher.Checkpoint{ETag: etag},
+		Attempts: []fetcher.Attempt{{
+			AttemptedAt: now, CompletedAt: now, StatusCode: 200,
+			FinalURL: url,
+		}},
+	}
+}
+
+func TestGlobalAdvisoryPollBoundsPagesAndResumesStoredCursor(t *testing.T) {
+	now := time.Date(2026, 9, 20, 12, 0, 0, 0, time.UTC)
+	rootURL := sources.GlobalReviewedAdvisoriesURL
+	page2 := rootURL + "&after=page2"
+	page3 := rootURL + "&after=page3"
+	page4 := rootURL + "&after=page4"
+	repository := &memoryRepository{endpoint: &Endpoint{
+		RegistryID: "github-global-advisories", SourceID: "github-global-advisories",
+		Connector: sources.ConnectorGitHubAdvisories, URL: rootURL,
+	}}
+	provider := &fixtureFetcher{results: []fetcher.Result{
+		advisoryResult(now, rootURL, page2, `"root-etag"`),
+		advisoryResult(now, page2, page3, `"page-etag"`),
+		advisoryResult(now, page3, page4, `"other-page-etag"`),
+	}}
+	poller, err := NewPoller(repository, provider, clock.NewFixed(now), slog.New(slog.NewTextHandler(io.Discard, nil)), true, HandoffCapabilities{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := poller.Poll(context.Background(), repository.endpoint.RegistryID); err != nil {
+		t.Fatal(err)
+	}
+	if provider.calls != 3 || len(repository.recorded) != 3 {
+		t.Fatalf("bounded first poll: calls=%d records=%d", provider.calls, len(repository.recorded))
+	}
+	if got := repository.recorded[2].Checkpoint; got.Cursor != page4 || got.ETag != `"root-etag"` || got.ProviderState["advisoryScanStartedAt"] == nil {
+		t.Fatalf("durable continuation checkpoint = %+v", got)
+	}
+	for index, want := range []string{rootURL, page2, page3} {
+		if provider.endpoints[index].URL != want {
+			t.Fatalf("page %d requested %q, want %q", index, provider.endpoints[index].URL, want)
+		}
+		if index > 0 && (provider.endpoints[index].Checkpoint.ETag != "" || provider.endpoints[index].Checkpoint.LastModified != "") {
+			t.Fatalf("continuation page %d received conditional validators", index)
+		}
+	}
+
+	repository.endpoint.Checkpoint = repository.recorded[2].Checkpoint
+	provider = &fixtureFetcher{results: []fetcher.Result{
+		{Outcome: fetcher.OutcomeNotModified, Checkpoint: repository.endpoint.Checkpoint,
+			Attempts: []fetcher.Attempt{{AttemptedAt: now, CompletedAt: now, StatusCode: 304, FinalURL: rootURL}}},
+		advisoryResult(now, page4, "", `"last-page-etag"`),
+	}}
+	poller.fetcher = provider
+	if err := poller.Poll(context.Background(), repository.endpoint.RegistryID); err != nil {
+		t.Fatal(err)
+	}
+	if provider.calls != 2 || repository.recorded[4].Checkpoint.Cursor != "" {
+		t.Fatalf("resume did not complete: calls=%d checkpoint=%+v", provider.calls, repository.recorded[4].Checkpoint)
+	}
+	if provider.endpoints[0].Checkpoint.ETag != `"root-etag"` {
+		t.Fatal("root validator was lost while resuming a pending scan")
+	}
+	if got := repository.recorded[4].Checkpoint; got.ETag != `"root-etag"` || got.ProviderState["advisoryScanCompletedAt"] == nil || got.ProviderState["advisoryScanStartedAt"] != nil {
+		t.Fatalf("completed scan checkpoint = %+v", got)
+	}
+}
+
+func TestGlobalAdvisoryPollRestartsCompletedScanDaily(t *testing.T) {
+	now := time.Date(2026, 9, 20, 12, 0, 0, 0, time.UTC)
+	rootURL := sources.GlobalReviewedAdvisoriesURL
+	page2 := rootURL + "&after=page2"
+	repository := &memoryRepository{endpoint: &Endpoint{
+		RegistryID: "github-global-advisories", SourceID: "github-global-advisories",
+		Connector: sources.ConnectorGitHubAdvisories, URL: rootURL,
+		Checkpoint: fetcher.Checkpoint{
+			ETag: `"root-etag"`, ProviderState: map[string]any{
+				"advisoryScanCompletedAt": now.Add(-25 * time.Hour).Format(time.RFC3339Nano),
+			},
+		},
+	}}
+	provider := &fixtureFetcher{results: []fetcher.Result{
+		advisoryResult(now, rootURL, page2, `"fresh-root-etag"`),
+		advisoryResult(now, page2, "", ""),
+	}}
+	poller, err := NewPoller(repository, provider, clock.NewFixed(now), slog.New(slog.NewTextHandler(io.Discard, nil)), true, HandoffCapabilities{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := poller.Poll(context.Background(), repository.endpoint.RegistryID); err != nil {
+		t.Fatal(err)
+	}
+	if provider.calls != 2 || provider.endpoints[0].Checkpoint.ETag != "" ||
+		repository.recorded[1].Checkpoint.ETag != `"fresh-root-etag"` {
+		t.Fatalf("daily full scan did not restart with a fresh root: calls=%d root=%+v last=%+v",
+			provider.calls, provider.endpoints[0].Checkpoint, repository.recorded[1].Checkpoint)
+	}
+}
+
+func TestGlobalAdvisoryNotModifiedKeepsCompletionTime(t *testing.T) {
+	now := time.Date(2026, 9, 20, 12, 0, 0, 0, time.UTC)
+	rootURL := sources.GlobalReviewedAdvisoriesURL
+	completedAt := now.Add(-time.Hour).Format(time.RFC3339Nano)
+	repository := &memoryRepository{endpoint: &Endpoint{
+		RegistryID: "github-global-advisories", SourceID: "github-global-advisories",
+		Connector: sources.ConnectorGitHubAdvisories, URL: rootURL,
+		Checkpoint: fetcher.Checkpoint{ETag: `"root-etag"`, ProviderState: map[string]any{
+			"advisoryScanCompletedAt": completedAt,
+		}},
+	}}
+	provider := &fixtureFetcher{result: fetcher.Result{
+		Outcome: fetcher.OutcomeNotModified, Checkpoint: repository.endpoint.Checkpoint,
+		Attempts: []fetcher.Attempt{{AttemptedAt: now, CompletedAt: now, StatusCode: 304, FinalURL: rootURL}},
+	}}
+	poller, err := NewPoller(repository, provider, clock.NewFixed(now), slog.New(slog.NewTextHandler(io.Discard, nil)), true, HandoffCapabilities{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := poller.Poll(context.Background(), repository.endpoint.RegistryID); err != nil {
+		t.Fatal(err)
+	}
+	if provider.calls != 1 || provider.endpoints[0].Checkpoint.ETag != `"root-etag"` ||
+		repository.recorded[0].Checkpoint.ProviderState["advisoryScanCompletedAt"] != completedAt {
+		t.Fatalf("304 changed completion time or lost validator: calls=%d checkpoint=%+v",
+			provider.calls, repository.recorded[0].Checkpoint)
+	}
+}
+
+func TestGlobalAdvisoryContinuationFailurePreservesStoredCursor(t *testing.T) {
+	now := time.Date(2026, 9, 20, 12, 0, 0, 0, time.UTC)
+	rootURL := sources.GlobalReviewedAdvisoriesURL
+	page2 := rootURL + "&after=page2"
+	repository := &memoryRepository{endpoint: &Endpoint{
+		RegistryID: "github-global-advisories", SourceID: "github-global-advisories",
+		Connector: sources.ConnectorGitHubAdvisories, URL: rootURL,
+	}}
+	provider := &fixtureFetcher{results: []fetcher.Result{
+		advisoryResult(now, rootURL, page2, `"root-etag"`),
+		{Outcome: fetcher.OutcomeFailed, Attempts: []fetcher.Attempt{{
+			AttemptedAt: now, CompletedAt: now, StatusCode: 429,
+			FinalURL: page2, ErrorCode: fetcher.ErrorUnexpectedStatus,
+		}}},
+	}, errors: []error{nil, &fetcher.FetchError{Code: fetcher.ErrorUnexpectedStatus, Retryable: true, Err: errors.New("rate limited")}}}
+	poller, err := NewPoller(repository, provider, clock.NewFixed(now), slog.New(slog.NewTextHandler(io.Discard, nil)), true, HandoffCapabilities{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := poller.Poll(context.Background(), repository.endpoint.RegistryID); err != nil {
+		t.Fatal(err)
+	}
+	if provider.calls != 2 || len(repository.recorded) != 2 || repository.recorded[0].Checkpoint.Cursor != page2 || repository.recorded[1].Outcome != fetcher.OutcomeFailed {
+		t.Fatalf("failure lost cursor or retried burst: calls=%d records=%+v", provider.calls, repository.recorded)
+	}
+}
+
+func TestGlobalAdvisoryContinuationCannotCompleteFromNotModified(t *testing.T) {
+	now := time.Date(2026, 9, 20, 12, 0, 0, 0, time.UTC)
+	rootURL := sources.GlobalReviewedAdvisoriesURL
+	page2 := rootURL + "&after=page2"
+	repository := &memoryRepository{endpoint: &Endpoint{
+		RegistryID: "github-global-advisories", SourceID: "github-global-advisories",
+		Connector: sources.ConnectorGitHubAdvisories, URL: rootURL,
+	}}
+	provider := &fixtureFetcher{results: []fetcher.Result{
+		advisoryResult(now, rootURL, page2, `"root-etag"`),
+		{Outcome: fetcher.OutcomeNotModified, Attempts: []fetcher.Attempt{{
+			AttemptedAt: now, CompletedAt: now, StatusCode: 304, FinalURL: page2,
+		}}},
+	}}
+	poller, err := NewPoller(repository, provider, clock.NewFixed(now), slog.New(slog.NewTextHandler(io.Discard, nil)), true, HandoffCapabilities{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := poller.Poll(context.Background(), repository.endpoint.RegistryID); err != nil {
+		t.Fatal(err)
+	}
+	if len(repository.recorded) != 2 || repository.recorded[0].Checkpoint.Cursor != page2 ||
+		repository.recorded[1].Outcome != fetcher.OutcomeFailed {
+		t.Fatalf("304 continuation falsely completed scan: %+v", repository.recorded)
+	}
+}
+
+func TestGlobalAdvisoryPollRejectsUntrustedCheckpointBeforeNetwork(t *testing.T) {
+	rootURL := sources.GlobalReviewedAdvisoriesURL
+	repository := &memoryRepository{endpoint: &Endpoint{
+		RegistryID: "github-global-advisories", SourceID: "github-global-advisories",
+		Connector: sources.ConnectorGitHubAdvisories,
+		URL:       rootURL, Checkpoint: fetcher.Checkpoint{Cursor: "https://evil.example/advisories?after=stolen"},
+	}}
+	provider := &fixtureFetcher{}
+	poller, err := NewPoller(repository, provider, clock.NewFixed(time.Now()), slog.New(slog.NewTextHandler(io.Discard, nil)), true, HandoffCapabilities{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := poller.Poll(context.Background(), repository.endpoint.RegistryID); err == nil || provider.calls != 0 {
+		t.Fatalf("untrusted checkpoint accepted: calls=%d err=%v", provider.calls, err)
+	}
+}
+
+func TestGlobalAdvisoryPollHoldsCursorCycleForReview(t *testing.T) {
+	now := time.Date(2026, 9, 20, 12, 0, 0, 0, time.UTC)
+	rootURL := sources.GlobalReviewedAdvisoriesURL
+	pageA := rootURL + "&after=page-a"
+	pageB := rootURL + "&after=page-b"
+	repository := &memoryRepository{endpoint: &Endpoint{
+		RegistryID: "github-global-advisories", SourceID: "github-global-advisories",
+		Connector: sources.ConnectorGitHubAdvisories, URL: rootURL,
+	}}
+	provider := &fixtureFetcher{results: []fetcher.Result{
+		advisoryResult(now, rootURL, pageA, `"root-etag"`),
+		advisoryResult(now, pageA, pageB, ""),
+		advisoryResult(now, pageB, pageA, ""),
+	}}
+	poller, err := NewPoller(repository, provider, clock.NewFixed(now), slog.New(slog.NewTextHandler(io.Discard, nil)), true, HandoffCapabilities{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := poller.Poll(context.Background(), repository.endpoint.RegistryID); err != nil {
+		t.Fatal(err)
+	}
+	if provider.calls != 3 || len(repository.recorded) != 3 ||
+		advisoryScanIssue(repository.recorded[2].Checkpoint) != "cursor_cycle" {
+		t.Fatalf("cursor cycle was not held for review: calls=%d records=%+v", provider.calls, repository.recorded)
+	}
+	encoded, err := json.Marshal(repository.recorded[2].Checkpoint.ProviderState)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository.endpoint.Checkpoint = repository.recorded[2].Checkpoint
+	if err := json.Unmarshal(encoded, &repository.endpoint.Checkpoint.ProviderState); err != nil {
+		t.Fatal(err)
+	}
+	provider = &fixtureFetcher{results: []fetcher.Result{{
+		Outcome: fetcher.OutcomeNotModified, Checkpoint: repository.endpoint.Checkpoint,
+		Attempts: []fetcher.Attempt{{AttemptedAt: now, CompletedAt: now, StatusCode: 304, FinalURL: rootURL}},
+	}}}
+	poller.fetcher = provider
+	if err := poller.Poll(context.Background(), repository.endpoint.RegistryID); err != nil {
+		t.Fatal(err)
+	}
+	if provider.calls != 1 || advisoryScanIssue(repository.recorded[3].Checkpoint) != "cursor_cycle" {
+		t.Fatalf("cycle did not survive restart: calls=%d checkpoint=%+v", provider.calls, repository.recorded[3].Checkpoint)
+	}
+}
+
+func TestGlobalAdvisoryScanCapsPageTraversal(t *testing.T) {
+	checkpoint := fetcher.Checkpoint{ProviderState: map[string]any{
+		"advisoryScanPages": float64(10000),
+	}}
+	rootURL := sources.GlobalReviewedAdvisoriesURL
+	setAdvisoryScanState(&checkpoint, time.Date(2026, 9, 20, 12, 0, 0, 0, time.UTC),
+		rootURL+"&after=next", false, rootURL+"&after=current")
+	if got := advisoryScanIssue(checkpoint); got != "page_limit" {
+		t.Fatalf("page ceiling issue = %q", got)
+	}
 }
 
 func TestPollSkipsPausedSourceAndRecordsProviderFailure(t *testing.T) {

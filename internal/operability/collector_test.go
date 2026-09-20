@@ -35,12 +35,32 @@ func TestWritePrometheusHasStableLowCardinalityNames(t *testing.T) {
 		t.Fatal(err)
 	}
 	encoded := output.String()
-	for _, name := range []string{"source_poll_due_total", "river_queue_depth", "restore_rto_seconds", "critical_alert_undelivered_count"} {
+	for _, name := range []string{"source_poll_due_total", "river_queue_depth", "restore_rto_seconds", "critical_alert_undelivered_count", "reviewed_advisory_scan_pending", "reviewed_advisory_scan_age_seconds", "reviewed_advisory_scan_issues"} {
 		if !strings.Contains(encoded, name) {
 			t.Fatalf("metrics output lacks %s", name)
 		}
 	}
 	if strings.Contains(encoded, "url=") || strings.Contains(encoded, "provider_id") {
 		t.Fatalf("metrics output contains a high-cardinality label: %s", encoded)
+	}
+}
+
+func TestEvaluateAlertsWhenReviewedAdvisoryScanExceedsDay(t *testing.T) {
+	alerts := operability.Evaluate(operability.Snapshot{
+		AdvisoryScanPending: 1,
+		AdvisoryScanAge:     24*3600 + 1,
+	}, time.Date(2026, 9, 20, 12, 0, 0, 0, time.UTC))
+	if len(alerts) != 1 || alerts[0].Name != "reviewed_advisory_scan_stalled" {
+		t.Fatalf("expected advisory coverage warning, got %+v", alerts)
+	}
+}
+
+func TestEvaluateAlertsWhenReviewedAdvisoryScanHasInvalidCursor(t *testing.T) {
+	alerts := operability.Evaluate(operability.Snapshot{
+		AdvisoryScanPending: 1,
+		AdvisoryScanIssues:  1,
+	}, time.Date(2026, 9, 20, 12, 0, 0, 0, time.UTC))
+	if len(alerts) != 1 || alerts[0].Name != "reviewed_advisory_scan_invalid" {
+		t.Fatalf("expected invalid advisory cursor warning, got %+v", alerts)
 	}
 }

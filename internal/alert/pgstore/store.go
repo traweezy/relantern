@@ -48,6 +48,7 @@ type evidence struct {
 	entryID          string
 	entryFirstSeenAt time.Time
 	endpointURL      string
+	parentURL        string
 	title            string
 	observedAt       time.Time
 	itemID           string
@@ -56,7 +57,8 @@ type evidence struct {
 const evidenceQuery = `
 	select child.object_key, child.raw_sha256, child.source_id,
 		child.canonical_url, entry.id::text, entry.external_id, entry.first_seen_at,
-		endpoint.url, revision.title, child.first_seen_at, item.id::text
+		endpoint.url, parent.canonical_url, revision.title,
+		child.first_seen_at, item.id::text
 	from app.raw_documents child
 	join app.raw_documents parent on parent.id = child.parent_raw_document_id
 	join app.source_entries entry on entry.id = child.source_entry_id
@@ -72,7 +74,18 @@ const evidenceQuery = `
 		and child.source_connector = 'source_entry'
 		and endpoint.source_id = child.source_id
 		and endpoint.connector = 'github_advisories'
-		and parent.canonical_url = endpoint.url
+		and (parent.canonical_url = endpoint.url or (
+			endpoint.url = '` + sources.GlobalReviewedAdvisoriesURL + `' and exists (
+				select 1 from app.source_fetches source_fetch
+				where source_fetch.endpoint_id = endpoint.id
+					and source_fetch.outcome = 'stored'
+					and source_fetch.final_url = parent.canonical_url
+					and source_fetch.object_key = parent.object_key
+					and source_fetch.raw_sha256 = parent.raw_sha256
+					and source_fetch.attempted_at = parent.first_seen_at
+					and source_fetch.completed_at = parent.first_fetched_at
+			)
+		))
 		and child.content_policy = 'link-and-excerpt'
 		and child.object_key is not null and child.raw_pruned_at is null
 		and child.ingestion_error_code is null and parent.ingestion_error_code is null
@@ -99,7 +112,8 @@ func loadEvidence(ctx context.Context, query rowQuerier, rawDocumentID, revision
 	var found evidence
 	err := query.QueryRow(ctx, statement, rawDocumentID, revisionID).Scan(
 		&found.objectKey, &found.rawSHA256, &found.sourceID, &found.canonicalURL,
-		&found.entryRowID, &found.entryID, &found.entryFirstSeenAt, &found.endpointURL,
+		&found.entryRowID, &found.entryID, &found.entryFirstSeenAt,
+		&found.endpointURL, &found.parentURL,
 		&found.title, &found.observedAt, &found.itemID,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -108,7 +122,18 @@ func loadEvidence(ctx context.Context, query rowQuerier, rawDocumentID, revision
 	if err != nil {
 		return evidence{}, false, fmt.Errorf("load advisory evidence: %w", err)
 	}
+	if !officialAdvisoryParent(found.endpointURL, found.parentURL) {
+		return evidence{}, false, nil
+	}
 	return found, true, nil
+}
+
+func officialAdvisoryParent(endpointURL, parentURL string) bool {
+	if parentURL == endpointURL {
+		return true
+	}
+	return endpointURL == sources.GlobalReviewedAdvisoriesURL &&
+		sources.IsGlobalAdvisoryPageURL(parentURL)
 }
 
 type advisoryEntry struct {
@@ -316,6 +341,7 @@ func (store *Store) Assess(ctx context.Context, rawDocumentID, revisionID string
 		current.entryRowID != lockedEntryID ||
 		current.entryID != preflight.entryID || current.sourceID != preflight.sourceID ||
 		current.canonicalURL != preflight.canonicalURL || current.endpointURL != preflight.endpointURL ||
+		current.parentURL != preflight.parentURL ||
 		!current.entryFirstSeenAt.Equal(preflight.entryFirstSeenAt) ||
 		current.itemID != preflight.itemID || current.title != preflight.title ||
 		!current.observedAt.Equal(preflight.observedAt) {

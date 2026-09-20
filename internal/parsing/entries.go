@@ -251,6 +251,12 @@ func githubRepositoryEntryURL(sourceURL, entryURL *url.URL) bool {
 
 func fallbackEntryURL(sourceURL *url.URL, externalID string) string {
 	fallback := *sourceURL
+	if sources.IsGlobalAdvisoryPageURL(sourceURL.String()) {
+		// A GitHub advisory can move between cursor pages without changing its
+		// identity. Keep the child URL anchored to the reviewed root endpoint.
+		root, _ := url.Parse(sources.GlobalReviewedAdvisoriesURL)
+		fallback = *root
+	}
 	query := fallback.Query()
 	digest := sha256.Sum256([]byte(externalID))
 	query.Set("relantern_entry", hex.EncodeToString(digest[:]))

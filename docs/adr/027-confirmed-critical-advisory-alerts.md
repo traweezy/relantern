@@ -18,8 +18,15 @@ default local stack must keep external delivery disconnected.
   matching. A supporting item source remains eligible; a superseded source
   entry does not.
 - Poll the reviewed, update-ordered GitHub Advisory Database feed every five
-  minutes, along with enabled repository advisory endpoints. The feed is
-  first-page bounded to 100 entries per poll. Its [CC BY 4.0 license](https://github.com/advisories)
+  minutes, along with enabled repository advisory endpoints. Fetch the pinned
+  first page on every poll, then at most two validated continuation pages.
+  Commit each page, its raw evidence, and the next cursor together. The root
+  page alone uses its conditional validators; continuation pages cannot claim
+  a 304 as coverage. After a complete pass, force an unconditional first page
+  at least daily to start another pass even when its ETag has not changed. A
+  persisted cursor survives worker restart, and a failed page leaves the last
+  committed cursor available for the next poll. The feed's
+  [CC BY 4.0 license](https://github.com/advisories)
   permits the retained excerpt policy with source attribution; release notes
   keep their separate metadata-only policy. Enabling live source polling
   requires a worker-only GitHub read token; the default local profile does not
@@ -57,6 +64,15 @@ The private `critical_alert_undelivered_count` metric and
 and unsent external deliveries older than ten minutes after due or first
 attempt. Quiet-hour deferrals are excluded until due. The reconciler also logs
 the overdue and recovery counts.
+The private `reviewed_advisory_scan_pending` and
+`reviewed_advisory_scan_age_seconds` gauges expose incomplete pagination. A
+scan still pending after 24 hours raises `reviewed_advisory_scan_stalled`.
+The bounded recent-page fingerprint window and 10,000-page scan ceiling stop
+cursor cycles and expose `reviewed_advisory_scan_invalid` for review while the
+first page continues refreshing.
+GitHub's update-ordered cursor is not a stable snapshot: a completed pass
+means the Link chain ended, while the repeated root poll and later passes
+provide overlap as advisories move between pages.
 Keep the existing critical River queue and worker metrics under observation;
 use `docs/runbooks/security-advisory-missed.md` and
 `docs/runbooks/duplicate-alert.md` for incident handling. Provider acceptance

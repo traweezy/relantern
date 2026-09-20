@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/traweezy/relantern/internal/sources"
 )
 
 type Snapshot struct {
@@ -27,6 +28,9 @@ type Snapshot struct {
 	DigestFailures         int64     `json:"digestFailures"`
 	DelayedDigests         int64     `json:"delayedDigests"`
 	UndeliveredCritical    int64     `json:"undeliveredCriticalAlerts"`
+	AdvisoryScanPending    int64     `json:"advisoryScanPending"`
+	AdvisoryScanAge        float64   `json:"advisoryScanAgeSeconds"`
+	AdvisoryScanIssues     int64     `json:"advisoryScanIssues"`
 	OutboxLag              float64   `json:"outboxLagSeconds"`
 	Feedback               int64     `json:"feedback"`
 	LastRetentionState     string    `json:"lastRetentionState"`
@@ -127,6 +131,9 @@ func (collector *Collector) Collect(ctx context.Context, now time.Time) (Snapsho
 	if err != nil {
 		return Snapshot{}, fmt.Errorf("collect operational metrics: %w", err)
 	}
+	if err := collector.loadAdvisoryScan(ctx, &snapshot, now); err != nil {
+		return Snapshot{}, err
+	}
 	if err := collector.loadRetention(ctx, &snapshot); err != nil {
 		return Snapshot{}, err
 	}
@@ -134,6 +141,29 @@ func (collector *Collector) Collect(ctx context.Context, now time.Time) (Snapsho
 		return Snapshot{}, err
 	}
 	return snapshot, nil
+}
+
+func (collector *Collector) loadAdvisoryScan(ctx context.Context, snapshot *Snapshot, now time.Time) error {
+	err := collector.pool.QueryRow(ctx, `
+		select count(*)::bigint,
+			coalesce(max(extract(epoch from ($1::timestamptz -
+				coalesce(nullif(checkpoint.provider_state->>'advisoryScanStartedAt', '')::timestamptz,
+					checkpoint.updated_at)))), 0),
+			count(*) filter (where checkpoint.provider_state->>'advisoryScanIssue' is not null)::bigint
+		from app.source_endpoints endpoint
+		join app.sources source on source.id = endpoint.source_id
+		join app.source_checkpoints checkpoint on checkpoint.endpoint_id = endpoint.id
+		left join app.source_runtime_overrides runtime on runtime.source_id = source.id
+		where endpoint.url = $2 and checkpoint.cursor is not null
+			and source.enabled and source.validation_state = 'active'
+			and coalesce(runtime.polling_enabled, true)
+			and endpoint.health_state <> 'paused'`, now, sources.GlobalReviewedAdvisoriesURL).Scan(
+		&snapshot.AdvisoryScanPending, &snapshot.AdvisoryScanAge, &snapshot.AdvisoryScanIssues,
+	)
+	if err != nil {
+		return fmt.Errorf("collect reviewed advisory pagination metric: %w", err)
+	}
+	return nil
 }
 
 func (collector *Collector) loadRetention(ctx context.Context, snapshot *Snapshot) error {
@@ -189,6 +219,9 @@ func Evaluate(snapshot Snapshot, now time.Time) []Alert {
 	appendAlert(snapshot.OldestJobAge > 15*60, "queue_backlog", "warning", "The oldest retryable or available job exceeds 15 minutes.")
 	appendAlert(snapshot.DelayedDigests > 0, "digest_delayed", "warning", "A daily digest is more than 15 minutes late.")
 	appendAlert(snapshot.UndeliveredCritical > 0, "critical_advisory_undelivered", "critical", "A confirmed critical advisory external delivery is overdue or permanently failed.")
+	appendAlert(snapshot.AdvisoryScanPending > 0 && snapshot.AdvisoryScanAge > 24*3600,
+		"reviewed_advisory_scan_stalled", "warning", "Reviewed GitHub advisory pagination has not completed within 24 hours.")
+	appendAlert(snapshot.AdvisoryScanIssues > 0, "reviewed_advisory_scan_invalid", "warning", "Reviewed GitHub advisory pagination encountered a cursor cycle or page limit.")
 	appendAlert(snapshot.LastRetentionState == "failed", "retention_failed", "warning", "The latest retention run failed.")
 	appendAlert(snapshot.LastRestoreState == "failed", "restore_integrity", "critical", "The latest database restore drill failed.")
 	appendAlert(
@@ -227,6 +260,9 @@ func WritePrometheus(writer io.Writer, snapshot Snapshot) error {
 		{"digest_delivery_failure_total", snapshot.DigestFailures},
 		{"digest_delayed_total", snapshot.DelayedDigests},
 		{"critical_alert_undelivered_count", snapshot.UndeliveredCritical},
+		{"reviewed_advisory_scan_pending", snapshot.AdvisoryScanPending},
+		{"reviewed_advisory_scan_age_seconds", snapshot.AdvisoryScanAge},
+		{"reviewed_advisory_scan_issues", snapshot.AdvisoryScanIssues},
 		{"outbox_lag_seconds", snapshot.OutboxLag},
 		{"feedback_total", snapshot.Feedback},
 		{"restore_rpo_seconds", snapshot.LastRestoreRPOSeconds},

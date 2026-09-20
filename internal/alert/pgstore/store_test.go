@@ -110,6 +110,108 @@ func TestReadAdvisoryUsesOfficialPublicLinkFromGlobalEntry(t *testing.T) {
 	}
 }
 
+func TestGlobalAdvisoryPageRequiresMatchingFetchProvenance(t *testing.T) {
+	pool := openAssessmentPool(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	fixture := seedAssessment(t, ctx, pool, true)
+	pageTwo := sources.GlobalReviewedAdvisoriesURL + "&after=cursor-2"
+	fixture.exec(t, ctx, `update app.raw_documents set canonical_url = $2 where id = $1::uuid`,
+		fixture.parentID, pageTwo)
+	jobs, err := jobqueue.NewIsolatedTestInserter("test_alert_assessment")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := New(pool, jobs, &fixtureReader{payload: fixture.payload}, clock.NewFixed(fixture.now))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Assess(ctx, fixture.childID, fixture.revisionID); err != nil {
+		t.Fatal(err)
+	}
+	assertAlertCount(t, ctx, pool, fixture.userID, 0)
+
+	wrongRegistryID := fixture.registryID + "-wrong"
+	fixture.exec(t, ctx, `
+		insert into app.source_endpoints (registry_id, source_id, connector, url,
+			poll_interval, priority, robots_policy, expected_content_types,
+			max_response_bytes, fixture_suite)
+		values ($1, $2, 'github_advisories', $3, interval '1 hour', 'critical',
+			'api', array['application/json'], 1048576, 'test')`,
+		wrongRegistryID, fixture.sourceID,
+		"https://api.github.com/repos/acme/widget/security-advisories")
+	recordGlobalPageFetch(t, ctx, fixture, wrongRegistryID, pageTwo)
+	if err := store.Assess(ctx, fixture.childID, fixture.revisionID); err != nil {
+		t.Fatal(err)
+	}
+	assertAlertCount(t, ctx, pool, fixture.userID, 0)
+
+	recordGlobalPageFetch(t, ctx, fixture, fixture.registryID, pageTwo)
+	if err := store.Assess(ctx, fixture.childID, fixture.revisionID); err != nil {
+		t.Fatalf("assess fetched page-two advisory: %v", err)
+	}
+	assertAlertCount(t, ctx, pool, fixture.userID, 1)
+	t.Cleanup(func() {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cleanupCancel()
+		if _, err := pool.Exec(cleanupCtx, `
+			delete from river.river_job where queue = 'test_alert_assessment'
+				and kind = 'assess_critical_advisory' and args->>'rawDocumentId' = $1`,
+			fixture.childID); err != nil {
+			t.Errorf("clean up advisory catch-up job: %v", err)
+		}
+	})
+	if err := store.CatchUp(ctx, jobqueue.ReassessCurrentAdvisoriesArgs{
+		UserID: fixture.userID, SettingsVersion: 1,
+	}); err != nil {
+		t.Fatalf("catch up fetched page-two advisory: %v", err)
+	}
+	assertCatchUpJobCount(t, ctx, fixture.childID, pool, 1)
+}
+
+func TestGlobalAdvisoryPageRejectsSpoofedURLWithFetchRecord(t *testing.T) {
+	pool := openAssessmentPool(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	fixture := seedAssessment(t, ctx, pool, true)
+	spoofed := "https://api.github.com/advisories?direction=desc&per_page=100&sort=updated&type=unreviewed&after=cursor-2"
+	fixture.exec(t, ctx, `update app.raw_documents set canonical_url = $2 where id = $1::uuid`,
+		fixture.parentID, spoofed)
+	recordGlobalPageFetch(t, ctx, fixture, fixture.registryID, spoofed)
+	jobs, err := jobqueue.NewIsolatedTestInserter("test_alert_assessment")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := New(pool, jobs, &fixtureReader{payload: fixture.payload}, clock.NewFixed(fixture.now))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Assess(ctx, fixture.childID, fixture.revisionID); err != nil {
+		t.Fatal(err)
+	}
+	assertAlertCount(t, ctx, pool, fixture.userID, 0)
+	if err := store.CatchUp(ctx, jobqueue.ReassessCurrentAdvisoriesArgs{
+		UserID: fixture.userID, SettingsVersion: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	assertCatchUpJobCount(t, ctx, fixture.childID, pool, 0)
+}
+
+func recordGlobalPageFetch(t *testing.T, ctx context.Context, fixture assessmentFixture, registryID, pageURL string) {
+	t.Helper()
+	fixture.exec(t, ctx, `
+		insert into app.source_fetches (endpoint_id, attempted_at, completed_at,
+			outcome, status_code, final_url, content_type, bytes, duration_ms,
+			raw_sha256, object_key)
+		select endpoint.id, parent.first_seen_at, parent.first_fetched_at,
+			'stored', 200, $3, 'application/json', 1, 1,
+			parent.raw_sha256, parent.object_key
+		from app.source_endpoints endpoint
+		join app.raw_documents parent on parent.id = $2::uuid
+		where endpoint.registry_id = $1`, registryID, fixture.parentID, pageURL)
+}
+
 type fixtureReader struct {
 	payload []byte
 }
@@ -359,16 +461,23 @@ type assessmentFixture struct {
 	payload     []byte
 }
 
-func seedAssessment(t *testing.T, ctx context.Context, pool *pgxpool.Pool) assessmentFixture {
+func seedAssessment(t *testing.T, ctx context.Context, pool *pgxpool.Pool, global ...bool) assessmentFixture {
 	t.Helper()
 	now := time.Date(2026, 9, 20, 23, 30, 0, 0, time.UTC)
 	suffix := uuid.NewString()
 	sourceID := "test-alert-" + suffix
 	registryID := sourceID + "-endpoint"
 	endpointURL := "https://api.github.com/repos/acme/widget/security-advisories"
+	publicURL := "https://github.com/acme/widget/security/advisories/GHSA-abcd-1234-efgh"
+	classification := `"state":"published",`
+	if len(global) > 0 && global[0] {
+		endpointURL = sources.GlobalReviewedAdvisoriesURL
+		publicURL = "https://github.com/advisories/GHSA-abcd-1234-efgh"
+		classification = `"type":"reviewed","github_reviewed_at":"2026-09-20T22:01:00Z",`
+	}
 	advisoryJSON := `[{"ghsa_id":"GHSA-abcd-1234-efgh","summary":"Critical widget update",` +
-		`"html_url":"https://github.com/acme/widget/security/advisories/GHSA-abcd-1234-efgh",` +
-		`"severity":"critical","state":"published","published_at":"2026-09-20T22:00:00Z",` +
+		`"html_url":"` + publicURL + `",` +
+		`"severity":"critical",` + classification + `"published_at":"2026-09-20T22:00:00Z",` +
 		`"vulnerabilities":[{"package":{"ecosystem":"go","name":"example.com/widget"},` +
 		`"vulnerable_version_range":"< 1.2.3","patched_versions":"1.2.3"}]}]`
 	entries, err := parsing.SplitEntries(ctx, sources.ConnectorGitHubAdvisories,
@@ -377,7 +486,6 @@ func seedAssessment(t *testing.T, ctx context.Context, pool *pgxpool.Pool) asses
 		t.Fatalf("SplitEntries() = %+v, %v", entries, err)
 	}
 	entry := entries[0]
-	publicURL := "https://github.com/acme/widget/security/advisories/GHSA-abcd-1234-efgh"
 	parentDigest := sha256.Sum256([]byte(advisoryJSON))
 	parentKey, err := storage.RawObjectKey(sourceID, now, parentDigest, "application/json")
 	if err != nil {

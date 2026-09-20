@@ -9,6 +9,10 @@
   counts permanently failed external deliveries and deliveries still unsent
   ten minutes after they became due or were first attempted. A delivery
   waiting for its configured quiet-hour end is excluded until due.
+- `reviewed_advisory_scan_stalled` fires after the reviewed global feed has an
+  unfinished page cursor for more than 24 hours.
+- `reviewed_advisory_scan_invalid` fires when the validated cursor chain
+  repeats a recent page or exceeds its 10,000-page safety ceiling.
 
 ## Impact
 
@@ -36,10 +40,28 @@ docker compose logs --since=30m worker api fake-delivery
 
 The reviewed global GitHub feed polls the first 100 advisories ordered by
 `updated` descending every five minutes. [GitHub caps `per_page` at 100 and
-exposes pagination cursors](https://docs.github.com/en/rest/security-advisories/global-advisories),
-but this source does not yet follow the `Link` cursor. If a response has a
-next-page link, treat global coverage as incomplete, record the gap, and
-backfill through a reviewed pagination change before claiming freshness.
+exposes pagination cursors](https://docs.github.com/en/rest/security-advisories/global-advisories).
+Each poll follows up to two additional official, validated `Link` pages. The
+next cursor is committed with each stored page and survives worker restart.
+Until the cursor clears, older coverage is incomplete; the live first page
+continues to refresh. A completed scan starts a new unconditional root pass at
+least daily. GitHub pagination is not a snapshot, so compare completed passes
+if advisories moved during traversal.
+
+Inspect the private checkpoint without copying the opaque cursor to an incident
+ticket or logs:
+
+```sql
+select endpoint.registry_id, endpoint.health_state,
+       checkpoint.cursor is not null as scan_pending,
+       checkpoint.provider_state->>'advisoryScanStartedAt' as scan_started_at,
+       checkpoint.provider_state->>'advisoryScanCompletedAt' as scan_completed_at,
+       checkpoint.provider_state->>'advisoryScanIssue' as scan_issue,
+       endpoint.last_success_at
+from app.source_endpoints endpoint
+left join app.source_checkpoints checkpoint on checkpoint.endpoint_id = endpoint.id
+where endpoint.registry_id = 'github-global-advisories';
+```
 Repository advisories use retained source-entry evidence; repository release
 endpoints remain metadata-only.
 
@@ -69,6 +91,26 @@ limit 20;
 
 1. Correct source polling, deterministic package matching, classification,
    critical queue priority, quiet-hour bypass, or delivery configuration.
+   For a stalled global scan, inspect failed `app.source_fetches` attempts and
+   provider `Retry-After`; do not paste or edit the opaque cursor. Correct a
+   rejected page URL, repeated cursor, or provider response before resuming the
+   source. The first page remains hot when a cursor cycle is held for review.
+   After confirming a `cursor_cycle` was corrected upstream, an attended
+   operator may clear only the issue and recent-page fingerprints to retry the
+   retained cursor; keep the cursor and raw evidence unchanged:
+
+   ```sql
+   update app.source_checkpoints checkpoint
+   set provider_state = checkpoint.provider_state
+       - 'advisoryScanIssue' - 'advisoryScanRecentPages',
+       updated_at = now()
+   from app.source_endpoints endpoint
+   where checkpoint.endpoint_id = endpoint.id
+     and endpoint.registry_id = 'github-global-advisories'
+     and checkpoint.provider_state->>'advisoryScanIssue' = 'cursor_cycle';
+   ```
+
+   A `page_limit` requires a reviewed coverage plan before changing the cap.
 2. Reprocess the durable source revision; do not create a synthetic claim.
 3. Verify one critical fixture reaches the safe capture path within target and
    one unconfirmed rumor does not.

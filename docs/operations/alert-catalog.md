@@ -11,6 +11,8 @@ routes remain on Railway private networking.
 | migration failure | critical | migrate exits nonzero | rollback release |
 | restore integrity/objective | critical | latest drill fails or misses target | restore PostgreSQL |
 | watched critical advisory missed | critical | confirmed advisory exceeds 10 minutes | security advisory missed |
+| reviewed advisory scan stalled | warning | global advisory page cursor remains pending over 24 hours | security advisory missed |
+| reviewed advisory scan invalid | warning | global advisory cursor repeats or exceeds 10,000 pages | security advisory missed |
 | budget hard cap exceeded | critical | recorded cost crosses hard cap | OpenAI budget exhausted |
 | priority source freshness | warning | oldest P0 success exceeds 15 minutes | source failing |
 | queue backlog | warning | oldest available/retryable job exceeds 15 minutes | queue backlog |
