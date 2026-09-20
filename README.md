@@ -255,6 +255,10 @@ After an attended staging provision, use `make railway-readiness` with the
 frozen full SHA and follow the
 [staging soak procedure](docs/operations/staging-soak.md). The committed soak
 template always reports `in_progress` and cannot satisfy a release gate.
+Web `/healthz` reports process liveness. Railway probes web `/readyz`, which
+requires the private API to be ready and, in hosted environments, to report
+the same full `GIT_SHA`. Local and test readiness probes the API without a
+release SHA.
 
 Release promotion is documented in the
 [production release procedure](docs/operations/production-release.md). The

@@ -2687,6 +2687,13 @@ Order:
 5. api and worker start.
 6. web starts after api health.
 
+The migrate service records a completion row keyed by the full release SHA
+and exact Goose version only after Goose, River, and source-registry sync all
+succeed. API and worker wait for that row before serving or starting jobs and
+recheck it for readiness. A repeated migration run for the same SHA preserves
+the prior successful marker. Local and test may use the literal `unknown` SHA;
+hosted environments require a full lowercase SHA.
+
 Use Compose health conditions. Do not use fixed sleep delays.
 
 ### 21.6 Makefile contract
@@ -2975,7 +2982,15 @@ Recommended:
 #### web
 
 - Dockerfile: deploy/docker/web.Dockerfile.
-- Public health: /healthz.
+- Public liveness: /healthz checks only the web process.
+- Railway readiness: /readyz checks private api /readyz with a 2.5-second
+  timeout. In staging and production, both services must report the same full
+  Git SHA; missing or mismatched SHA is unavailable. The public response is
+  no-store and never exposes the private API response or SHA.
+- Local and test /readyz still probes private api, but does not require a
+  release SHA.
+- A two-second successful readiness result and one-second failed result may be
+  reused per web process; concurrent requests share one private API probe.
 - Internal API URL uses private DNS.
 - Minimum one replica.
 - Restart on failure.
@@ -2999,6 +3014,9 @@ Recommended:
 - Dockerfile: deploy/docker/migrate.Dockerfile.
 - One-shot command.
 - Must complete before new application services receive traffic.
+- Records the release-SHA and Goose-version completion marker only after
+  River migrations and source-registry sync succeed; a failed run leaves the
+  marker absent for the release being deployed.
 - Production migration is separately attended.
 
 ### 23.3 Deployment behavior

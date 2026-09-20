@@ -8,6 +8,7 @@ describe("public route policy", () => {
     "/demo/story/go-toolchain-security",
     "/demo/story/unknown-fixture",
     "/healthz",
+    "/readyz",
     "/login",
     "/api/auth/sign-in/social",
     "/api/auth/callback/github",
@@ -27,6 +28,7 @@ describe("public route policy", () => {
     "/demo//story/go-toolchain-security",
     "/demo/story/../login",
     "/healthz/private",
+    "/readyz/private",
     "/api/private",
     "/api/webhooks/openai/replay",
   ])("protects %s", (pathname) => {
