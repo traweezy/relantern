@@ -56,24 +56,27 @@ func TestStoreReturnsExactAndSemanticHybridResults(t *testing.T) {
 	for index, fixture := range fixtures {
 		record := insertSearchRecord(t, pool, fixture, now.Add(time.Duration(index)*time.Minute))
 		inserted = append(inserted, record)
-		if err := store.IndexDocument(context.Background(), searchstore.IndexRequest{
-			ItemID:            record.itemID,
-			RevisionID:        record.revisionID,
-			Summary:           fixture.content,
-			EntityNames:       []string{fixture.packageName},
-			NormalizedContent: fixture.content,
-		}); err != nil {
-			t.Fatalf("IndexDocument(%s) error = %v", fixture.title, err)
-		}
-		if _, insertedEmbedding, err := embeddingStore.Put(context.Background(), embeddingstore.PutRequest{
+		embeddingID, insertedEmbedding, err := embeddingStore.Put(context.Background(), embeddingstore.PutRequest{
 			EntityType: "item",
 			EntityID:   record.itemID,
 			RevisionID: record.revisionID,
 			ModelID:    embedding.DefaultModelID,
 			Input:      fixture.content,
 			Vector:     searchBasisVector(fixture.vectorIndex),
-		}); err != nil || !insertedEmbedding {
+		})
+		if err != nil || !insertedEmbedding {
 			t.Fatalf("Put(%s) = inserted %t, error %v", fixture.title, insertedEmbedding, err)
+		}
+		if err := store.IndexDocument(context.Background(), searchstore.IndexRequest{
+			ItemID:            record.itemID,
+			RevisionID:        record.revisionID,
+			EmbeddingID:       embeddingID,
+			EmbeddingModelID:  embedding.DefaultModelID,
+			Summary:           fixture.content,
+			EntityNames:       []string{fixture.packageName},
+			NormalizedContent: fixture.content,
+		}); err != nil {
+			t.Fatalf("IndexDocument(%s) error = %v", fixture.title, err)
 		}
 	}
 	cleanupSearchRecords(t, pool, inserted)
@@ -119,6 +122,133 @@ func TestStoreReturnsExactAndSemanticHybridResults(t *testing.T) {
 	}
 	if len(filtered) != 1 || filtered[0].ItemID != inserted[2].itemID {
 		t.Fatalf("filtered Search() = %+v", filtered)
+	}
+}
+
+func TestStoreSearchIgnoresUnpinnedAndStaleRevisionVectors(t *testing.T) {
+	pool := openSearchDatabase(t)
+	ctx := context.Background()
+	embeddingStore, err := embeddingstore.New(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := searchstore.New(pool, embedding.DefaultDimensions, search.DefaultRRFK)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2189, time.January, 2, 12, 0, 0, 0, time.UTC)
+	fixture := searchFixture{
+		title: "Vector pinning fixture", packageName: "Pinning",
+		content: "Original source vector content.", sourceTier: "T1", vectorIndex: 0,
+	}
+	record := insertSearchRecord(t, pool, fixture, now)
+	cleanupSearchRecords(t, pool, []searchRecord{record})
+	oldEmbeddingID, _, err := embeddingStore.Put(ctx, embeddingstore.PutRequest{
+		EntityType: "item", EntityID: record.itemID, RevisionID: record.revisionID,
+		ModelID: embedding.DefaultModelID, Input: fixture.content, Vector: searchBasisVector(0),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	indexRequest := searchstore.IndexRequest{
+		ItemID: record.itemID, RevisionID: record.revisionID,
+		EmbeddingID: oldEmbeddingID, EmbeddingModelID: embedding.DefaultModelID,
+		NormalizedContent: fixture.content,
+	}
+	if err := store.IndexDocument(ctx, indexRequest); err != nil {
+		t.Fatal(err)
+	}
+	semanticRequest := searchstore.Request{
+		Query: "unrelatedgibberish", QueryEmbedding: searchBasisVector(0),
+		After: timePointer(now.Add(-time.Minute)), Before: timePointer(now.Add(time.Minute)),
+		Limit: 10,
+	}
+	if _, err := pool.Exec(ctx, `update app.search_documents set embedding_id = null
+		where item_id = $1::uuid`, record.itemID); err != nil {
+		t.Fatal(err)
+	}
+	results, err := store.Search(ctx, semanticRequest)
+	if err != nil || len(results) != 0 {
+		t.Fatalf("unpinned semantic Search() = %+v, %v", results, err)
+	}
+	keywordRequest := semanticRequest
+	keywordRequest.Query = "Vector pinning fixture"
+	results, err = store.Search(ctx, keywordRequest)
+	if err != nil || len(results) != 1 || results[0].KeywordRank == nil {
+		t.Fatalf("unpinned keyword Search() = %+v, %v", results, err)
+	}
+	if err := store.IndexDocument(ctx, indexRequest); err != nil {
+		t.Fatal(err)
+	}
+
+	nextContent := "Replacement source vector content."
+	nextDigest := sha256.Sum256([]byte(nextContent))
+	var nextRevisionID string
+	if err := pool.QueryRow(ctx, `
+		insert into app.content_revisions (
+			raw_document_id, previous_revision_id, normalized_sha256,
+			normalized_text_object_key, parser_name, parser_version, title,
+			author, language, source_published_at, normalized_bytes,
+			outline, offset_map, warnings, change_kind, change_reason,
+			material_change, observed_at
+		) values ($1::uuid, $2::uuid, $3, $4, 'search-fixture', '1',
+			'New vector source', 'Relantern', 'en', $5, $6,
+			'[]'::jsonb, '[]'::jsonb, '[]'::jsonb, 'material',
+			'search pinning integration', true, $5)
+		returning id::text`, record.rawID, record.revisionID, nextDigest[:],
+		"normalized/"+record.sourceID+"/"+fmt.Sprintf("%x", nextDigest)+".txt",
+		now.Add(time.Second), len(nextContent)).Scan(&nextRevisionID); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(ctx, `delete from app.search_documents where item_id = $1::uuid`, record.itemID)
+		_, _ = pool.Exec(ctx, `update app.items set current_revision_id = $2::uuid where id = $1::uuid`, record.itemID, record.revisionID)
+		_, _ = pool.Exec(ctx, `delete from app.item_sources where revision_id = $1::uuid`, nextRevisionID)
+		_, _ = pool.Exec(ctx, `delete from app.content_revisions where id = $1::uuid`, nextRevisionID)
+	})
+	if _, err := pool.Exec(ctx, `update app.item_sources set source_role = 'supporting', sort_order = 1
+		where item_id = $1::uuid and revision_id = $2::uuid`, record.itemID, record.revisionID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `insert into app.item_sources (
+		revision_id, item_id, canonical_url, source_role, source_tier, sort_order
+	) values ($1::uuid, $2::uuid, $3, 'primary', 'T0', 0)`, nextRevisionID,
+		record.itemID, "https://"+record.sourceID+".example.test/revised"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `update app.items set current_revision_id = $2::uuid
+		where id = $1::uuid`, record.itemID, nextRevisionID); err != nil {
+		t.Fatal(err)
+	}
+	results, err = store.Search(ctx, keywordRequest)
+	if err != nil || len(results) != 0 {
+		t.Fatalf("stale revision keyword Search() = %+v, %v", results, err)
+	}
+	results, err = store.Search(ctx, semanticRequest)
+	if err != nil || len(results) != 0 {
+		t.Fatalf("stale revision semantic Search() = %+v, %v", results, err)
+	}
+	indexRequest.RevisionID = nextRevisionID
+	indexRequest.NormalizedContent = nextContent
+	if err := store.IndexDocument(ctx, indexRequest); err == nil {
+		t.Fatal("IndexDocument() accepted an embedding for different content")
+	}
+	newEmbeddingID, _, err := embeddingStore.Put(ctx, embeddingstore.PutRequest{
+		EntityType: "item", EntityID: record.itemID, RevisionID: nextRevisionID,
+		ModelID: embedding.DefaultModelID, Input: nextContent, Vector: searchBasisVector(1),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	indexRequest.EmbeddingID = newEmbeddingID
+	if err := store.IndexDocument(ctx, indexRequest); err != nil {
+		t.Fatal(err)
+	}
+	semanticRequest.QueryEmbedding = searchBasisVector(1)
+	results, err = store.Search(ctx, semanticRequest)
+	if err != nil || len(results) != 1 || results[0].ItemID != record.itemID ||
+		results[0].SemanticRank == nil || results[0].SourceTier != "T0" {
+		t.Fatalf("current vector semantic Search() = %+v, %v", results, err)
 	}
 }
 

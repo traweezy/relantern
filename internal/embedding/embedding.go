@@ -5,6 +5,7 @@ import (
 	"errors"
 	"math"
 	"strings"
+	"unicode/utf8"
 )
 
 const (
@@ -48,4 +49,25 @@ func ValidateInput(input string) error {
 
 func ContentDigest(input string) [sha256.Size]byte {
 	return sha256.Sum256([]byte(input))
+}
+
+// BoundedInput is the canonical input used for a revision's embedding. The
+// search index uses the same digest to pin an immutable vector to its text.
+func BoundedInput(input string) (string, error) {
+	trimmed := strings.TrimSpace(input)
+	if trimmed == "" || !utf8.ValidString(trimmed) {
+		return "", errors.New("normalized revision does not contain valid embedding input")
+	}
+	if err := ValidateInput(trimmed); err == nil {
+		return trimmed, nil
+	}
+	payload := []byte(trimmed)
+	if len(payload) <= MaximumInputBytes {
+		return "", errors.New("normalized revision embedding input is invalid")
+	}
+	payload = payload[:MaximumInputBytes]
+	for !utf8.Valid(payload) {
+		payload = payload[:len(payload)-1]
+	}
+	return string(payload), nil
 }

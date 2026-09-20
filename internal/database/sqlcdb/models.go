@@ -747,6 +747,7 @@ type AppSearchDocument struct {
 	SearchVector      interface{}        `json:"search_vector"`
 	CreatedAt         pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
+	EmbeddingID       pgtype.UUID        `json:"embedding_id"`
 }
 
 type AppSource struct {

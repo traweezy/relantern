@@ -35,6 +35,9 @@ const (
 	ReconcileSourcesKind          = "reconcile_sources"
 	PollSourceEndpointKind        = "poll_source_endpoint"
 	ParseRawDocumentKind          = "parse_raw_document"
+	// ReembedProjectionVersion changes when a completed job must rebuild the
+	// search projection even if its item, revision, and model are unchanged.
+	ReembedProjectionVersion = 2
 )
 
 const reconcileSchedulesPeriodicID = "reconcile-schedules-v1"
@@ -189,10 +192,11 @@ func (DeliverDigestArgs) InsertOpts() river.InsertOpts {
 }
 
 type ReembedEntityArgs struct {
-	EntityType string `json:"entityType" river:"unique"`
-	EntityID   string `json:"entityId" river:"unique"`
-	RevisionID string `json:"revisionId" river:"unique"`
-	ModelID    string `json:"modelId" river:"unique"`
+	EntityType        string `json:"entityType" river:"unique"`
+	EntityID          string `json:"entityId" river:"unique"`
+	RevisionID        string `json:"revisionId" river:"unique"`
+	ModelID           string `json:"modelId" river:"unique"`
+	ProjectionVersion int    `json:"projectionVersion,omitempty" river:"unique"`
 }
 
 type ExtractItemArgs struct {
