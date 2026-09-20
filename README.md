@@ -88,11 +88,18 @@ remains intentionally withheld until the staging soak and release evidence
 pass.
 
 The current staging work wires bounded source polling, independently tracked
-feed/API entries, durable parse replay, and Live snapshot/SSE replay into the
-disconnected stack. Browser journeys now exercise the owner workspace and
-fixture-only demo. Built-in sources remain paused and external provider fuses
-remain off by default. The seven-day source-coverage gate and 14-day hosted
-staging soak have not started, so this is not production release evidence.
+feed/API entries, durable parse replay, transactional revision-to-intelligence
+handoff, capability-aware backlog reconciliation, and Live snapshot/SSE replay
+into the disconnected stack. Browser journeys now exercise the owner workspace
+and fixture-only demo. Built-in sources remain paused and live source, hosted
+OpenAI, and delivery fuses remain off by default; local AI tests use the fake
+provider. Stored current revisions can enter bounded embedding, extraction, and
+research reconciliation when their respective workers are enabled, even while
+live source polling is off. Research uses the owner's bounded high-value digest
+selection before cutoff and can rerun when the verified claim set changes,
+including from a supporting source. The seven-day source-coverage
+gate and 14-day hosted staging soak have not started, so this is not production
+release evidence.
 
 ## Safe local workflow
 
@@ -178,6 +185,8 @@ background retries, durable webhook deduplication, and database hard stops. See
 Discarded jobs are private operational data. Inspect them with
 `docker compose run --rm worker dead-letters`; use the audited retry command
 only after following [the queue recovery runbook](docs/runbooks/queue-recovery.md).
+Capability-aware reconciliation does not retry cancelled or discarded jobs;
+the operator must resolve their cause and use that audited path.
 Review budget blocks, provider retries, or `needs_review` extraction runs with
 [the AI extraction runbook](docs/runbooks/ai-extraction.md).
 For background delivery, use
