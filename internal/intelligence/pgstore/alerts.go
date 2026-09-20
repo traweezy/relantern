@@ -46,7 +46,7 @@ func (store *Store) AlertHistory(
 	const projection = `
 		select id::text, advisory_id, title, ecosystem, package_name,
 			current_version, vulnerable_range, patched_version, source_url,
-			observed_at, created_at, correction_reason, corrected_at
+			observed_at, created_at, episode_number, correction_reason, corrected_at
 		from app.critical_alerts
 		where user_id = $1::uuid`
 	const order = ` order by created_at desc, id desc`
@@ -73,7 +73,7 @@ func (store *Store) AlertHistory(
 			&item.ID, &item.AdvisoryID, &item.Title, &item.Ecosystem,
 			&item.PackageName, &item.CurrentVersion, &item.VersionRange,
 			&item.PatchedVersion, &item.SourceURL, &item.ObservedAt, &item.AlertedAt,
-			&correctionReason, &correctedAt,
+			&item.EpisodeNumber, &correctionReason, &correctedAt,
 		); err != nil {
 			rows.Close()
 			return intelligence.AlertHistoryPage{}, fmt.Errorf("scan owner alert history: %w", err)

@@ -312,8 +312,10 @@ func TestRecordPersistsFetchCheckpointAndRawMetadataAtomically(t *testing.T) {
 		SHA256:    payloadDigest,
 		Bytes:     7,
 	}
-	if err := (pgstore.Store{}).Record(ctx, transaction, "go-blog", "go-blog", fetcher.ContentPolicyLinkAndExcerpt, result); err != nil {
-		t.Fatalf("Record() error = %v", err)
+	finalFetchID, err := (pgstore.Store{}).RecordWithFinalAttemptID(ctx, transaction,
+		"go-blog", "go-blog", fetcher.ContentPolicyLinkAndExcerpt, result)
+	if err != nil {
+		t.Fatalf("RecordWithFinalAttemptID() error = %v", err)
 	}
 
 	var fetchCount int
@@ -324,7 +326,8 @@ func TestRecordPersistsFetchCheckpointAndRawMetadataAtomically(t *testing.T) {
 		select count(*)
 		from app.source_fetches source_fetch
 		join app.source_endpoints endpoint on endpoint.id = source_fetch.endpoint_id
-		where endpoint.registry_id = 'go-blog' and source_fetch.attempted_at = $1`, attemptedAt).Scan(&fetchCount); err != nil {
+		where endpoint.registry_id = 'go-blog' and source_fetch.attempted_at = $1
+			and source_fetch.id = $2`, attemptedAt, finalFetchID).Scan(&fetchCount); err != nil {
 		t.Fatalf("count source fetches: %v", err)
 	}
 	if err := transaction.QueryRow(ctx, `

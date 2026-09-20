@@ -35,13 +35,40 @@ func TestWritePrometheusHasStableLowCardinalityNames(t *testing.T) {
 		t.Fatal(err)
 	}
 	encoded := output.String()
-	for _, name := range []string{"source_poll_due_total", "river_queue_depth", "restore_rto_seconds", "critical_alert_undelivered_count", "critical_alert_corrected_count", "critical_alert_delivery_suppressed_count", "reviewed_advisory_scan_pending", "reviewed_advisory_scan_age_seconds", "reviewed_advisory_scan_issues"} {
+	for _, name := range []string{"source_poll_due_total", "river_queue_depth", "restore_rto_seconds", "critical_alert_undelivered_count", "critical_alert_corrected_count", "critical_alert_delivery_suppressed_count", "reviewed_advisory_scan_pending", "reviewed_advisory_scan_age_seconds", "reviewed_advisory_scan_issues", "advisory_observation_pending", "advisory_observation_oldest_age_seconds"} {
 		if !strings.Contains(encoded, name) {
 			t.Fatalf("metrics output lacks %s", name)
 		}
 	}
 	if strings.Contains(encoded, "url=") || strings.Contains(encoded, "provider_id") {
 		t.Fatalf("metrics output contains a high-cardinality label: %s", encoded)
+	}
+}
+
+func TestEvaluateAlertsWhenAdvisoryObservationExceedsTenMinutes(t *testing.T) {
+	now := time.Date(2026, 9, 20, 12, 0, 0, 0, time.UTC)
+	for _, test := range []struct {
+		name    string
+		pending int64
+		age     float64
+		want    bool
+	}{
+		{name: "below threshold", pending: 1, age: 600},
+		{name: "stale pending observation", pending: 1, age: 601, want: true},
+		{name: "no pending observation", age: 601},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			alerts := operability.Evaluate(operability.Snapshot{
+				AdvisoryObservationsPending: test.pending,
+				AdvisoryObservationAge:      test.age,
+			}, now)
+			if (len(alerts) == 1) != test.want {
+				t.Fatalf("stalled advisory observation signal = %+v, want %t", alerts, test.want)
+			}
+			if test.want && alerts[0].Name != "advisory_observation_stalled" {
+				t.Fatalf("stalled advisory observation signal = %+v", alerts)
+			}
+		})
 	}
 }
 

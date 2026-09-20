@@ -60,6 +60,7 @@ type TodayStats struct {
 type CriticalAlert struct {
 	ID             string    `json:"id"`
 	AdvisoryID     string    `json:"advisoryId"`
+	EpisodeNumber  int       `json:"episodeNumber"`
 	Title          string    `json:"title"`
 	Ecosystem      string    `json:"ecosystem"`
 	PackageName    string    `json:"packageName"`

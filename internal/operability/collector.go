@@ -13,37 +13,39 @@ import (
 )
 
 type Snapshot struct {
-	SourcePollDue          int64     `json:"sourcePollDue"`
-	SourcePollSuccess      int64     `json:"sourcePollSuccess"`
-	SourcePollFailure      int64     `json:"sourcePollFailure"`
-	PriorityFreshness      float64   `json:"priorityFreshnessSeconds"`
-	ParseFailures          int64     `json:"parseFailures"`
-	QueueDepth             int64     `json:"queueDepth"`
-	OldestJobAge           float64   `json:"oldestJobAgeSeconds"`
-	AIRuns                 int64     `json:"aiRuns"`
-	AISchemaFailures       int64     `json:"aiSchemaFailures"`
-	AICostUSD              float64   `json:"aiCostUsd"`
-	AITokens               int64     `json:"aiTokens"`
-	DigestDeliveries       int64     `json:"digestDeliveries"`
-	DigestFailures         int64     `json:"digestFailures"`
-	DelayedDigests         int64     `json:"delayedDigests"`
-	UndeliveredCritical    int64     `json:"undeliveredCriticalAlerts"`
-	CorrectedCritical      int64     `json:"correctedCriticalAlerts"`
-	SuppressedDeliveries   int64     `json:"suppressedCriticalDeliveries"`
-	AdvisoryScanPending    int64     `json:"advisoryScanPending"`
-	AdvisoryScanAge        float64   `json:"advisoryScanAgeSeconds"`
-	AdvisoryScanIssues     int64     `json:"advisoryScanIssues"`
-	OutboxLag              float64   `json:"outboxLagSeconds"`
-	Feedback               int64     `json:"feedback"`
-	LastRetentionState     string    `json:"lastRetentionState"`
-	LastRetentionCompleted time.Time `json:"lastRetentionCompleted,omitempty"`
-	LastRestoreState       string    `json:"lastRestoreState"`
-	LastRestoreCompleted   time.Time `json:"lastRestoreCompleted,omitempty"`
-	LastRestoreRPOSeconds  int64     `json:"lastRestoreRpoSeconds"`
-	LastRestoreRTOSeconds  int64     `json:"lastRestoreRtoSeconds"`
-	LastRestoreRPOTarget   int64     `json:"lastRestoreRpoTargetSeconds"`
-	LastRestoreRTOTarget   int64     `json:"lastRestoreRtoTargetSeconds"`
-	GeneratedAt            time.Time `json:"generatedAt"`
+	SourcePollDue               int64     `json:"sourcePollDue"`
+	SourcePollSuccess           int64     `json:"sourcePollSuccess"`
+	SourcePollFailure           int64     `json:"sourcePollFailure"`
+	PriorityFreshness           float64   `json:"priorityFreshnessSeconds"`
+	ParseFailures               int64     `json:"parseFailures"`
+	QueueDepth                  int64     `json:"queueDepth"`
+	OldestJobAge                float64   `json:"oldestJobAgeSeconds"`
+	AIRuns                      int64     `json:"aiRuns"`
+	AISchemaFailures            int64     `json:"aiSchemaFailures"`
+	AICostUSD                   float64   `json:"aiCostUsd"`
+	AITokens                    int64     `json:"aiTokens"`
+	DigestDeliveries            int64     `json:"digestDeliveries"`
+	DigestFailures              int64     `json:"digestFailures"`
+	DelayedDigests              int64     `json:"delayedDigests"`
+	UndeliveredCritical         int64     `json:"undeliveredCriticalAlerts"`
+	CorrectedCritical           int64     `json:"correctedCriticalAlerts"`
+	SuppressedDeliveries        int64     `json:"suppressedCriticalDeliveries"`
+	AdvisoryScanPending         int64     `json:"advisoryScanPending"`
+	AdvisoryScanAge             float64   `json:"advisoryScanAgeSeconds"`
+	AdvisoryScanIssues          int64     `json:"advisoryScanIssues"`
+	AdvisoryObservationsPending int64     `json:"advisoryObservationsPending"`
+	AdvisoryObservationAge      float64   `json:"advisoryObservationOldestAgeSeconds"`
+	OutboxLag                   float64   `json:"outboxLagSeconds"`
+	Feedback                    int64     `json:"feedback"`
+	LastRetentionState          string    `json:"lastRetentionState"`
+	LastRetentionCompleted      time.Time `json:"lastRetentionCompleted,omitempty"`
+	LastRestoreState            string    `json:"lastRestoreState"`
+	LastRestoreCompleted        time.Time `json:"lastRestoreCompleted,omitempty"`
+	LastRestoreRPOSeconds       int64     `json:"lastRestoreRpoSeconds"`
+	LastRestoreRTOSeconds       int64     `json:"lastRestoreRtoSeconds"`
+	LastRestoreRPOTarget        int64     `json:"lastRestoreRpoTargetSeconds"`
+	LastRestoreRTOTarget        int64     `json:"lastRestoreRtoTargetSeconds"`
+	GeneratedAt                 time.Time `json:"generatedAt"`
 }
 
 type Alert struct {
@@ -141,6 +143,9 @@ func (collector *Collector) Collect(ctx context.Context, now time.Time) (Snapsho
 	if err := collector.loadAdvisoryScan(ctx, &snapshot, now); err != nil {
 		return Snapshot{}, err
 	}
+	if err := collector.loadAdvisoryObservations(ctx, &snapshot, now); err != nil {
+		return Snapshot{}, err
+	}
 	if err := collector.loadRetention(ctx, &snapshot); err != nil {
 		return Snapshot{}, err
 	}
@@ -169,6 +174,20 @@ func (collector *Collector) loadAdvisoryScan(ctx context.Context, snapshot *Snap
 	)
 	if err != nil {
 		return fmt.Errorf("collect reviewed advisory pagination metric: %w", err)
+	}
+	return nil
+}
+
+func (collector *Collector) loadAdvisoryObservations(ctx context.Context, snapshot *Snapshot, now time.Time) error {
+	err := collector.pool.QueryRow(ctx, `
+		select count(*)::bigint,
+			coalesce(greatest(extract(epoch from ($1::timestamptz - min(observed_at))), 0), 0)
+		from app.advisory_collection_observations
+		where state = 'pending'`, now).Scan(
+		&snapshot.AdvisoryObservationsPending, &snapshot.AdvisoryObservationAge,
+	)
+	if err != nil {
+		return fmt.Errorf("collect pending advisory observation metric: %w", err)
 	}
 	return nil
 }
@@ -229,6 +248,8 @@ func Evaluate(snapshot Snapshot, now time.Time) []Alert {
 	appendAlert(snapshot.AdvisoryScanPending > 0 && snapshot.AdvisoryScanAge > 24*3600,
 		"reviewed_advisory_scan_stalled", "warning", "Reviewed GitHub advisory pagination has not completed within 24 hours.")
 	appendAlert(snapshot.AdvisoryScanIssues > 0, "reviewed_advisory_scan_invalid", "warning", "Reviewed GitHub advisory pagination encountered a cursor cycle or page limit.")
+	appendAlert(snapshot.AdvisoryObservationsPending > 0 && snapshot.AdvisoryObservationAge > 10*60,
+		"advisory_observation_stalled", "warning", "An official advisory observation has awaited complete assessment for more than ten minutes.")
 	appendAlert(snapshot.LastRetentionState == "failed", "retention_failed", "warning", "The latest retention run failed.")
 	appendAlert(snapshot.LastRestoreState == "failed", "restore_integrity", "critical", "The latest database restore drill failed.")
 	appendAlert(
@@ -272,6 +293,8 @@ func WritePrometheus(writer io.Writer, snapshot Snapshot) error {
 		{"reviewed_advisory_scan_pending", snapshot.AdvisoryScanPending},
 		{"reviewed_advisory_scan_age_seconds", snapshot.AdvisoryScanAge},
 		{"reviewed_advisory_scan_issues", snapshot.AdvisoryScanIssues},
+		{"advisory_observation_pending", snapshot.AdvisoryObservationsPending},
+		{"advisory_observation_oldest_age_seconds", snapshot.AdvisoryObservationAge},
 		{"outbox_lag_seconds", snapshot.OutboxLag},
 		{"feedback_total", snapshot.Feedback},
 		{"restore_rpo_seconds", snapshot.LastRestoreRPOSeconds},

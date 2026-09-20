@@ -87,6 +87,34 @@ func TestEmptyCollectionsStillRequireAValidEnvelope(t *testing.T) {
 	}
 }
 
+func TestAdvisoryObservationSplitKeepsIdenticalPagePositions(t *testing.T) {
+	const item = `{"ghsa_id":"GHSA-abcd-1234-efgh","html_url":"https://github.com/advisories/GHSA-abcd-1234-efgh","summary":"Reviewed widget advisory","type":"reviewed","severity":"critical","published_at":"2024-01-01T00:00:00Z","github_reviewed_at":"2024-01-01T01:00:00Z"}`
+	parentURL := sources.GlobalReviewedAdvisoriesURL
+	body := []byte("[" + item + "," + item + "]")
+	entries, err := SplitAdvisoryObservationEntries(context.Background(), parentURL, body)
+	if err != nil || len(entries) != 2 {
+		t.Fatalf("observation split = %d entries, %v; want two", len(entries), err)
+	}
+	if entries[0].ExternalID != entries[1].ExternalID || entries[0].URL != entries[1].URL ||
+		!bytes.Equal(entries[0].Payload, entries[1].Payload) {
+		t.Fatalf("identical advisory page positions changed identity: %+v", entries)
+	}
+	for _, entry := range entries {
+		if err := ValidateEntry(parentURL, entry); err != nil {
+			t.Fatalf("retained advisory entry is invalid: %v", err)
+		}
+	}
+	legacy, err := SplitEntries(context.Background(), sources.ConnectorGitHubAdvisories, parentURL, body)
+	if err != nil || len(legacy) != 1 {
+		t.Fatalf("ordinary collection duplicate handling = %d entries, %v; want one", len(legacy), err)
+	}
+	changed := strings.Replace(item, "Reviewed widget advisory", "Corrected widget advisory", 1)
+	if _, err := SplitAdvisoryObservationEntries(context.Background(), parentURL,
+		[]byte("["+item+","+changed+"]")); err == nil {
+		t.Fatal("observation split accepted conflicting duplicate advisory content")
+	}
+}
+
 func TestEntryExtractionRejectsUnsafeLinksAndConflictingIDs(t *testing.T) {
 	base := "https://fixtures.example.test/feed"
 	for _, link := range []string{"http://other.example.test/x", "https://localhost/x", "https://127.0.0.1/x", "https://127.0.0.1./x", "https://service.internal/x", "https://user@example.test/x", "https://example.test:8443/x", "file:///tmp/x"} {

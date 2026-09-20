@@ -13,6 +13,7 @@ import (
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 	"github.com/riverqueue/river/rivertype"
 	"github.com/traweezy/relantern/internal/alert"
+	alertstore "github.com/traweezy/relantern/internal/alert/pgstore"
 	"github.com/traweezy/relantern/internal/clock"
 	"github.com/traweezy/relantern/internal/delivery"
 	"github.com/traweezy/relantern/internal/digest"
@@ -74,6 +75,26 @@ type parseRawDocumentWorker struct {
 	parser *ingestion.ParseWorker
 }
 
+type advisoryObservationSplitter interface {
+	SplitAdvisoryObservation(context.Context, int64) error
+}
+
+type splitAdvisoryObservationWorker struct {
+	river.WorkerDefaults[jobqueue.SplitAdvisoryObservationArgs]
+	parser advisoryObservationSplitter
+	logger *slog.Logger
+}
+
+type advisoryObservationWorkflow interface {
+	AssessObservation(context.Context, int64, string) error
+}
+
+type assessAdvisoryObservationWorker struct {
+	river.WorkerDefaults[jobqueue.AssessAdvisoryObservationArgs]
+	workflow advisoryObservationWorkflow
+	logger   *slog.Logger
+}
+
 type criticalAlertWorkflow interface {
 	Assess(context.Context, string, string) error
 	CatchUp(context.Context, jobqueue.ReassessCurrentAdvisoriesArgs) error
@@ -97,6 +118,9 @@ func (worker *reassessCurrentAdvisoriesWorker) Work(
 	ctx context.Context, job *river.Job[jobqueue.ReassessCurrentAdvisoriesArgs],
 ) error {
 	err := worker.workflow.CatchUp(ctx, job.Args)
+	if errors.Is(err, alertstore.ErrAdvisoryObservationBackfillPending) {
+		return river.JobSnooze(time.Minute)
+	}
 	if err != nil {
 		worker.logger.WarnContext(ctx, "watched advisory catch-up page failed",
 			"job_id", job.ID,
@@ -127,6 +151,10 @@ func (worker *assessCriticalAdvisoryWorker) Work(
 	ctx context.Context, job *river.Job[jobqueue.AssessCriticalAdvisoryArgs],
 ) error {
 	err := worker.workflow.Assess(ctx, job.Args.RawDocumentID, job.Args.RevisionID)
+	if errors.Is(err, alertstore.ErrAdvisoryObservationBackfillPending) ||
+		errors.Is(err, alertstore.ErrEpisodeCutoverPending) {
+		return river.JobSnooze(time.Minute)
+	}
 	if err != nil {
 		worker.logger.WarnContext(ctx, "critical advisory assessment failed",
 			"job_id", job.ID, "revision_id", job.Args.RevisionID, "attempt", job.Attempt)
@@ -134,6 +162,29 @@ func (worker *assessCriticalAdvisoryWorker) Work(
 	}
 	worker.logger.InfoContext(ctx, "critical advisory assessment completed",
 		"job_id", job.ID, "revision_id", job.Args.RevisionID)
+	return nil
+}
+
+func (worker *assessAdvisoryObservationWorker) Timeout(*river.Job[jobqueue.AssessAdvisoryObservationArgs]) time.Duration {
+	return 45 * time.Second
+}
+
+func (worker *assessAdvisoryObservationWorker) Work(
+	ctx context.Context, job *river.Job[jobqueue.AssessAdvisoryObservationArgs],
+) error {
+	err := worker.workflow.AssessObservation(ctx, job.Args.EventID, job.Args.RevisionID)
+	if errors.Is(err, alertstore.ErrEpisodeCutoverPending) {
+		return river.JobSnooze(time.Minute)
+	}
+	if err != nil {
+		worker.logger.WarnContext(ctx, "advisory observation assessment failed",
+			"job_id", job.ID, "event_id", job.Args.EventID,
+			"revision_id", job.Args.RevisionID, "attempt", job.Attempt)
+		return err
+	}
+	worker.logger.InfoContext(ctx, "advisory observation assessment completed",
+		"job_id", job.ID, "event_id", job.Args.EventID,
+		"revision_id", job.Args.RevisionID)
 	return nil
 }
 
@@ -234,6 +285,25 @@ func (worker *parseRawDocumentWorker) Work(ctx context.Context, job *river.Job[j
 		return river.JobCancel(err)
 	}
 	return err
+}
+
+func (worker *splitAdvisoryObservationWorker) Timeout(*river.Job[jobqueue.SplitAdvisoryObservationArgs]) time.Duration {
+	return 2 * time.Minute
+}
+
+func (worker *splitAdvisoryObservationWorker) Work(
+	ctx context.Context, job *river.Job[jobqueue.SplitAdvisoryObservationArgs],
+) error {
+	err := worker.parser.SplitAdvisoryObservation(ctx, job.Args.ObservationID)
+	if err != nil {
+		worker.logger.WarnContext(ctx, "advisory observation split failed",
+			"job_id", job.ID, "observation_id", job.Args.ObservationID,
+			"attempt", job.Attempt)
+		return err
+	}
+	worker.logger.InfoContext(ctx, "advisory observation split completed",
+		"job_id", job.ID, "observation_id", job.Args.ObservationID)
+	return nil
 }
 
 func (worker *reconcileSchedulesWorker) Work(
@@ -803,6 +873,10 @@ func NewRiverClient(
 	for _, configure := range configuredOptions {
 		configure(&configuration)
 	}
+	if configuration.advisoryObservations != nil &&
+		(configuration.sourceParser == nil || configuration.criticalAlerts == nil) {
+		return nil, errors.New("advisory observation workers require source parsing and critical alerts")
+	}
 	if configuration.researcher != nil &&
 		(configuration.openAIWebhookStore == nil || configuration.researchTimeout <= 0 || configuration.researchTimeout > 30*time.Minute) {
 		return nil, errors.New("research workers require a webhook store and timeout of at most 30 minutes")
@@ -924,6 +998,18 @@ func NewRiverClient(
 			return nil, fmt.Errorf("register critical alert reconciliation worker: %w", err)
 		}
 	}
+	if configuration.advisoryObservations != nil {
+		if err := river.AddWorkerSafely(workers, &splitAdvisoryObservationWorker{
+			parser: configuration.sourceParser, logger: logger,
+		}); err != nil {
+			return nil, fmt.Errorf("register advisory observation split worker: %w", err)
+		}
+		if err := river.AddWorkerSafely(workers, &assessAdvisoryObservationWorker{
+			workflow: configuration.advisoryObservations, logger: logger,
+		}); err != nil {
+			return nil, fmt.Errorf("register advisory observation assessment worker: %w", err)
+		}
+	}
 	if configuration.radarProcessor != nil {
 		if err := river.AddWorkerSafely(workers, &runWeeklyRadarDiscoveryWorker{
 			clock: configuredClock, logger: logger, processor: configuration.radarProcessor,
@@ -1026,6 +1112,7 @@ type riverOptions struct {
 	sourceParser           *ingestion.ParseWorker
 	criticalAlerts         criticalAlertWorkflow
 	criticalAlertSender    criticalAlertSender
+	advisoryObservations   advisoryObservationWorkflow
 }
 
 func WithSourceIngestion(poller *ingestion.Poller, parser *ingestion.ParseWorker) RiverOption {
@@ -1039,6 +1126,12 @@ func WithCriticalAlerts(workflow criticalAlertWorkflow, sender criticalAlertSend
 	return func(configuration *riverOptions) {
 		configuration.criticalAlerts = workflow
 		configuration.criticalAlertSender = sender
+	}
+}
+
+func WithAdvisoryObservations(workflow advisoryObservationWorkflow) RiverOption {
+	return func(configuration *riverOptions) {
+		configuration.advisoryObservations = workflow
 	}
 }
 

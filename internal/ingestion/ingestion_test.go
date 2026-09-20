@@ -30,6 +30,7 @@ type memoryRepository struct {
 	document             RawDocument
 	entries              []parsing.Entry
 	entriesError         error
+	managedParent        bool
 	pending              bool
 	splitCode            parsing.ErrorCode
 	failureRawID         string
@@ -58,6 +59,9 @@ func (repository *memoryRepository) ReconcilePending(_ context.Context, _ Handof
 	}
 	return repository.pendingCount, repository.pendingError
 }
+func (repository *memoryRepository) ReconcileAdvisoryObservations(context.Context, int) (int, error) {
+	return 0, nil
+}
 func (repository *memoryRepository) LoadEndpoint(context.Context, string) (*Endpoint, error) {
 	return repository.endpoint, nil
 }
@@ -75,6 +79,9 @@ func (repository *memoryRepository) RecordEntries(_ context.Context, _ RawDocume
 	repository.entries = entries
 	repository.pending = false
 	return len(entries), nil
+}
+func (repository *memoryRepository) ManagedAdvisoryParent(context.Context, string) (bool, error) {
+	return repository.managedParent, nil
 }
 func (repository *memoryRepository) RecordIngestionFailure(_ context.Context, document RawDocument, _ string, code parsing.ErrorCode) error {
 	if repository.failureError != nil {
@@ -467,6 +474,28 @@ func TestPollerReconcileAttemptsIntelligenceRecoveryWhenSchedulingFails(t *testi
 type fixtureReader struct {
 	payload string
 	key     string
+}
+
+func TestManagedAdvisoryParentSkipsLegacyParserJob(t *testing.T) {
+	repository := &memoryRepository{managedParent: true, document: RawDocument{
+		ID: "managed-parent", SourceID: "advisories",
+		Connector: sources.ConnectorGitHubAdvisories,
+		ObjectKey: "should-not-be-read",
+	}}
+	reader := &fixtureReader{}
+	worker, err := NewParseWorker(repository, reader, &fixtureParser{},
+		&fixtureDeduper{}, slog.New(slog.NewTextHandler(io.Discard, nil)),
+		HandoffCapabilities{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := worker.Parse(context.Background(), "advisories", "managed-parent"); err != nil {
+		t.Fatal(err)
+	}
+	if reader.key != "" || repository.entries != nil {
+		t.Fatalf("legacy parser touched managed parent: read key %q entries %d",
+			reader.key, len(repository.entries))
+	}
 }
 
 func (reader *fixtureReader) Read(_ context.Context, key string, _ int64) ([]byte, error) {

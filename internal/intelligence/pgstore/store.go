@@ -124,13 +124,21 @@ func (store *Store) Today(ctx context.Context, userID string, generatedAt time.T
 
 func (store *Store) recentCriticalAlerts(ctx context.Context, userID string, now time.Time) ([]intelligence.CriticalAlert, int, error) {
 	rows, err := store.pool.Query(ctx, `
-		select id::text, advisory_id, title, ecosystem, package_name,
-			current_version, vulnerable_range, patched_version, source_url,
-			observed_at, created_at, count(*) over()
-		from app.critical_alerts
-		where user_id = $1::uuid and created_at >= $2 and created_at <= $3
-			and correction_reason is null
-		order by created_at desc, id desc
+		select alert.id::text, alert.advisory_id, alert.title, alert.ecosystem, alert.package_name,
+			alert.current_version, alert.vulnerable_range, alert.patched_version, alert.source_url,
+			alert.observed_at, alert.created_at, alert.episode_number, count(*) over()
+		from app.critical_alerts alert
+		where alert.user_id = $1::uuid and alert.created_at >= $2 and alert.created_at <= $3
+			and alert.correction_reason is null
+			and not exists (
+				select 1 from app.critical_alerts newer
+				where newer.user_id = alert.user_id
+					and newer.advisory_id = alert.advisory_id
+					and newer.ecosystem = alert.ecosystem
+					and newer.package_name = alert.package_name
+					and newer.episode_number > alert.episode_number
+			)
+		order by alert.created_at desc, alert.id desc
 		limit 20`, userID, now.Add(-24*time.Hour), now)
 	if err != nil {
 		return nil, 0, fmt.Errorf("select recent critical alerts: %w", err)
@@ -144,7 +152,7 @@ func (store *Store) recentCriticalAlerts(ctx context.Context, userID string, now
 			&selected.ID, &selected.AdvisoryID, &selected.Title,
 			&selected.Ecosystem, &selected.PackageName, &selected.CurrentVersion,
 			&selected.VersionRange, &selected.PatchedVersion, &selected.SourceURL,
-			&selected.ObservedAt, &selected.AlertedAt, &alertCount,
+			&selected.ObservedAt, &selected.AlertedAt, &selected.EpisodeNumber, &alertCount,
 		); err != nil {
 			return nil, 0, fmt.Errorf("scan critical alert: %w", err)
 		}

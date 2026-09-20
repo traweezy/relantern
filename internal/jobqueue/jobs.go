@@ -12,6 +12,7 @@ const (
 	QueueAdvisoryBackfill = "advisory_backfill"
 	QueueFetch            = "fetch"
 	QueueParse            = "parse"
+	QueueAdvisorySplit    = "advisory_split"
 	QueueAIFast           = "ai_fast"
 	QueueAIResearch       = "ai_research"
 	QueueDelivery         = "delivery"
@@ -36,7 +37,9 @@ const (
 	ReconcileSourcesKind          = "reconcile_sources"
 	PollSourceEndpointKind        = "poll_source_endpoint"
 	ParseRawDocumentKind          = "parse_raw_document"
+	SplitAdvisoryObservationKind  = "split_advisory_observation"
 	AssessCriticalAdvisoryKind    = "assess_critical_advisory"
+	AssessAdvisoryObservationKind = "assess_advisory_observation"
 	ReassessCurrentAdvisoriesKind = "reassess_current_advisories"
 	DeliverCriticalAlertKind      = "deliver_critical_alert"
 	ReconcileCriticalAlertsKind   = "reconcile_critical_alerts"
@@ -83,9 +86,18 @@ type ParseRawDocumentArgs struct {
 	RegistryID    string `json:"registryId"`
 }
 
+type SplitAdvisoryObservationArgs struct {
+	ObservationID int64 `json:"observationId" river:"unique"`
+}
+
 type AssessCriticalAdvisoryArgs struct {
 	RawDocumentID string `json:"rawDocumentId" river:"unique"`
 	RevisionID    string `json:"revisionId" river:"unique"`
+}
+
+type AssessAdvisoryObservationArgs struct {
+	EventID    int64  `json:"eventId" river:"unique"`
+	RevisionID string `json:"revisionId" river:"unique"`
 }
 
 // ReassessCurrentAdvisoriesArgs pages through the current official advisory
@@ -113,6 +125,16 @@ func (AssessCriticalAdvisoryArgs) InsertOpts() river.InsertOpts {
 	return river.InsertOpts{
 		MaxAttempts: 5, Priority: 1, Queue: QueueCritical,
 		Tags:       []string{"advisory", "assessment"},
+		UniqueOpts: river.UniqueOpts{ByArgs: true, ByQueue: true, ByState: activeJobStates()},
+	}
+}
+
+func (AssessAdvisoryObservationArgs) Kind() string { return AssessAdvisoryObservationKind }
+
+func (AssessAdvisoryObservationArgs) InsertOpts() river.InsertOpts {
+	return river.InsertOpts{
+		MaxAttempts: 5, Priority: 1, Queue: QueueCritical,
+		Tags:       []string{"advisory", "observation", "assessment"},
 		UniqueOpts: river.UniqueOpts{ByArgs: true, ByQueue: true, ByState: activeJobStates()},
 	}
 }
@@ -149,6 +171,16 @@ func (ParseRawDocumentArgs) InsertOpts() river.InsertOpts {
 	return river.InsertOpts{
 		MaxAttempts: 5, Priority: 2, Queue: QueueParse,
 		Tags:       []string{"source", "parse"},
+		UniqueOpts: river.UniqueOpts{ByArgs: true, ByQueue: true, ByState: activeJobStates()},
+	}
+}
+
+func (SplitAdvisoryObservationArgs) Kind() string { return SplitAdvisoryObservationKind }
+
+func (SplitAdvisoryObservationArgs) InsertOpts() river.InsertOpts {
+	return river.InsertOpts{
+		MaxAttempts: 5, Priority: 1, Queue: QueueAdvisorySplit,
+		Tags:       []string{"advisory", "observation", "split"},
 		UniqueOpts: river.UniqueOpts{ByArgs: true, ByQueue: true, ByState: activeJobStates()},
 	}
 }
@@ -494,6 +526,7 @@ func QueueConfigs() map[string]river.QueueConfig {
 		QueueCritical:         {MaxWorkers: 4},
 		QueueFetch:            {MaxWorkers: 12},
 		QueueParse:            {MaxWorkers: 8},
+		QueueAdvisorySplit:    {MaxWorkers: 1},
 		QueueAIFast:           {MaxWorkers: 4},
 		QueueAIResearch:       {MaxWorkers: 2},
 		QueueDelivery:         {MaxWorkers: 2},

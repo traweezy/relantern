@@ -302,6 +302,30 @@ func loadOwnerWatches(ctx context.Context, tx pgx.Tx, advisory alert.Advisory) (
 // Assess fails closed for stale or unsupported evidence. A durable alert and
 // every selected delivery intent commit atomically with their River jobs.
 func (store *Store) Assess(ctx context.Context, rawDocumentID, revisionID string) error {
+	// Collection observations own event ordering. A raw-based job may fill a
+	// later watch gap only after the latest event has finished and its evidence
+	// is rechecked under the source lock.
+	var observationManaged bool
+	if err := store.pool.QueryRow(ctx, `
+		select exists (
+			select 1 from app.raw_documents child
+			join app.advisory_collection_observations collection
+				on collection.parent_raw_document_id = child.parent_raw_document_id
+			where child.id = $1::uuid
+		) or exists (
+			select 1 from app.advisory_entry_observations
+			where child_raw_document_id = $1::uuid
+		) or exists (
+			select 1 from app.raw_documents child
+			join app.advisory_entry_observations event
+				on event.source_entry_id = child.source_entry_id
+			where child.id = $1::uuid
+		)`, rawDocumentID).Scan(&observationManaged); err != nil {
+		return fmt.Errorf("inspect advisory observation ownership: %w", err)
+	}
+	if observationManaged {
+		return store.assessObservedBackfill(ctx, rawDocumentID, revisionID)
+	}
 	preflight, ok, err := loadEvidence(ctx, store.pool, rawDocumentID, revisionID, false)
 	if err != nil || !ok {
 		return err
@@ -377,7 +401,7 @@ func (store *Store) Assess(ctx context.Context, rawDocumentID, revisionID string
 		}
 		for _, match := range matches {
 			if err := store.insertMatch(ctx, tx, rawDocumentID, revisionID, current, sourceURL,
-				advisory.ID, owner.userID, match, owner.channels, scheduledAt); err != nil {
+				advisory.ID, owner.userID, match, owner.channels, scheduledAt, 1, nil); err != nil {
 				return err
 			}
 		}
@@ -504,24 +528,28 @@ func equalDigest(first, second []byte) bool {
 func (store *Store) insertMatch(ctx context.Context, tx pgx.Tx,
 	rawDocumentID, revisionID string, evidence evidence, sourceURL, advisoryID, userID string,
 	match alert.MatchResult, channels []string, scheduledAt time.Time,
+	episodeNumber int, openingObservationID *int64,
 ) error {
 	var alertID string
+	// The additive rollout has both the legacy package key and the episode key.
+	// A replay may conflict with either until the legacy key is cut over.
 	err := tx.QueryRow(ctx, `
 		insert into app.critical_alerts (
 			user_id, advisory_id, ecosystem, package_name, current_version,
 			vulnerable_range, patched_version, raw_document_id, revision_id,
-			item_id, source_id, source_url, title, observed_at
+			item_id, source_id, source_url, title, observed_at, episode_number,
+			opening_observation_id
 		) values (
 			$1::uuid, $2, $3, $4, $5, $6, $7, $8::uuid, $9::uuid,
-			$10::uuid, $11, $12, $13, $14
+			$10::uuid, $11, $12, $13, $14, $15, $16
 		)
-		on conflict (user_id, advisory_id, ecosystem, package_name) do nothing
+		on conflict do nothing
 		returning id::text`,
 		userID, advisoryID, match.Vulnerability.Ecosystem, match.Vulnerability.PackageName,
 		match.Watch.CurrentVersion, match.Vulnerability.VersionRange,
 		match.Vulnerability.PatchedVersion, rawDocumentID, revisionID,
 		evidence.itemID, evidence.sourceID, sourceURL,
-		evidence.title, evidence.observedAt,
+		evidence.title, evidence.observedAt, episodeNumber, openingObservationID,
 	).Scan(&alertID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil // The first admission owns the immutable snapshot and channels.

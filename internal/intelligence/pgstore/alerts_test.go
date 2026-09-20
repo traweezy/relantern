@@ -85,6 +85,9 @@ func TestAlertHistoryPaginatesOwnerAlertsAndDeliveryStates(t *testing.T) {
 		if seen[item.ID] || item.AlertedAt.After(time.Now().Add(-24*time.Hour)) {
 			t.Fatalf("duplicated or newer-than-24h alert: %+v", item)
 		}
+		if item.EpisodeNumber != 1 {
+			t.Fatalf("legacy alert episode number = %d, want 1", item.EpisodeNumber)
+		}
 		seen[item.ID] = true
 		if item.ID == fixture.deliveryAlertID {
 			if len(item.Deliveries) != 2 || item.Deliveries[0].Channel != "discord" ||
@@ -187,6 +190,67 @@ func TestAlertHistoryPaginatesOwnerAlertsAndDeliveryStates(t *testing.T) {
 	}
 }
 
+func TestAlertHistoryAndTodayKeepEpisodesInOrder(t *testing.T) {
+	if os.Getenv("DATABASE_URL") == "" && os.Getenv("DATABASE_PASSWORD_FILE") == "" {
+		t.Skip("database configuration is required for alert history integration test")
+	}
+	settings, err := config.LoadDatabase()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	pool, err := database.Open(ctx, settings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	var legacyUnique bool
+	if err := pool.QueryRow(ctx, `select exists (
+		select 1 from pg_constraint
+		where conrelid = 'app.critical_alerts'::regclass
+			and conname = 'critical_alerts_user_advisory_package_key'
+	)`).Scan(&legacyUnique); err != nil {
+		t.Fatal(err)
+	}
+	if legacyUnique {
+		t.Skip("episode-two read assertions require the additive uniqueness cutover")
+	}
+	store, err := New(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture := seedAlertHistory(t, ctx, pool)
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	firstID := fixture.insertAlertEpisode(t, ctx, fixture.ownerID, 26, 1, now.Add(-2*time.Minute))
+	secondID := fixture.insertAlertEpisode(t, ctx, fixture.ownerID, 26, 2, now.Add(-time.Minute))
+
+	firstPage, err := store.AlertHistory(ctx, fixture.ownerID, "", 1)
+	if err != nil || len(firstPage.Alerts) != 1 || firstPage.NextCursor == nil ||
+		firstPage.Alerts[0].ID != secondID || firstPage.Alerts[0].EpisodeNumber != 2 {
+		t.Fatalf("latest episode page = %+v, %v", firstPage, err)
+	}
+	secondPage, err := store.AlertHistory(ctx, fixture.ownerID, *firstPage.NextCursor, 1)
+	if err != nil || len(secondPage.Alerts) != 1 || secondPage.Alerts[0].ID != firstID ||
+		secondPage.Alerts[0].EpisodeNumber != 1 {
+		t.Fatalf("older episode page = %+v, %v", secondPage, err)
+	}
+	recent, count, err := store.recentCriticalAlerts(ctx, fixture.ownerID, now)
+	if err != nil || count != 1 || len(recent) != 1 || recent[0].ID != secondID ||
+		recent[0].EpisodeNumber != 2 {
+		t.Fatalf("Today latest episode = %+v, count %d, error %v", recent, count, err)
+	}
+	if _, err := pool.Exec(ctx, `update app.critical_alerts
+		set correction_reason = 'withdrawn', correction_revision_id = $2::uuid,
+			corrected_at = $3 where id = $1::uuid`, secondID, fixture.revisionID, now); err != nil {
+		t.Fatal(err)
+	}
+	recent, count, err = store.recentCriticalAlerts(ctx, fixture.ownerID, now)
+	if err != nil || count != 0 || len(recent) != 0 {
+		t.Fatalf("Today revived an older episode = %+v, count %d, error %v", recent, count, err)
+	}
+}
+
 type alertHistoryFixture struct {
 	pool             *pgxpool.Pool
 	sourceID         string
@@ -286,18 +350,22 @@ func seedAlertHistory(t *testing.T, ctx context.Context, pool *pgxpool.Pool) ale
 }
 
 func (fixture alertHistoryFixture) insertAlert(t *testing.T, ctx context.Context, userID string, number int, createdAt time.Time) string {
+	return fixture.insertAlertEpisode(t, ctx, userID, number, 1, createdAt)
+}
+
+func (fixture alertHistoryFixture) insertAlertEpisode(t *testing.T, ctx context.Context, userID string, number int, episode int, createdAt time.Time) string {
 	t.Helper()
 	advisoryID := fmt.Sprintf("GHSA-%04x-%04x-%04x", number, 0, 0)
 	var alertID string
 	if err := fixture.pool.QueryRow(ctx, `insert into app.critical_alerts
 		(user_id, advisory_id, ecosystem, package_name, current_version,
 		vulnerable_range, raw_document_id, revision_id, item_id, source_id,
-		source_url, title, observed_at, created_at)
+		source_url, title, observed_at, created_at, episode_number)
 		values ($1::uuid, $2, 'go', 'example.com/widget', '1.2.0', '< 1.2.3',
-		$3::uuid, $4::uuid, $5::uuid, $6, $7, 'Critical widget update', $8, $9)
+		$3::uuid, $4::uuid, $5::uuid, $6, $7, 'Critical widget update', $8, $9, $10)
 		returning id::text`, userID, advisoryID, fixture.rawID, fixture.revisionID,
 		fixture.itemID, fixture.sourceID, "https://github.com/advisories/"+advisoryID,
-		createdAt, createdAt).Scan(&alertID); err != nil {
+		createdAt, createdAt, episode).Scan(&alertID); err != nil {
 		t.Fatal(err)
 	}
 	return alertID

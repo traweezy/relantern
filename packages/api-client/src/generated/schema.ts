@@ -802,6 +802,8 @@ export interface components {
             currentVersion: string;
             deliveries: components["schemas"]["AlertDeliveryStatus"][] | null;
             ecosystem: string;
+            /** Format: int64 */
+            episodeNumber: number;
             id: string;
             /** Format: date-time */
             observedAt: string;
@@ -999,6 +1001,8 @@ export interface components {
             alertedAt: string;
             currentVersion: string;
             ecosystem: string;
+            /** Format: int64 */
+            episodeNumber: number;
             id: string;
             /** Format: date-time */
             observedAt: string;

@@ -9,6 +9,31 @@ import (
 	"github.com/pgvector/pgvector-go"
 )
 
+type AppAdvisoryCollectionObservation struct {
+	ID                  int64              `json:"id"`
+	SourceID            string             `json:"source_id"`
+	SourceRegistryID    string             `json:"source_registry_id"`
+	SourceFetchID       int64              `json:"source_fetch_id"`
+	ParentRawDocumentID pgtype.UUID        `json:"parent_raw_document_id"`
+	ObservedAt          pgtype.Timestamptz `json:"observed_at"`
+	State               string             `json:"state"`
+	EntryCount          pgtype.Int4        `json:"entry_count"`
+	SplitCompletedAt    pgtype.Timestamptz `json:"split_completed_at"`
+	ProcessedAt         pgtype.Timestamptz `json:"processed_at"`
+	CreatedAt           pgtype.Timestamptz `json:"created_at"`
+}
+
+type AppAdvisoryEntryObservation struct {
+	ID                      int64              `json:"id"`
+	CollectionObservationID int64              `json:"collection_observation_id"`
+	EntryOrdinal            int32              `json:"entry_ordinal"`
+	SourceEntryID           pgtype.UUID        `json:"source_entry_id"`
+	ChildRawDocumentID      pgtype.UUID        `json:"child_raw_document_id"`
+	State                   string             `json:"state"`
+	ProcessedAt             pgtype.Timestamptz `json:"processed_at"`
+	CreatedAt               pgtype.Timestamptz `json:"created_at"`
+}
+
 type AppAiRun struct {
 	ID                 pgtype.UUID        `json:"id"`
 	ItemID             pgtype.UUID        `json:"item_id"`
@@ -174,25 +199,28 @@ type AppContentRevision struct {
 }
 
 type AppCriticalAlert struct {
-	ID                   pgtype.UUID        `json:"id"`
-	UserID               pgtype.UUID        `json:"user_id"`
-	AdvisoryID           string             `json:"advisory_id"`
-	Ecosystem            string             `json:"ecosystem"`
-	PackageName          string             `json:"package_name"`
-	CurrentVersion       string             `json:"current_version"`
-	VulnerableRange      string             `json:"vulnerable_range"`
-	PatchedVersion       string             `json:"patched_version"`
-	RawDocumentID        pgtype.UUID        `json:"raw_document_id"`
-	RevisionID           pgtype.UUID        `json:"revision_id"`
-	ItemID               pgtype.UUID        `json:"item_id"`
-	SourceID             string             `json:"source_id"`
-	SourceUrl            string             `json:"source_url"`
-	Title                string             `json:"title"`
-	ObservedAt           pgtype.Timestamptz `json:"observed_at"`
-	CreatedAt            pgtype.Timestamptz `json:"created_at"`
-	CorrectionReason     pgtype.Text        `json:"correction_reason"`
-	CorrectionRevisionID pgtype.UUID        `json:"correction_revision_id"`
-	CorrectedAt          pgtype.Timestamptz `json:"corrected_at"`
+	ID                      pgtype.UUID        `json:"id"`
+	UserID                  pgtype.UUID        `json:"user_id"`
+	AdvisoryID              string             `json:"advisory_id"`
+	Ecosystem               string             `json:"ecosystem"`
+	PackageName             string             `json:"package_name"`
+	CurrentVersion          string             `json:"current_version"`
+	VulnerableRange         string             `json:"vulnerable_range"`
+	PatchedVersion          string             `json:"patched_version"`
+	RawDocumentID           pgtype.UUID        `json:"raw_document_id"`
+	RevisionID              pgtype.UUID        `json:"revision_id"`
+	ItemID                  pgtype.UUID        `json:"item_id"`
+	SourceID                string             `json:"source_id"`
+	SourceUrl               string             `json:"source_url"`
+	Title                   string             `json:"title"`
+	ObservedAt              pgtype.Timestamptz `json:"observed_at"`
+	CreatedAt               pgtype.Timestamptz `json:"created_at"`
+	CorrectionReason        pgtype.Text        `json:"correction_reason"`
+	CorrectionRevisionID    pgtype.UUID        `json:"correction_revision_id"`
+	CorrectedAt             pgtype.Timestamptz `json:"corrected_at"`
+	EpisodeNumber           int32              `json:"episode_number"`
+	OpeningObservationID    pgtype.Int8        `json:"opening_observation_id"`
+	CorrectionObservationID pgtype.Int8        `json:"correction_observation_id"`
 }
 
 type AppCriticalAlertAttempt struct {

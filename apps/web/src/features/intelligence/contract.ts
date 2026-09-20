@@ -168,11 +168,16 @@ export const parseStoryDetail = (value: unknown): StoryDetail => {
 
 const parseCriticalAlert = (value: unknown, name: string): CriticalAlert => {
   const item = recordValue(value, name);
+  const episodeNumber = integerValue(item.episodeNumber, `${name}.episodeNumber`, 1_000_000);
+  if (episodeNumber < 1) {
+    throw new IntelligenceContractError(`${name}.episodeNumber must be positive`);
+  }
   return {
     id: stringValue(item.id, `${name}.id`, 80),
     advisoryId: stringValue(item.advisoryId, `${name}.advisoryId`, 19),
     title: stringValue(item.title, `${name}.title`, 500),
     ecosystem: stringValue(item.ecosystem, `${name}.ecosystem`, 32),
+    episodeNumber,
     packageName: stringValue(item.packageName, `${name}.packageName`, 255),
     currentVersion: stringValue(item.currentVersion, `${name}.currentVersion`, 100),
     versionRange: stringValue(item.versionRange, `${name}.versionRange`, 200),
@@ -257,7 +262,12 @@ export const parseAlertHistoryPage = (value: unknown): AlertHistoryPage => {
           `${name} correction reason and time must appear together`,
         );
       }
-      return { ...parseCriticalAlert(item, name), correctionReason, correctedAt, deliveries };
+      return {
+        ...parseCriticalAlert(item, name),
+        correctionReason,
+        correctedAt,
+        deliveries,
+      };
     }),
     nextCursor,
   };

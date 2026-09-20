@@ -43,6 +43,23 @@ type RawDocument struct {
 	SourceEntryID    string
 }
 
+// AdvisoryCollectionObservation identifies one stored official collection
+// fetch. The retained parent can be shared by multiple observations.
+type AdvisoryCollectionObservation struct {
+	ID               int64
+	SourceID         string
+	RegistryID       string
+	ParentRegistryID string
+	Parent           RawDocument
+}
+
+type AdvisoryEntryEvent struct {
+	ID                      int64
+	CollectionObservationID int64
+	RawDocumentID           string
+	RevisionID              string
+}
+
 // HandoffCapabilities names only downstream workers available in this process.
 // An empty embedding model or a false AI flag keeps that work durable for a
 // later reconciliation instead of queuing a job with no registered worker.
@@ -55,10 +72,12 @@ type HandoffCapabilities struct {
 type Repository interface {
 	ScheduleDue(context.Context, time.Time, int) (int, error)
 	ReconcilePending(context.Context, HandoffCapabilities, int) (int, error)
+	ReconcileAdvisoryObservations(context.Context, int) (int, error)
 	LoadEndpoint(context.Context, string) (*Endpoint, error)
 	RecordFetch(context.Context, Endpoint, fetcher.Result, error) error
 	LoadRawDocument(context.Context, string, string) (RawDocument, error)
 	RecordEntries(context.Context, RawDocument, string, []parsing.Entry) (int, error)
+	ManagedAdvisoryParent(context.Context, string) (bool, error)
 	RecordIngestionFailure(context.Context, RawDocument, string, parsing.ErrorCode) error
 	CompleteParsedRevision(context.Context, RawDocument, string, dedupe.ProcessResult, string, HandoffCapabilities) error
 }
@@ -73,6 +92,11 @@ type Parser interface {
 
 type Deduper interface {
 	Process(context.Context, dedupe.ProcessRequest) (dedupe.ProcessResult, error)
+}
+
+type AdvisoryObservationRepository interface {
+	LoadAdvisoryObservation(context.Context, int64) (*AdvisoryCollectionObservation, error)
+	RecordAdvisoryObservationEntries(context.Context, AdvisoryCollectionObservation, []parsing.Entry) (int, error)
 }
 
 type Poller struct {
@@ -111,7 +135,13 @@ func (poller *Poller) Reconcile(ctx context.Context) (int, error) {
 	} else {
 		pendingErr = fmt.Errorf("reconcile pending source intelligence: %w", pendingErr)
 	}
-	return due + pending, errors.Join(scheduleErr, pendingErr)
+	observations, observationErr := poller.repository.ReconcileAdvisoryObservations(ctx, 100)
+	if observationErr == nil {
+		poller.logger.InfoContext(ctx, "pending advisory observations reconciled", "jobs_enqueued", observations)
+	} else {
+		observationErr = fmt.Errorf("reconcile advisory observations: %w", observationErr)
+	}
+	return due + pending + observations, errors.Join(scheduleErr, pendingErr, observationErr)
 }
 
 func (poller *Poller) Poll(ctx context.Context, registryID string) error {
@@ -382,6 +412,17 @@ func (worker *ParseWorker) Parse(ctx context.Context, registryID string, rawDocu
 	if err != nil {
 		return err
 	}
+	if document.ParentRawID == "" && document.Connector == sources.ConnectorGitHubAdvisories {
+		managed, err := worker.repository.ManagedAdvisoryParent(ctx, document.ID)
+		if err != nil {
+			return fmt.Errorf("check managed advisory parent: %w", err)
+		}
+		if managed {
+			// Old queued parser jobs must not split a captured observation out
+			// of source order. The observation worker owns this parent.
+			return nil
+		}
+	}
 	payload, err := worker.objects.Read(ctx, document.ObjectKey, document.MaxResponseBytes)
 	if err != nil {
 		return fmt.Errorf("read raw source document: %w", err)
@@ -464,6 +505,51 @@ func (worker *ParseWorker) Parse(ctx context.Context, registryID string, rawDocu
 		"item_id", decision.ItemID,
 		"cluster_id", decision.ClusterID,
 	)
+	return nil
+}
+
+func (worker *ParseWorker) SplitAdvisoryObservation(ctx context.Context, observationID int64) error {
+	if observationID <= 0 {
+		return errors.New("advisory observation ID must be positive")
+	}
+	repository, ok := worker.repository.(AdvisoryObservationRepository)
+	if !ok {
+		return errors.New("source repository does not support advisory observations")
+	}
+	observation, err := repository.LoadAdvisoryObservation(ctx, observationID)
+	if err != nil || observation == nil {
+		return err
+	}
+	parent := observation.Parent
+	payload, err := worker.objects.Read(ctx, parent.ObjectKey, parent.MaxResponseBytes)
+	if err != nil {
+		return fmt.Errorf("read advisory collection parent: %w", err)
+	}
+	if sha256.Sum256(payload) != parent.RawSHA256 {
+		return errors.New("advisory collection parent digest does not match recorded evidence")
+	}
+	entries, err := parsing.SplitAdvisoryObservationEntries(ctx, parent.URL, payload)
+	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return err
+		}
+		code := parsing.ErrorInvalidDocument
+		var typed *parsing.ParseError
+		if errors.As(err, &typed) {
+			code = typed.Code
+		}
+		if recordErr := worker.repository.RecordIngestionFailure(ctx, parent, observation.ParentRegistryID, code); recordErr != nil {
+			return errors.Join(err, fmt.Errorf("record advisory collection split failure: %w", recordErr))
+		}
+		return fmt.Errorf("split advisory observation %d: %w", observationID, err)
+	}
+	created, err := repository.RecordAdvisoryObservationEntries(ctx, *observation, entries)
+	if err != nil {
+		return fmt.Errorf("record advisory observation %d entries: %w", observationID, err)
+	}
+	worker.logger.InfoContext(ctx, "advisory collection observation split",
+		"observation_id", observationID, "source_id", observation.SourceID,
+		"entry_count", len(entries), "new_entries", created)
 	return nil
 }
 
