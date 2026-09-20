@@ -111,7 +111,7 @@ type RecordResult struct {
 }
 
 type RevisionRepository interface {
-	RecordSuccess(context.Context, RecordRequest) (RecordResult, error)
+	RecordSuccessWithCommit(context.Context, RecordRequest, func(context.Context) error) (RecordResult, error)
 	RecordFailure(context.Context, FailureRequest) error
 }
 

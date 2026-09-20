@@ -76,6 +76,29 @@ type LiveEvent struct {
 type LiveSnapshot struct {
 	Events      []LiveEvent `json:"events"`
 	GeneratedAt time.Time   `json:"generatedAt"`
+	Cursor      string      `json:"cursor"`
+}
+
+type ReplayEvent struct {
+	Cursor int64
+	Event  LiveEvent
+}
+
+type ReplayBatch struct {
+	Events        []ReplayEvent
+	HasMore       bool
+	ResetRequired bool
+}
+
+type LiveSubscription interface {
+	Wait(context.Context) error
+	Close()
+}
+
+type LiveReplay interface {
+	LatestCursor(context.Context, time.Time) (int64, error)
+	Replay(context.Context, int64, time.Time, int) (ReplayBatch, error)
+	Subscribe(context.Context) (LiveSubscription, error)
 }
 
 type Reader interface {

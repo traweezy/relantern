@@ -43,6 +43,9 @@ func CanonicalizeURL(value string) (string, error) {
 		return "", errors.New("canonical URL may not contain user information")
 	}
 	rawHostname := strings.TrimSuffix(strings.ToLower(parsed.Hostname()), ".")
+	if strings.HasSuffix(rawHostname, ".") {
+		return "", errors.New("canonical URL requires a valid host")
+	}
 	hostname := ""
 	if address := net.ParseIP(rawHostname); address != nil {
 		hostname = address.String()
@@ -50,6 +53,9 @@ func CanonicalizeURL(value string) (string, error) {
 		hostname, err = idna.Lookup.ToASCII(rawHostname)
 	}
 	if err != nil || hostname == "" {
+		return "", errors.New("canonical URL requires a valid host")
+	}
+	if net.ParseIP(hostname) == nil && !validDNSHostname(hostname) {
 		return "", errors.New("canonical URL requires a valid host")
 	}
 	port := parsed.Port()
@@ -79,6 +85,18 @@ func CanonicalizeURL(value string) (string, error) {
 	}
 	parsed.RawQuery = query.Encode()
 	return parsed.String(), nil
+}
+
+func validDNSHostname(hostname string) bool {
+	if len(hostname) > 253 {
+		return false
+	}
+	for _, label := range strings.Split(hostname, ".") {
+		if len(label) == 0 || len(label) > 63 {
+			return false
+		}
+	}
+	return true
 }
 
 func ResolveDeclaredCanonical(

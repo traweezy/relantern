@@ -287,6 +287,9 @@ button {
   height: 100vh;
   flex-direction: column;
   padding: 1.4rem 1rem;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scrollbar-width: thin;
   border-right: 1px solid var(--color-border);
   background: oklch(0.13 0.017 251 / 92%);
   backdrop-filter: blur(1.2rem);
@@ -772,6 +775,10 @@ button {
   padding: 0 2rem;
   border-bottom: 1px solid var(--color-border);
   background: oklch(0.145 0.018 252 / 96%);
+}
+
+.mobile-account {
+  display: none;
 }
 
 .topbar-label,
@@ -3042,6 +3049,18 @@ button {
 
   .app-sidebar {
     display: none;
+  }
+
+  .security-chip {
+    display: none;
+  }
+
+  .mobile-account {
+    display: block;
+  }
+
+  .mobile-account .quiet-button {
+    padding: 0 0.75rem;
   }
 
   .workspace-topbar {

@@ -16,9 +16,11 @@ import (
 	"github.com/traweezy/relantern/internal/delivery"
 	"github.com/traweezy/relantern/internal/digest"
 	"github.com/traweezy/relantern/internal/extraction"
+	"github.com/traweezy/relantern/internal/ingestion"
 	"github.com/traweezy/relantern/internal/jobqueue"
 	"github.com/traweezy/relantern/internal/manualcapture"
 	"github.com/traweezy/relantern/internal/openaiwebhook"
+	"github.com/traweezy/relantern/internal/parsing"
 	"github.com/traweezy/relantern/internal/radar"
 	"github.com/traweezy/relantern/internal/reembedding"
 	"github.com/traweezy/relantern/internal/research"
@@ -31,6 +33,56 @@ type reconcileSchedulesWorker struct {
 	health     *SchedulerHealth
 	logger     *slog.Logger
 	reconciler *scheduler.Reconciler
+}
+
+type reconcileSourcesWorker struct {
+	river.WorkerDefaults[jobqueue.ReconcileSourcesArgs]
+	poller *ingestion.Poller
+	logger *slog.Logger
+}
+
+func (worker *reconcileSourcesWorker) Timeout(*river.Job[jobqueue.ReconcileSourcesArgs]) time.Duration {
+	return 30 * time.Second
+}
+
+func (worker *reconcileSourcesWorker) Work(ctx context.Context, job *river.Job[jobqueue.ReconcileSourcesArgs]) error {
+	count, err := worker.poller.Reconcile(ctx)
+	if err != nil {
+		return err
+	}
+	worker.logger.InfoContext(ctx, "source polling reconciled", "job_id", job.ID, "jobs_enqueued", count)
+	return nil
+}
+
+type pollSourceEndpointWorker struct {
+	river.WorkerDefaults[jobqueue.PollSourceEndpointArgs]
+	poller *ingestion.Poller
+}
+
+func (worker *pollSourceEndpointWorker) Timeout(*river.Job[jobqueue.PollSourceEndpointArgs]) time.Duration {
+	return 2 * time.Minute
+}
+
+func (worker *pollSourceEndpointWorker) Work(ctx context.Context, job *river.Job[jobqueue.PollSourceEndpointArgs]) error {
+	return worker.poller.Poll(ctx, job.Args.RegistryID)
+}
+
+type parseRawDocumentWorker struct {
+	river.WorkerDefaults[jobqueue.ParseRawDocumentArgs]
+	parser *ingestion.ParseWorker
+}
+
+func (worker *parseRawDocumentWorker) Timeout(*river.Job[jobqueue.ParseRawDocumentArgs]) time.Duration {
+	return 2 * time.Minute
+}
+
+func (worker *parseRawDocumentWorker) Work(ctx context.Context, job *river.Job[jobqueue.ParseRawDocumentArgs]) error {
+	err := worker.parser.Parse(ctx, job.Args.RegistryID, job.Args.RawDocumentID)
+	var parseErr *parsing.ParseError
+	if errors.As(err, &parseErr) && parseErr.Code != parsing.ErrorObjectStorage && parseErr.Code != parsing.ErrorCanceled {
+		return river.JobCancel(err)
+	}
+	return err
 }
 
 func (worker *reconcileSchedulesWorker) Work(
@@ -628,6 +680,20 @@ func NewRiverClient(
 			return nil, fmt.Errorf("register manual-capture worker: %w", err)
 		}
 	}
+	if configuration.sourcePoller != nil {
+		if configuration.sourceParser == nil {
+			return nil, errors.New("source poller requires a parser")
+		}
+		if err := river.AddWorkerSafely(workers, &reconcileSourcesWorker{poller: configuration.sourcePoller, logger: logger}); err != nil {
+			return nil, fmt.Errorf("register source reconciliation worker: %w", err)
+		}
+		if err := river.AddWorkerSafely(workers, &pollSourceEndpointWorker{poller: configuration.sourcePoller}); err != nil {
+			return nil, fmt.Errorf("register source poll worker: %w", err)
+		}
+		if err := river.AddWorkerSafely(workers, &parseRawDocumentWorker{parser: configuration.sourceParser}); err != nil {
+			return nil, fmt.Errorf("register source parse worker: %w", err)
+		}
+	}
 	if configuration.radarProcessor != nil {
 		if err := river.AddWorkerSafely(workers, &runWeeklyRadarDiscoveryWorker{
 			clock: configuredClock, logger: logger, processor: configuration.radarProcessor,
@@ -681,6 +747,7 @@ func NewRiverClient(
 			configuration.researcher != nil,
 			configuration.snoozeReturner != nil,
 			configuration.retentionRunner != nil,
+			configuration.sourcePoller != nil,
 		)
 	}
 	queues := jobqueue.QueueConfigs()
@@ -724,6 +791,15 @@ type riverOptions struct {
 	digestProcessor        digestWorkflow
 	digestSender           digestSender
 	retentionRunner        retentionRunner
+	sourcePoller           *ingestion.Poller
+	sourceParser           *ingestion.ParseWorker
+}
+
+func WithSourceIngestion(poller *ingestion.Poller, parser *ingestion.ParseWorker) RiverOption {
+	return func(configuration *riverOptions) {
+		configuration.sourcePoller = poller
+		configuration.sourceParser = parser
+	}
 }
 
 func WithSnoozeReturner(returner snoozeReturner) RiverOption {

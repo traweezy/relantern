@@ -31,6 +31,27 @@ func New(database transactionStarter) (*Store, error) {
 }
 
 func (store *Store) RecordSuccess(ctx context.Context, request parsing.RecordRequest) (parsing.RecordResult, error) {
+	return store.recordSuccess(ctx, request, nil)
+}
+
+// RecordSuccessWithCommit keeps the object-store commit and its database
+// reference under the same key lock as retention's object deletion.
+func (store *Store) RecordSuccessWithCommit(
+	ctx context.Context,
+	request parsing.RecordRequest,
+	commit func(context.Context) error,
+) (parsing.RecordResult, error) {
+	if commit == nil {
+		return parsing.RecordResult{}, errors.New("normalized object commit is required")
+	}
+	return store.recordSuccess(ctx, request, commit)
+}
+
+func (store *Store) recordSuccess(
+	ctx context.Context,
+	request parsing.RecordRequest,
+	commit func(context.Context) error,
+) (parsing.RecordResult, error) {
 	if strings.TrimSpace(request.RawDocumentID) == "" || strings.TrimSpace(request.ObjectKey) == "" {
 		return parsing.RecordResult{}, errors.New("raw document id and normalized object key are required")
 	}
@@ -46,13 +67,20 @@ func (store *Store) RecordSuccess(ctx context.Context, request parsing.RecordReq
 	if sha256.Sum256([]byte(request.Result.NormalizedText)) != request.Result.NormalizedSHA256 {
 		return parsing.RecordResult{}, errors.New("normalized digest does not match normalized text")
 	}
+	if err := storage.ValidateObjectKey(request.ObjectKey); err != nil {
+		return parsing.RecordResult{}, err
+	}
 	transaction, err := store.database.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
 		return parsing.RecordResult{}, fmt.Errorf("begin parser transaction: %w", err)
 	}
 	defer func() { _ = transaction.Rollback(ctx) }()
+	if _, err := transaction.Exec(ctx, `
+		select pg_advisory_xact_lock(hashtextextended('relantern:normalized:' || $1, 0))`, request.ObjectKey); err != nil {
+		return parsing.RecordResult{}, fmt.Errorf("lock normalized object key: %w", err)
+	}
 
-	sourceID, canonicalURL, err := rawDocumentIdentity(ctx, transaction, request.RawDocumentID)
+	sourceID, canonicalURL, sourceEntryID, err := rawDocumentIdentity(ctx, transaction, request.RawDocumentID)
 	if err != nil {
 		return parsing.RecordResult{}, err
 	}
@@ -66,14 +94,25 @@ func (store *Store) RecordSuccess(ctx context.Context, request parsing.RecordReq
 	if _, err := transaction.Exec(ctx, `
 		select pg_advisory_xact_lock(
 			hashtextextended(jsonb_build_array($1::text, $2::text)::text, 0)
-		)`, sourceID, canonicalURL); err != nil {
+		)`, sourceID, revisionIdentity(canonicalURL, sourceEntryID)); err != nil {
 		return parsing.RecordResult{}, fmt.Errorf("lock revision identity: %w", err)
+	}
+	if commit != nil {
+		if err := commit(ctx); err != nil {
+			return parsing.RecordResult{}, fmt.Errorf("commit normalized object while locked: %w", err)
+		}
 	}
 	existingID, existing, err := findExistingRevision(ctx, transaction, request.RawDocumentID, request.Result.NormalizedSHA256[:])
 	if err != nil {
 		return parsing.RecordResult{}, err
 	}
 	if existing {
+		if _, err := transaction.Exec(ctx, `
+			update app.content_revisions
+			set normalized_text_object_key = $2, normalized_text_pruned_at = null
+			where id = $1::uuid and normalized_text_object_key is null`, existingID, request.ObjectKey); err != nil {
+			return parsing.RecordResult{}, fmt.Errorf("reattach unchanged normalized object: %w", err)
+		}
 		if err := recordAttempt(ctx, transaction, request.RawDocumentID, existingID, "unchanged", request.Result.ParserName, request.Result.ParserVersion, request.AttemptedAt, request.CompletedAt, "", request.Result.Warnings); err != nil {
 			return parsing.RecordResult{}, err
 		}
@@ -83,7 +122,7 @@ func (store *Store) RecordSuccess(ctx context.Context, request parsing.RecordReq
 		return parsing.RecordResult{RevisionID: existingID, Outcome: "unchanged", ChangeReason: "normalized SHA-256 is unchanged"}, nil
 	}
 
-	previous, err := findPreviousRevision(ctx, transaction, sourceID, canonicalURL)
+	previous, err := findPreviousRevision(ctx, transaction, sourceID, canonicalURL, sourceEntryID)
 	if err != nil {
 		return parsing.RecordResult{}, err
 	}
@@ -176,7 +215,7 @@ func (store *Store) RecordFailure(ctx context.Context, request parsing.FailureRe
 		return fmt.Errorf("begin parser failure transaction: %w", err)
 	}
 	defer func() { _ = transaction.Rollback(ctx) }()
-	if _, _, err := rawDocumentIdentity(ctx, transaction, request.RawDocumentID); err != nil {
+	if _, _, _, err := rawDocumentIdentity(ctx, transaction, request.RawDocumentID); err != nil {
 		return err
 	}
 	if err := recordAttempt(ctx, transaction, request.RawDocumentID, "", "failed", request.ParserName, parsing.ParserVersion, request.AttemptedAt, request.CompletedAt, string(request.ErrorCode), request.Warnings); err != nil {
@@ -188,17 +227,25 @@ func (store *Store) RecordFailure(ctx context.Context, request parsing.FailureRe
 	return nil
 }
 
-func rawDocumentIdentity(ctx context.Context, transaction pgx.Tx, rawDocumentID string) (string, string, error) {
+func rawDocumentIdentity(ctx context.Context, transaction pgx.Tx, rawDocumentID string) (string, string, string, error) {
 	var sourceID string
 	var canonicalURL string
+	var sourceEntryID *string
 	err := transaction.QueryRow(ctx, `
-		select source_id, canonical_url
+		select source_id, canonical_url, source_entry_id::text
 		from app.raw_documents
-		where id = $1::uuid`, rawDocumentID).Scan(&sourceID, &canonicalURL)
+		where id = $1::uuid`, rawDocumentID).Scan(&sourceID, &canonicalURL, &sourceEntryID)
 	if err != nil {
-		return "", "", fmt.Errorf("select raw document %q: %w", rawDocumentID, err)
+		return "", "", "", fmt.Errorf("select raw document %q: %w", rawDocumentID, err)
 	}
-	return sourceID, canonicalURL, nil
+	return sourceID, canonicalURL, valueOrEmpty(sourceEntryID), nil
+}
+
+func revisionIdentity(canonicalURL, sourceEntryID string) string {
+	if sourceEntryID != "" {
+		return "entry:" + sourceEntryID
+	}
+	return "url:" + canonicalURL
 }
 
 func findExistingRevision(ctx context.Context, transaction pgx.Tx, rawDocumentID string, digest []byte) (string, bool, error) {
@@ -225,15 +272,17 @@ type previousRevision struct {
 	NormalizedBytes int64
 }
 
-func findPreviousRevision(ctx context.Context, transaction pgx.Tx, sourceID string, canonicalURL string) (previousRevision, error) {
+func findPreviousRevision(ctx context.Context, transaction pgx.Tx, sourceID string, canonicalURL string, sourceEntryID string) (previousRevision, error) {
 	var previous previousRevision
 	err := transaction.QueryRow(ctx, `
 		select revision.id::text, revision.title, revision.normalized_bytes
 		from app.content_revisions revision
 		join app.raw_documents raw on raw.id = revision.raw_document_id
-		where raw.source_id = $1 and raw.canonical_url = $2
+		where raw.source_id = $1
+		  and (($3 <> '' and raw.source_entry_id = nullif($3, '')::uuid)
+		    or ($3 = '' and raw.source_entry_id is null and raw.canonical_url = $2))
 		order by revision.observed_at desc, revision.id desc
-		limit 1`, sourceID, canonicalURL).Scan(&previous.ID, &previous.Title, &previous.NormalizedBytes)
+		limit 1`, sourceID, canonicalURL, sourceEntryID).Scan(&previous.ID, &previous.Title, &previous.NormalizedBytes)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return previousRevision{}, nil
 	}

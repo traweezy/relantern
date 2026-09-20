@@ -124,6 +124,56 @@ func TestStoreRejectsMismatchedObjectIdentityAndInvalidAttempts(t *testing.T) {
 	}
 }
 
+func TestStoreReattachesPrunedUnchangedRevisionAfterObjectCommit(t *testing.T) {
+	pool := openIntegrationDatabase(t)
+	ctx := context.Background()
+	observedAt := time.Date(2026, time.August, 30, 12, 0, 0, 0, time.UTC)
+	rawDocumentID := insertRawDocument(t, pool,
+		fmt.Sprintf("https://go.dev/blog/feed.atom?parser-reattach=%d", time.Now().UnixNano()),
+		"raw reattach revision", observedAt)
+	t.Cleanup(func() { cleanupRawDocuments(t, pool, []string{rawDocumentID}) })
+	store, err := pgstore.New(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := parseStructuredResult(t, "operational")
+	first := recordSuccess(t, store, rawDocumentID, result, observedAt)
+	key, err := storage.NormalizedObjectKey("go-blog", result.NormalizedSHA256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `
+		update app.content_revisions
+		set normalized_text_object_key = null, normalized_text_pruned_at = $2
+		where id = $1::uuid`, first.RevisionID, observedAt.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	committed := false
+	replayed, err := store.RecordSuccessWithCommit(ctx, parsing.RecordRequest{
+		RawDocumentID: rawDocumentID,
+		ObjectKey:     key,
+		Result:        result,
+		AttemptedAt:   observedAt.Add(2 * time.Hour),
+		CompletedAt:   observedAt.Add(2*time.Hour + time.Second),
+	}, func(context.Context) error {
+		committed = true
+		return nil
+	})
+	if err != nil || !committed || replayed.Outcome != "unchanged" || replayed.RevisionID != first.RevisionID {
+		t.Fatalf("unchanged replay = %+v, committed=%t, error=%v", replayed, committed, err)
+	}
+	var restoredKey string
+	var stillPruned bool
+	if err := pool.QueryRow(ctx, `
+		select normalized_text_object_key, normalized_text_pruned_at is not null
+		from app.content_revisions where id = $1::uuid`, first.RevisionID).Scan(&restoredKey, &stillPruned); err != nil {
+		t.Fatal(err)
+	}
+	if restoredKey != key || stillPruned {
+		t.Fatalf("reattached revision key = %q, pruned=%t", restoredKey, stillPruned)
+	}
+}
+
 func openIntegrationDatabase(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	if os.Getenv("DATABASE_URL") == "" && os.Getenv("DATABASE_PASSWORD_FILE") == "" {

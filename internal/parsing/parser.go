@@ -61,6 +61,8 @@ func (Parser) Parse(ctx context.Context, request Request) (Result, error) {
 		extracted, err = parsePage(parsedURL, decodedBody)
 	case sources.ConnectorGitHubReleases, sources.ConnectorGitHubAdvisories, sources.ConnectorRegistry, sources.ConnectorStructuredAPI:
 		extracted, err = parseJSON(request.Connector, parsedURL, decodedBody)
+	case sources.ConnectorSourceEntry:
+		extracted, err = parseSourceEntry(parsedURL, decodedBody)
 	default:
 		err = parserError(ErrorUnsupported, "unsupported connector %q", request.Connector)
 	}
@@ -80,7 +82,7 @@ func parseLimit(connector sources.Connector, requested int64) (int64, error) {
 		maximum = maximumFeedBytes
 	case sources.ConnectorPage:
 		maximum = maximumPageBytes
-	case sources.ConnectorGitHubReleases, sources.ConnectorGitHubAdvisories, sources.ConnectorRegistry, sources.ConnectorStructuredAPI:
+	case sources.ConnectorGitHubReleases, sources.ConnectorGitHubAdvisories, sources.ConnectorRegistry, sources.ConnectorStructuredAPI, sources.ConnectorSourceEntry:
 		maximum = maximumJSONBytes
 	default:
 		return 0, parserError(ErrorUnsupported, "unsupported connector %q", connector)

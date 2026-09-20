@@ -1,11 +1,12 @@
 # Owner decisions
 
-Status: approved for PR 0 on 2026-08-29.
+Status: bootstrap defaults approved on 2026-08-29; source publication approved on
+2026-09-06 in [ADR-026](adr/026-public-source-private-runtime.md).
 
 | Decision | Selection |
 |---|---|
 | Product and repository name | Relantern / `traweezy/relantern` |
-| Repository visibility | Private |
+| Repository visibility | Public source for inspection; all rights reserved |
 | Owner GitHub login and numeric ID | `traweezy` / `5276132` |
 | Owner timezone | `America/New_York` |
 | Production hostname | Railway-provided public hostname for bootstrap; custom domain deferred |

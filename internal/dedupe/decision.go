@@ -77,7 +77,12 @@ func compareCandidate(
 		ClusterID:           candidate.ClusterID,
 		Similarity:          1,
 	}
-	if document.SourceID == candidate.SourceID && document.CanonicalURL == candidate.CanonicalURL {
+	if document.SourceEntryID != "" && document.SourceEntryID == candidate.SourceEntryID {
+		base.Outcome, base.Method = OutcomeRevision, MethodRevision
+		return base, 0, true
+	}
+	if document.SourceEntryID == "" && candidate.SourceEntryID == "" &&
+		document.SourceID == candidate.SourceID && document.CanonicalURL == candidate.CanonicalURL {
 		base.Outcome, base.Method = OutcomeRevision, MethodRevision
 		return base, 0, true
 	}

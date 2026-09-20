@@ -33,6 +33,31 @@ func TestMetadataNormalizationAndReleaseExtraction(t *testing.T) {
 	}
 }
 
+func TestNormalizeMetadataIsIdempotentForCompatibilityCharacters(t *testing.T) {
+	t.Parallel()
+
+	// NFKC can turn compatibility characters into uppercase letters.
+	for _, test := range []struct {
+		value string
+		want  string
+	}{
+		{value: "Ϋ", want: "ϋ"},
+		{value: "\u03d2\u0308", want: "ϋ"},
+		{value: "K", want: "k"},
+		{value: "İ", want: "i"},
+		{value: "\xf6ʰ", want: "h"},
+		{value: "a\xf6b", want: "a b"},
+	} {
+		normalized := NormalizeMetadata(test.value)
+		if normalized != test.want {
+			t.Errorf("NormalizeMetadata(%q) = %q; want %q", test.value, normalized, test.want)
+		}
+		if repeated := NormalizeMetadata(normalized); repeated != normalized {
+			t.Errorf("NormalizeMetadata(%q) = %q then %q", test.value, normalized, repeated)
+		}
+	}
+}
+
 func TestConfigValidation(t *testing.T) {
 	t.Parallel()
 

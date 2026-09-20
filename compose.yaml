@@ -135,7 +135,7 @@ services:
       timeout: 3s
       retries: 20
     ports:
-      - "127.0.0.1:8091:8091"
+      - "127.0.0.1:${FAKE_OPENAI_PUBLISHED_PORT:-8091}:8091"
     restart: unless-stopped
     networks: [private]
 

@@ -12,6 +12,11 @@ Primary timezone: America/New_York
 Production cloud: Railway
 Source control: GitHub
 
+Source-publication revision: 2026-09-06 —
+[ADR-026](adr/026-public-source-private-runtime.md) supersedes the original
+private-repository requirement. Source is public for inspection with all rights
+reserved; application access, data, credentials, and release gates remain private.
+
 ---
 
 ## 1. Executive decision
@@ -2815,7 +2820,7 @@ Required local scenarios:
 
 ### 22.2 Repository creation
 
-1. Create a private GitHub repository.
+1. Maintain the public GitHub source repository approved in ADR-026; keep application data and credentials private.
 2. Create staging and master.
 3. Set staging as default.
 4. Disable merge commits.

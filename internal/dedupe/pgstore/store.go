@@ -174,10 +174,12 @@ func loadDocument(
 	var rawDigest []byte
 	var normalizedDigest []byte
 	var publishedAt pgtype.Timestamptz
+	var sourceEntryID *string
 	err := transaction.QueryRow(ctx, `
 		select
 			revision.id::text,
 			raw.source_id,
+			raw.source_entry_id::text,
 			source.trust_tier,
 			raw.canonical_url,
 			raw.raw_sha256,
@@ -192,6 +194,7 @@ func loadDocument(
 		where revision.id = $1::uuid`, request.RevisionID).Scan(
 		&document.RevisionID,
 		&document.SourceID,
+		&sourceEntryID,
 		&document.SourceTier,
 		&document.FetchedCanonicalURL,
 		&rawDigest,
@@ -203,6 +206,9 @@ func loadDocument(
 	)
 	if err != nil {
 		return storedDocument{}, false, fmt.Errorf("select dedupe revision %q: %w", request.RevisionID, err)
+	}
+	if sourceEntryID != nil {
+		document.SourceEntryID = *sourceEntryID
 	}
 	if err := copyDigest(&document.RawSHA256, rawDigest); err != nil {
 		return storedDocument{}, false, fmt.Errorf("load raw digest: %w", err)
@@ -259,6 +265,7 @@ func loadCandidates(
 			member.cluster_id::text,
 			item_source.revision_id::text,
 			raw.source_id,
+			raw.source_entry_id::text,
 			item_source.source_tier,
 			item_source.canonical_url,
 			item.normalized_title,
@@ -296,6 +303,7 @@ func loadCandidates(
 		where item_source.revision_id <> $1::uuid
 			and (
 				item.first_seen_at between $2::timestamptz - $3::interval and $2::timestamptz + $3::interval
+				or ($11 <> '' and raw.source_entry_id = nullif($11, '')::uuid)
 				or (raw.source_id = $4 and item_source.canonical_url = $5)
 				or item_source.canonical_url = $5
 				or raw.raw_sha256 = $6
@@ -303,7 +311,8 @@ func loadCandidates(
 			)
 		order by
 			case when
-				(raw.source_id = $4 and item_source.canonical_url = $5)
+				($11 <> '' and raw.source_entry_id = nullif($11, '')::uuid)
+				or (raw.source_id = $4 and item_source.canonical_url = $5)
 				or item_source.canonical_url = $5
 				or raw.raw_sha256 = $6
 				or revision.normalized_sha256 = $7
@@ -322,6 +331,7 @@ func loadCandidates(
 		embeddingModelID,
 		vectorLiteral,
 		candidateLimit,
+		document.SourceEntryID,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("select dedupe candidates: %w", err)
@@ -335,11 +345,13 @@ func loadCandidates(
 		var simhash []byte
 		var publishedAt pgtype.Timestamptz
 		var embeddingSimilarity pgtype.Float8
+		var sourceEntryID *string
 		if err := rows.Scan(
 			&candidate.ItemID,
 			&candidate.ClusterID,
 			&candidate.RevisionID,
 			&candidate.SourceID,
+			&sourceEntryID,
 			&candidate.SourceTier,
 			&candidate.CanonicalURL,
 			&candidate.NormalizedTitle,
@@ -355,6 +367,9 @@ func loadCandidates(
 			&embeddingSimilarity,
 		); err != nil {
 			return nil, fmt.Errorf("scan dedupe candidate: %w", err)
+		}
+		if sourceEntryID != nil {
+			candidate.SourceEntryID = *sourceEntryID
 		}
 		if err := copyDigest(&candidate.RawSHA256, rawDigest); err != nil {
 			return nil, fmt.Errorf("load candidate raw digest: %w", err)

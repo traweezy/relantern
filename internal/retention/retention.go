@@ -82,9 +82,9 @@ func (counts Counts) Add(other Counts) Counts {
 type Repository interface {
 	Start(context.Context, string, Policy, time.Time) (string, Counts, bool, error)
 	RawCandidates(context.Context, time.Time, int) ([]ObjectCandidate, error)
-	MarkRawPruned(context.Context, ObjectCandidate, time.Time) (bool, error)
+	PruneRaw(context.Context, ObjectCandidate, time.Time, time.Time, ObjectStore) (bool, error)
 	NormalizedCandidates(context.Context, time.Time, int) ([]ObjectCandidate, error)
-	MarkNormalizedPruned(context.Context, ObjectCandidate, time.Time) (bool, error)
+	PruneNormalized(context.Context, ObjectCandidate, time.Time, time.Time, ObjectStore) (bool, error)
 	PruneOperational(context.Context, Policy, time.Time) (Counts, error)
 	Complete(context.Context, string, Counts, time.Time) error
 	Fail(context.Context, string, string, Counts, time.Time) error
@@ -126,19 +126,17 @@ func (runner *Runner) Run(ctx context.Context, now time.Time) (Counts, error) {
 		return counts, cause
 	}
 	for batch := 0; batch < maximumBatches; batch++ {
-		candidates, candidateErr := runner.repository.RawCandidates(ctx, now.Add(-runner.policy.RawSnapshots), runner.policy.BatchSize)
+		cutoff := now.Add(-runner.policy.RawSnapshots)
+		candidates, candidateErr := runner.repository.RawCandidates(ctx, cutoff, runner.policy.BatchSize)
 		if candidateErr != nil {
 			return fail(candidateErr)
 		}
 		for _, candidate := range candidates {
-			if deleteErr := runner.objects.Delete(ctx, candidate.Key); deleteErr != nil {
-				return fail(fmt.Errorf("delete raw object: %w", deleteErr))
+			pruned, pruneErr := runner.repository.PruneRaw(ctx, candidate, cutoff, now, runner.objects)
+			if pruneErr != nil {
+				return fail(pruneErr)
 			}
-			marked, markErr := runner.repository.MarkRawPruned(ctx, candidate, now)
-			if markErr != nil {
-				return fail(markErr)
-			}
-			if marked {
+			if pruned {
 				counts.RawObjectsPruned++
 			}
 		}
@@ -147,19 +145,17 @@ func (runner *Runner) Run(ctx context.Context, now time.Time) (Counts, error) {
 		}
 	}
 	for batch := 0; batch < maximumBatches; batch++ {
-		candidates, candidateErr := runner.repository.NormalizedCandidates(ctx, now.Add(-runner.policy.NormalizedRevision), runner.policy.BatchSize)
+		cutoff := now.Add(-runner.policy.NormalizedRevision)
+		candidates, candidateErr := runner.repository.NormalizedCandidates(ctx, cutoff, runner.policy.BatchSize)
 		if candidateErr != nil {
 			return fail(candidateErr)
 		}
 		for _, candidate := range candidates {
-			if deleteErr := runner.objects.Delete(ctx, candidate.Key); deleteErr != nil {
-				return fail(fmt.Errorf("delete normalized object: %w", deleteErr))
+			pruned, pruneErr := runner.repository.PruneNormalized(ctx, candidate, cutoff, now, runner.objects)
+			if pruneErr != nil {
+				return fail(pruneErr)
 			}
-			marked, markErr := runner.repository.MarkNormalizedPruned(ctx, candidate, now)
-			if markErr != nil {
-				return fail(markErr)
-			}
-			if marked {
+			if pruned {
 				counts.NormalizedObjectsPruned++
 			}
 		}

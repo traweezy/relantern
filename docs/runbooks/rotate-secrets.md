@@ -34,14 +34,23 @@ curl --fail --silent --show-error http://127.0.0.1:8080/readyz >/dev/null
 1. Create a new credential with least privilege in the correct environment.
 2. Update every consumer in one reviewed maintenance window. For dual-key
    providers, add new, restart/verify, then revoke old.
-3. Rotate owner sessions after OAuth/Better Auth changes and reject prior
+3. On Railway, never reference a sealed variable from another service; sealed
+   values do not resolve through cross-service references and cannot be
+   unsealed. Enter the same rotated `DATABASE_URL` separately for `postgres`,
+   `migrate`, `api`, `worker`, and `web`, and enter the same rotated
+   `WEB_INTERNAL_SERVICE_TOKEN` separately for `api` and `web` and the same
+   rotated `OPENAI_API_KEY` separately for `api` and `worker`. Seal every copy
+   only after all values and the PostgreSQL role are synchronized.
+4. Rotate owner sessions after OAuth/Better Auth changes and reject prior
    cookies. Restart only services that consume the changed secret.
-4. Verify a bounded operation, then re-enable one provider/channel at a time.
+5. Verify a bounded operation, then re-enable one provider/channel at a time.
 
 ## Data-integrity checks
 
 - Staging and production values, recipients, OAuth apps, and webhook endpoints
   remain distinct.
+- Railway environment configuration reports every hosted secret copy as
+  sealed, with no cross-service reference used for a sealed value.
 - No secret appears in git, logs, shell history, screenshots, build artifacts,
   `NEXT_PUBLIC_*`, or client bundles.
 - Durable jobs retry without duplicate delivery or regenerated payloads.

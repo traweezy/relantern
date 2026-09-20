@@ -61,22 +61,29 @@ func (processor *Processor) Process(ctx context.Context, request ProcessRequest)
 		integrityError := errors.New("staged normalized object does not match parser digest and size")
 		return ProcessResult{}, processor.recordParseFailure(ctx, request, attemptedAt, ErrorObjectStorage, parsed.Warnings, integrityError)
 	}
-	if err := processor.objects.Commit(ctx, staged, objectKey); err != nil {
-		abortError := processor.objects.Abort(ctx, staged)
-		wrapped := fmt.Errorf("commit normalized content: %w", err)
-		if abortError != nil {
-			wrapped = errors.Join(wrapped, fmt.Errorf("abort normalized staging object: %w", abortError))
-		}
-		return ProcessResult{}, processor.recordParseFailure(ctx, request, attemptedAt, ErrorObjectStorage, parsed.Warnings, wrapped)
-	}
 	completedAt := processor.clock.Now().UTC()
-	recorded, err := processor.revisions.RecordSuccess(ctx, RecordRequest{
+	var objectCommitError error
+	objectCommitted := false
+	recorded, err := processor.revisions.RecordSuccessWithCommit(ctx, RecordRequest{
 		RawDocumentID: request.RawDocumentID,
 		ObjectKey:     objectKey,
 		Result:        parsed,
 		AttemptedAt:   attemptedAt,
 		CompletedAt:   completedAt,
+	}, func(lockedContext context.Context) error {
+		objectCommitError = processor.objects.Commit(lockedContext, staged, objectKey)
+		objectCommitted = objectCommitError == nil
+		return objectCommitError
 	})
+	if !objectCommitted {
+		if abortError := processor.objects.Abort(ctx, staged); abortError != nil {
+			err = errors.Join(err, fmt.Errorf("abort normalized staging object: %w", abortError))
+		}
+	}
+	if objectCommitError != nil {
+		return ProcessResult{}, processor.recordParseFailure(ctx, request, attemptedAt, ErrorObjectStorage, parsed.Warnings,
+			fmt.Errorf("commit normalized content: %w", err))
+	}
 	if err != nil {
 		return ProcessResult{}, fmt.Errorf("record normalized revision: %w", err)
 	}
@@ -120,6 +127,8 @@ func parserNameFor(connector sources.Connector) string {
 		return "registry-json"
 	case sources.ConnectorStructuredAPI:
 		return "structured-api-json"
+	case sources.ConnectorSourceEntry:
+		return "source-entry-json"
 	default:
 		return "unsupported"
 	}

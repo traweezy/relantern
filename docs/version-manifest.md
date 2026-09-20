@@ -1,6 +1,7 @@
-# PR 0 version and supply-chain manifest
+# Version and supply-chain manifest
 
 Audit date: 2026-08-29
+Browser-test and transitive-security update: 2026-09-19
 Policy: newest stable, security-patched, mutually compatible release that has
 aged at least seven days, followed by exact pinning. A verified security fix may
 receive a reviewed age exception.
@@ -26,6 +27,7 @@ Container manifest digests and GitHub Action commit SHAs are recorded below.
 | Next.js | 16.3.3 | Pinned; reviewed minimum-age exception for the critical security release and its exact-version `@next/env` and platform `@next/swc-*` artifacts |
 | React / React DOM | 19.2.8 | Pinned |
 | TypeScript | 5.9.3 | Compatibility hold: newest stable 5.x patch accepted by stable `openapi-typescript` |
+| `@types/node` | 26.5.1 | Pinned Node 26 definitions for the browser test harness; released 2026-09-09 |
 | Biome | 2.5.11 | Hold at 2.5.10 until the seven-day release-age gate passes |
 | Tailwind CSS / PostCSS adapter | 4.3.3 | Pinned |
 | shadcn/ui CLI | 4.19.0 | Audited; add only when generated components enter scope |
@@ -40,11 +42,17 @@ Container manifest digests and GitHub Action commit SHAs are recorded below.
 | Better Auth | 1.7.1 | Pinned for owner OAuth; newest 1.7.x satisfying the seven-day release-age gate |
 | node-postgres (`pg`) | 8.23.0 | Pinned PostgreSQL adapter peer for Better Auth |
 | Vitest | 4.1.11 | Pinned |
-| Playwright | 1.62.1 | Audited; add with browser journey scope |
+| Playwright | 1.63.0 | Pinned for Chromium browser journeys; released 2026-09-05 |
+| axe-core Playwright | 4.13.0 | Pinned for rendered accessibility checks; released 2026-08-11 |
+| eventsource-parser | 4.1.0 | Pinned for Live SSE framing; released 2026-08-20 |
 | openapi-typescript | 7.13.0 | Pinned for generated platform-neutral schemas |
 | openapi-fetch | 0.17.0 | Pinned in the shared API client |
 | Railway infrastructure SDK | 3.10.0 | Pinned; newest stable release satisfying the seven-day age gate |
 | OpenAI JavaScript SDK | 7.5.0 | Pinned for raw-body webhook verification; released 2026-08-17 and satisfies the seven-day gate |
+
+The root pnpm overrides pin transitive `js-yaml` to 4.3.2 and `sharp` to
+0.35.4. Both releases were published 2026-08-26 and address the high-severity
+findings in the staging nightly dependency audit.
 
 Primary release sources include the [Next.js August 2026 security
 release](https://nextjs.org/blog), [React versions](https://react.dev/versions),
@@ -71,6 +79,10 @@ and [Better Auth 1.7 changelog](https://better-auth.com/changelog).
 | `@types/pg` 8.23.1 | `sha512-fKVHpikPdg4GKks3JuLEhvwSyvwzF23hnabPy6DD8ljVbC7+6J5dQzdv4arV6jqq57djnMgs1HKBxX4P8aBI3A==` |
 | TanStack Form 1.33.5 | `sha512-LlRB28qJwO/QCGaHvWnbdh4haBgTFiZVmzA2uzxSBS3YA7/IqrQ6HOBK70CkFQ+DbflZ7NawsmSln13h5iIdTA==` |
 | Zod 4.4.3 | `sha512-ytENFjIJFl2UwYglde2jchW2Hwm4GJFLDiSXWdTrJQBIN9Fcyp7n4DhxJEiWNAJMV1/BqWfW/kkg71UDcHJyTQ==` |
+
+The web image and local container fallback fetch pnpm's exact registry archive,
+verify this SHA-512 before extraction, and run it directly without another
+package manager. The installer rejects unexpected Node and pnpm versions.
 
 ## Go release set
 

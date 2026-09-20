@@ -1,10 +1,37 @@
 # Relantern
 
-Relantern is a private, single-owner developer-intelligence platform. It
+Relantern is a single-owner developer-intelligence platform with public source. It
 continuously gathers evidence from an explicit source registry and produces a
 concise, personalized morning brief. Deterministic code owns coverage,
 freshness, scheduling, deduplication, delivery, and cost limits; bounded AI
 stages extract and synthesize claims only after evidence has been stored.
+
+**Work in progress.** [Try the public demo](https://web-demo-ce4e.up.railway.app/demo)
+without an account. Its stories and interactions use illustrative fixtures;
+live ingestion, delivery, and production readiness remain in development.
+
+![Relantern's Today workspace with illustrative technical stories](docs/media/public-demo.webp)
+
+The architecture combines Go ingestion and evidence validation, PostgreSQL
+full-text/trigram/vector retrieval, and a Next.js reading workspace. Deterministic
+code validates claims against stored evidence before they reach the reader.
+The public demo shares interface components but has no private API, database,
+authentication, or provider connection.
+
+Install dependencies with `bash scripts/pnpm-tool.sh install --frozen-lockfile`.
+The helper uses the exact local Node and pnpm versions when available; otherwise
+it runs pinned Node in Docker and verifies the pnpm archive against the SHA-512
+in [the version manifest](docs/version-manifest.md). Build and check the standalone
+demo with `bash scripts/pnpm-tool.sh demo:build` and
+`bash scripts/pnpm-tool.sh demo:test`. Run it locally with
+`node .local/public-demo/server.mjs`, then visit `http://localhost:8080/demo`.
+See [demo deployment and verification](docs/public-demo.md) for the full contract.
+
+Source is published for inspection with all rights reserved; no open-source
+license is granted. See [LICENSE](LICENSE). Application accounts, reading state,
+credentials, and operational data remain private. The
+[publication decision](docs/adr/026-public-source-private-runtime.md) records this
+boundary.
 
 The implementation authority is
 [the build specification](docs/PERSONAL_DEVELOPER_INTELLIGENCE_PLATFORM_BUILD_SPEC.md).
@@ -60,9 +87,18 @@ signed-tag verification, and continuous master-integrity checks. Deployment
 remains intentionally withheld until the staging soak and release evidence
 pass.
 
+The current staging work wires bounded source polling, independently tracked
+feed/API entries, durable parse replay, and Live snapshot/SSE replay into the
+disconnected stack. Browser journeys now exercise the owner workspace and
+fixture-only demo. Built-in sources remain paused and external provider fuses
+remain off by default. The seven-day source-coverage gate and 14-day hosted
+staging soak have not started, so this is not production release evidence.
+
 ## Safe local workflow
 
-Prerequisites are Docker Engine/Desktop with Compose Watch, GNU Make, and Git.
+Prerequisites are Docker Engine/Desktop with Compose Watch, GNU Make, Git,
+and the `setfacl`/`getfacl` tools. Local secret files remain owner-private and
+grant read access only to the nonroot container UID 65532.
 Host Go, Node, and pnpm are optional for editor tooling.
 
 ```sh
@@ -81,6 +117,8 @@ make ps
 make logs
 make test
 make auth-smoke
+make test-e2e
+make test-demo-e2e
 make demo-audit
 make security-scan
 make sbom
@@ -95,6 +133,13 @@ make prepush
 make prodlike-smoke
 make stop
 ```
+
+`make test-e2e` builds the disconnected production-like Compose stack and runs
+the owner browser journey in pinned Chromium. It leaves the local stack running
+for inspection; `make stop` shuts it down without deleting data.
+`make test-demo-e2e` builds the isolated static demo and checks its guided
+journey, request isolation, narrow layout, and accessibility without private
+services.
 
 `make workflow-lint` validates all GitHub workflow and local composite-action
 files with the pinned actionlint release. CI warms the pnpm and Go caches in
@@ -172,6 +217,11 @@ dumps.
 
 Railway topology is defined by `.railway/railway.ts` and validated locally;
 there is deliberately no infrastructure apply or production deploy target.
+The current attended staging setup state and exact resume point are recorded in
+the [staging provisioning status](docs/operations/staging-provisioning-status.md).
+Hosted secret copies are entered out of band and sealed according to the
+[secret rotation runbook](docs/runbooks/rotate-secrets.md); sealed Railway
+variables are never cross-service references.
 After an attended staging provision, use `make railway-readiness` with the
 frozen full SHA and follow the
 [staging soak procedure](docs/operations/staging-soak.md). The committed soak
@@ -202,3 +252,9 @@ validated Relantern Compose project and its volumes.
 No secret belongs in Git, a `NEXT_PUBLIC_*` variable, an APK, or a browser
 bundle. See `.env.local.example` and `docs/runbooks/rotate-secrets.md` as those
 artifacts are introduced.
+
+## Isolated public demonstration
+
+The synthetic demo has a dedicated static export and Railway deployment path.
+See [public demo deployment](docs/public-demo.md) for build commands, isolation,
+verification, and rollback.

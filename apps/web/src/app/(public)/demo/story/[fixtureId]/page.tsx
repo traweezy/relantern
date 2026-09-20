@@ -26,7 +26,7 @@ const DemoStoryPage = async ({ params }: DemoStoryPageProps) => {
   return (
     <div className="demo-story-page">
       <DemoItemControls storyID={story.id} />
-      <StoryDetail relatedHrefPrefix="/demo/story" story={story} />
+      <StoryDetail relatedHrefPrefix="/demo/story" showAnnotationHelp={false} story={story} />
     </div>
   );
 };

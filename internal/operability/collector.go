@@ -61,18 +61,30 @@ func (collector *Collector) Collect(ctx context.Context, now time.Time) (Snapsho
 	snapshot := Snapshot{GeneratedAt: now, LastRetentionState: "not_recorded", LastRestoreState: "not_recorded"}
 	err := collector.pool.QueryRow(ctx, `
 		select
-			(select count(*)::bigint from app.source_endpoints where health_state <> 'paused' and next_poll_at <= $1),
+			(select count(*)::bigint
+			 from app.source_endpoints endpoint
+			 join app.sources source on source.id = endpoint.source_id
+			 left join app.source_runtime_overrides runtime on runtime.source_id = source.id
+			 where source.enabled and source.validation_state = 'active'
+			   and coalesce(runtime.polling_enabled, true)
+			   and endpoint.health_state not in ('paused', 'failed')
+			   and (endpoint.next_poll_at is null or endpoint.next_poll_at <= $1)),
 			(select count(*)::bigint from app.source_fetches where outcome <> 'failed' and attempted_at >= $1 - interval '24 hours'),
 			(select count(*)::bigint from app.source_fetches where outcome = 'failed' and attempted_at >= $1 - interval '24 hours'),
 			coalesce((
 				select max(extract(epoch from ($1 - coalesce(success.last_success_at, endpoint.created_at))))
 				from app.source_endpoints endpoint
+				join app.sources source on source.id = endpoint.source_id
+				left join app.source_runtime_overrides runtime on runtime.source_id = source.id
 				left join lateral (
 					select max(fetch_record.completed_at) as last_success_at
 					from app.source_fetches fetch_record
 					where fetch_record.endpoint_id = endpoint.id and fetch_record.outcome <> 'failed'
 				) success on true
-				where endpoint.priority = 'p0' and endpoint.health_state <> 'paused'
+				where endpoint.priority = 'critical'
+				  and source.enabled and source.validation_state = 'active'
+				  and coalesce(runtime.polling_enabled, true)
+				  and endpoint.health_state <> 'paused'
 			), 0),
 			(select count(*)::bigint from app.source_parse_attempts where outcome = 'failed' and attempted_at >= $1 - interval '24 hours'),
 			(select count(*)::bigint from river.river_job where state in ('available', 'pending', 'retryable', 'running', 'scheduled')),

@@ -23,6 +23,8 @@ import (
 	"github.com/traweezy/relantern/internal/extraction"
 	extractionstore "github.com/traweezy/relantern/internal/extraction/pgstore"
 	"github.com/traweezy/relantern/internal/fetcher"
+	"github.com/traweezy/relantern/internal/ingestion"
+	ingestionstore "github.com/traweezy/relantern/internal/ingestion/pgstore"
 	"github.com/traweezy/relantern/internal/jobqueue"
 	"github.com/traweezy/relantern/internal/manualcapture"
 	"github.com/traweezy/relantern/internal/openaiwebhook"
@@ -214,6 +216,48 @@ func run(arguments []string, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	sourceStore, err := ingestionstore.NewWithEntries(pool, inserter, rawStore, common.Clock)
+	if err != nil {
+		return fmt.Errorf("create source ingestion store: %w", err)
+	}
+	sourceLimiter, err := fetcher.NewHostLimiter(12, 2, time.Second)
+	if err != nil {
+		return fmt.Errorf("create source host limiter: %w", err)
+	}
+	sourceNetwork, err := ingestion.NewNetworkFetcher(
+		rawStore, sourceLimiter, common.Clock,
+		common.Environment == config.EnvironmentLocal || common.Environment == config.EnvironmentTest,
+	)
+	if err != nil {
+		return fmt.Errorf("create source network fetcher: %w", err)
+	}
+	sourcePoller, err := ingestion.NewPoller(
+		sourceStore, sourceNetwork, common.Clock, logger,
+		os.Getenv("ALLOW_LIVE_EXTERNAL_APIS") == "true",
+	)
+	if err != nil {
+		return fmt.Errorf("create source poller: %w", err)
+	}
+	sourceRevisionStore, err := parsingstore.New(pool)
+	if err != nil {
+		return fmt.Errorf("create source parsing store: %w", err)
+	}
+	sourceParsingProcessor, err := parsing.NewProcessor(rawStore, sourceRevisionStore, common.Clock)
+	if err != nil {
+		return fmt.Errorf("create source parsing processor: %w", err)
+	}
+	sourceDedupeStore, err := dedupestore.New(pool, common.Clock, dedupe.Config{
+		SimHashDistance:     dedupeConfig.SimHashDistance,
+		EmbeddingSimilarity: dedupeConfig.EmbeddingSimilarity,
+		ClusterMaxAge:       dedupeConfig.ClusterMaxAge,
+	})
+	if err != nil {
+		return fmt.Errorf("create source dedupe store: %w", err)
+	}
+	sourceParser, err := ingestion.NewParseWorker(sourceStore, rawStore, sourceParsingProcessor, sourceDedupeStore, logger)
+	if err != nil {
+		return fmt.Errorf("create source parse worker: %w", err)
+	}
 	digestStore, err := digeststore.New(pool, inserter)
 	if err != nil {
 		return fmt.Errorf("create digest store: %w", err)
@@ -338,6 +382,7 @@ func run(arguments []string, logger *slog.Logger) error {
 		worker.WithRadarScheduleHandoff(radarProcessor),
 	)
 	riverOptions := []worker.RiverOption{
+		worker.WithSourceIngestion(sourcePoller, sourceParser),
 		worker.WithSnoozeReturner(readingStateStore),
 		worker.WithRadarProcessor(radarProcessor),
 		worker.WithDigestProcessor(digestStore, digestSender),

@@ -145,7 +145,16 @@ func New(logger *slog.Logger, info Info, ready ReadyCheck, configuredOptions ...
 	router.Use(httpx.SecurityHeaders)
 	router.Use(httpx.Recovery(logger))
 	router.Use(httpx.AccessLog(logger))
-	router.Use(middleware.Timeout(15 * time.Second))
+	router.Use(func(next http.Handler) http.Handler {
+		bounded := middleware.Timeout(15 * time.Second)(next)
+		return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+			if request.URL.Path == "/internal/v1/live/stream" {
+				next.ServeHTTP(response, request)
+				return
+			}
+			bounded.ServeHTTP(response, request)
+		})
+	})
 
 	router.Get("/healthz", func(response http.ResponseWriter, _ *http.Request) {
 		httpx.WriteJSON(response, http.StatusOK, HealthBody{
@@ -172,6 +181,7 @@ func New(logger *slog.Logger, info Info, ready ReadyCheck, configuredOptions ...
 	if configuration.openAIWebhook != nil {
 		router.Method(http.MethodPost, "/internal/v1/openai/events", configuration.openAIWebhook)
 	}
+	router.Get("/internal/v1/live/stream", liveStreamHandler(configuration, logger))
 
 	humaConfig := huma.DefaultConfig("Relantern API", info.Version)
 	humaConfig.DocsPath = ""

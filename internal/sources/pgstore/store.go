@@ -23,13 +23,6 @@ func (Store) Sync(ctx context.Context, transaction Executor, registry sources.Re
 		where origin = 'system'`); err != nil {
 		return fmt.Errorf("pause existing system sources: %w", err)
 	}
-	if _, err := transaction.Exec(ctx, `
-		update app.source_endpoints
-		set next_poll_at = null, health_state = 'paused', updated_at = now()
-		where source_id in (select id from app.sources where origin = 'system')`); err != nil {
-		return fmt.Errorf("pause existing system endpoints: %w", err)
-	}
-
 	state := "paused"
 	endpointState := "paused"
 	if registry.Enabled {
@@ -85,6 +78,16 @@ func (Store) Sync(ctx context.Context, transaction Executor, registry sources.Re
 		if err := upsertEndpoint(ctx, transaction, endpoint, endpointState); err != nil {
 			return err
 		}
+	}
+	if _, err := transaction.Exec(ctx, `
+		update app.source_endpoints endpoint
+		set next_poll_at = null,
+			health_state = case when endpoint.health_state = 'failed' then 'failed' else 'paused' end,
+			updated_at = now()
+		from app.sources source
+		where source.id = endpoint.source_id and source.origin = 'system'
+			and source.validation_state = 'paused'`); err != nil {
+		return fmt.Errorf("pause inactive system endpoints: %w", err)
 	}
 	return nil
 }
@@ -188,8 +191,17 @@ func upsertEndpoint(ctx context.Context, transaction Executor, endpoint sources.
 			max_response_bytes = excluded.max_response_bytes,
 			fixture_suite = excluded.fixture_suite,
 			config = excluded.config,
-			next_poll_at = null,
-			health_state = excluded.health_state,
+			next_poll_at = case
+				when excluded.health_state = 'paused' or app.source_endpoints.health_state = 'paused'
+					then null
+				else app.source_endpoints.next_poll_at
+			end,
+			health_state = case
+				when app.source_endpoints.health_state = 'failed' then 'failed'
+				when excluded.health_state = 'paused' then 'paused'
+				when app.source_endpoints.health_state = 'paused' then 'unverified'
+				else app.source_endpoints.health_state
+			end,
 			updated_at = now()`,
 		endpoint.ID,
 		endpoint.SourceID,

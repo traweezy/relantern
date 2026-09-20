@@ -6,7 +6,7 @@ COMPOSE_DEV := docker compose -f compose.yaml -f compose.dev.yaml
 GO := bash scripts/go-tool.sh
 PNPM := bash scripts/pnpm-tool.sh
 
-.PHONY: help doctor secrets bootstrap dev dev-live ps logs stop watch test test-unit test-integration test-e2e auth-smoke lint workflow-lint typecheck format generate generate-check migrate migration seed sources-verify fixtures-record eval test-dedupe test-search test-extraction test-research scheduler-tick digest-preview digest-run retention-run test-scheduler test-dst time-travel time-travel-clean backup restore-drill observability config-check railway-check railway-plan railway-readiness soak-status soak-validate release-check release-evidence release-tree release-build demo demo-audit security-scan prepush prodlike prodlike-smoke sbom clean reset
+.PHONY: help doctor secrets bootstrap dev dev-live ps logs stop watch test test-unit test-integration test-e2e test-demo-e2e auth-smoke lint workflow-lint typecheck format generate generate-check migrate migration seed sources-verify fixtures-record eval test-dedupe test-search test-extraction test-research scheduler-tick digest-preview digest-run retention-run test-scheduler test-dst time-travel time-travel-clean backup restore-drill observability config-check railway-check railway-plan railway-readiness soak-status soak-validate release-check release-evidence release-tree release-build demo demo-audit security-scan prepush prodlike prodlike-smoke sbom clean reset
 
 help:
 	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z0-9_-]+:.*## / {printf "%-22s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -58,19 +58,14 @@ test-integration: secrets ## Run database, object-storage, and worker integratio
 	$(COMPOSE_BASE) run --rm --build migrate up
 	$(COMPOSE_BASE) run --rm seed
 	$(COMPOSE_BASE) run --rm --build worker once
-	@IFS= read -r relantern_database_secret < .local/secrets/database_password; \
-		DATABASE_URL="postgres://relantern:$${relantern_database_secret}@127.0.0.1:5432/relantern?sslmode=disable" \
-		$(GO) test -p 1 ./internal/controlplane/pgstore ./internal/dedupe/pgstore ./internal/digest/pgstore ./internal/discovery/pgstore ./internal/embedding/pgstore ./internal/extraction/pgstore ./internal/fetcher/pgstore ./internal/jobqueue ./internal/openaiwebhook ./internal/operability ./internal/parsing/pgstore ./internal/radar/pgstore ./internal/readingstate/pgstore ./internal/reembedding ./internal/research/pgstore ./internal/retention/pgstore ./internal/scheduler ./internal/search/pgstore ./internal/sources/pgstore ./internal/worker -count=1
-	@IFS= read -r relantern_s3_access < .local/secrets/minio_access_key; \
-		IFS= read -r relantern_s3_secret < .local/secrets/minio_secret_key; \
-		S3_TEST_ENDPOINT=http://127.0.0.1:9000 \
-		S3_TEST_BUCKET=relantern-local \
-		S3_TEST_ACCESS_KEY="$${relantern_s3_access}" \
-		S3_TEST_SECRET_KEY="$${relantern_s3_secret}" \
-		$(GO) test ./internal/storage/s3store -count=1
+	bash scripts/test-integration-in-compose.sh
 
-test-e2e: ## Build the production web application
-	$(PNPM) --filter @relantern/web build
+test-e2e: prodlike ## Exercise the owner journey against the production-like stack
+	$(PNPM) exec playwright test --project=private
+
+test-demo-e2e: ## Exercise static demo isolation and accessibility in Chromium
+	$(PNPM) demo:build
+	RELANTERN_E2E_START_DEMO=true $(PNPM) exec playwright test --project=demo
 
 auth-smoke: ## Verify the disconnected owner OAuth and session journey
 	bash scripts/auth-smoke.sh
@@ -234,7 +229,7 @@ demo-audit: ## Validate the demo fixture and emitted isolation contract
 	@test ! -s apps/web/.next/server/app/demo.html
 	@test ! -s 'apps/web/.next/server/app/demo/story/[fixtureId].html'
 
-prepush: lint workflow-lint typecheck test generate-check config-check sources-verify ## Run required local fast release gates
+prepush: demo-check lint workflow-lint typecheck test generate-check config-check sources-verify ## Run required local fast release gates
 	bash scripts/policy-check.sh
 	$(GO) test -race ./...
 	$(PNPM) build
@@ -243,7 +238,7 @@ security-scan: ## Run pinned zero-write repository security scanners
 	@test -x "$(CURDIR)/.local/bin/osv-scanner" || command -v osv-scanner >/dev/null 2>&1 || bash scripts/install-ci-tools.sh security
 	@PATH="$(CURDIR)/.local/bin:$${PATH}" osv-scanner scan source --no-call-analysis=go --recursive .
 	$(GO) run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...
-	@PATH="$(CURDIR)/.local/bin:$${PATH}" trivy filesystem --exit-code 1 --ignore-unfixed --scanners vuln,misconfig --severity HIGH,CRITICAL --skip-dirs .git .
+	@PATH="$(CURDIR)/.local/bin:$${PATH}" trivy filesystem --exit-code 1 --ignore-unfixed --scanners vuln,misconfig --severity HIGH,CRITICAL --skip-dirs .git --skip-dirs .local .
 	@PATH="$(CURDIR)/.local/bin:$${PATH}" zizmor --persona=regular --offline .github
 
 prodlike: secrets ## Build and run the exact production Docker stages
@@ -267,3 +262,8 @@ clean: ## Remove build outputs while preserving local volumes
 
 reset: ## Confirm and remove only Relantern local containers and volumes
 	bash scripts/reset.sh
+
+.PHONY: demo-check
+demo-check: ## Build and verify the isolated public demo artifact
+	@$(PNPM) demo:build
+	@$(PNPM) demo:test

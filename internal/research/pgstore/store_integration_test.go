@@ -115,12 +115,44 @@ func TestStorePersistsBackgroundResearchAndEnforcesSearchBudget(t *testing.T) {
 		t.Fatalf("completion result = %+v", result)
 	}
 	assertPersistedResearch(t, pool, prepared.RunID, queued.ID, fixture.ClaimID, source.URL)
+	var publicationCount int
+	if err := pool.QueryRow(context.Background(), `
+		select count(*) from app.outbox_events
+		where aggregate_type = 'story' and aggregate_id = $1::uuid
+			and event_type = 'story-created'`, fixture.ClusterID).Scan(&publicationCount); err != nil {
+		t.Fatalf("inspect live publication: %v", err)
+	}
+	if publicationCount != 1 {
+		t.Fatalf("live publication count = %d, want 1", publicationCount)
+	}
+	var publishedStoryID string
+	var publishedHeadline string
+	if err := pool.QueryRow(context.Background(), `
+		select payload->'story'->>'id', payload->'story'->>'headline'
+		from app.outbox_events
+		where aggregate_type = 'story' and aggregate_id = $1::uuid
+			and event_type = 'story-created'`, fixture.ClusterID).Scan(
+		&publishedStoryID, &publishedHeadline,
+	); err != nil {
+		t.Fatalf("inspect live publication payload: %v", err)
+	}
+	if publishedStoryID != fixture.ClusterID || publishedHeadline != "Go 1.27 is available" {
+		t.Fatalf("live publication story = %q/%q", publishedStoryID, publishedHeadline)
+	}
 
 	replayed, err := store.Complete(
 		context.Background(), loaded, research.Completion{ProviderID: queued.ID}, now.Add(6*time.Minute),
 	)
 	if err != nil || !replayed.AlreadyCompleted || replayed.AssertionCount != 1 {
 		t.Fatalf("replayed Complete() = %+v, %v", replayed, err)
+	}
+	if err := pool.QueryRow(context.Background(), `
+		select count(*) from app.outbox_events
+		where aggregate_type = 'story' and aggregate_id = $1::uuid`, fixture.ClusterID).Scan(&publicationCount); err != nil {
+		t.Fatalf("inspect idempotent live publication: %v", err)
+	}
+	if publicationCount != 1 {
+		t.Fatalf("replayed live publication count = %d, want 1", publicationCount)
 	}
 
 	insertAdditionalVerifiedClaim(t, pool, fixture, 1)
@@ -153,6 +185,46 @@ func TestStorePersistsBackgroundResearchAndEnforcesSearchBudget(t *testing.T) {
 	}
 	if blockedState != "budget_blocked" || errorCode != "web_search_limit" {
 		t.Fatalf("blocked research run = %q/%q", blockedState, errorCode)
+	}
+}
+
+func TestStoreRejectsPublicationWhenEvidenceWasPrunedAfterPreparation(t *testing.T) {
+	for _, evidence := range []string{"raw", "normalized"} {
+		t.Run(evidence, func(t *testing.T) {
+			pool := openIntegrationDatabase(t)
+			now := time.Date(2097, time.March, 15, 12, 0, 0, 0, time.UTC)
+			fixture := insertResearchFixture(t, pool, now)
+			store, err := pgstore.New(pool)
+			if err != nil {
+				t.Fatal(err)
+			}
+			prepared, err := store.Prepare(context.Background(), research.ProcessRequest{ClusterID: fixture.ClusterID}, now.Add(time.Minute))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if evidence == "raw" {
+				_, err = pool.Exec(context.Background(), `update app.raw_documents set object_key = null, raw_pruned_at = $2 where id = $1::uuid`, fixture.RawDocumentID, now.Add(2*time.Minute))
+			} else {
+				_, err = pool.Exec(context.Background(), `update app.content_revisions set normalized_text_object_key = null, normalized_text_pruned_at = $2 where id = $1::uuid`, fixture.RevisionID, now.Add(2*time.Minute))
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = store.Complete(context.Background(), prepared, research.Completion{ProviderID: "resp_" + uuid.NewString()}, now.Add(3*time.Minute))
+			if err == nil {
+				t.Fatal("Complete() published a brief after its evidence was pruned")
+			}
+			var briefCount, eventCount int
+			if err := pool.QueryRow(context.Background(), `select count(*) from app.research_briefs where cluster_id = $1::uuid`, fixture.ClusterID).Scan(&briefCount); err != nil {
+				t.Fatal(err)
+			}
+			if err := pool.QueryRow(context.Background(), `select count(*) from app.outbox_events where aggregate_type = 'story' and aggregate_id = $1::uuid`, fixture.ClusterID).Scan(&eventCount); err != nil {
+				t.Fatal(err)
+			}
+			if briefCount != 0 || eventCount != 0 {
+				t.Fatalf("pruned evidence publication: briefs=%d events=%d", briefCount, eventCount)
+			}
+		})
 	}
 }
 

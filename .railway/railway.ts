@@ -1,4 +1,3 @@
-import type { VariableConfig } from "railway/iac";
 import {
   bucket,
   defineRailway,
@@ -16,16 +15,8 @@ const applicationRegion = "us-east4-eqdc4a";
 const bucketRegion = "iad";
 const postgresImage =
   "pgvector/pgvector:0.8.6-pg18-trixie@sha256:78bf48b801e792f99e3ac62b5036fd3876e9be48afda16c1e331af1c75ceb2ff";
-const secretAlphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 const railwayVariable = (name: string): string => ["$", "{{", name, "}}"].join("");
 const railwayHTTPSOrigin = (name: string): string => `https://${railwayVariable(name)}`;
-
-const generatedSecret = (description: string): VariableConfig => ({
-  description,
-  generator: `secret(64, "${secretAlphabet}")`,
-  isOptional: false,
-  isSealed: true,
-});
 
 const commonEnvironment = (environment: "production" | "staging") => ({
   APP_ENV: environment,
@@ -55,7 +46,10 @@ export default defineRailway((context, project) => {
         rootDirectory: "/",
       });
   const region = { [applicationRegion]: 1 };
-  const postgresData = volume("postgres-data", { region: applicationRegion });
+  const postgresData = volume("postgres-data", {
+    region: applicationRegion,
+    sizeMB: 5_000,
+  });
   const rawEvidence = bucket("bucket", { region: bucketRegion });
 
   const postgres = service("postgres", {
@@ -67,10 +61,10 @@ export default defineRailway((context, project) => {
       restartPolicyType: "ALWAYS",
     },
     env: {
-      DATABASE_URL: `postgresql://${railwayVariable("POSTGRES_USER")}:${railwayVariable("POSTGRES_PASSWORD")}@${railwayVariable("RAILWAY_PRIVATE_DOMAIN")}:5432/${railwayVariable("POSTGRES_DB")}?sslmode=disable`,
+      DATABASE_URL: preserve(),
       PGDATA: "/var/lib/postgresql/data/pgdata",
       POSTGRES_DB: "relantern",
-      POSTGRES_PASSWORD: generatedSecret("Generated per-environment PostgreSQL credential."),
+      POSTGRES_PASSWORD: preserve(),
       POSTGRES_USER: "relantern",
     },
     regions: region,
@@ -105,7 +99,7 @@ export default defineRailway((context, project) => {
       ...commonEnvironment(environment),
       DATABASE_MAX_CONNS: "10",
       DATABASE_MIN_CONNS: "1",
-      DATABASE_URL: postgres.env.DATABASE_URL,
+      DATABASE_URL: preserve(),
       EMBEDDING_DIMENSIONS: "1536",
       HTTP_PORT: "8080",
       OPENAI_API_KEY: preserve(),
@@ -115,9 +109,7 @@ export default defineRailway((context, project) => {
       OPENAI_PROJECT_ID: preserve(),
       SEARCH_HYBRID_ENABLED: production ? "false" : "true",
       SEARCH_RRF_K: "60",
-      WEB_INTERNAL_SERVICE_TOKEN: generatedSecret(
-        "Generated shared credential for authenticated private API traffic.",
-      ),
+      WEB_INTERNAL_SERVICE_TOKEN: preserve(),
     },
     regions: region,
   });
@@ -150,7 +142,7 @@ export default defineRailway((context, project) => {
       CLUSTER_MAX_AGE: "720h",
       DATABASE_MAX_CONNS: "10",
       DATABASE_MIN_CONNS: "1",
-      DATABASE_URL: postgres.env.DATABASE_URL,
+      DATABASE_URL: preserve(),
       DEDUPE_EMBEDDING_THRESHOLD: "0.86",
       DEDUPE_SIMHASH_DISTANCE: "17",
       DELIVERY_MODE: production ? "disabled" : "live",
@@ -164,7 +156,7 @@ export default defineRailway((context, project) => {
       OBJECT_STORAGE_ENDPOINT: ref(rawEvidence, "ENDPOINT"),
       OBJECT_STORAGE_REGION: ref(rawEvidence, "REGION"),
       OBJECT_STORAGE_SECRET_KEY: ref(rawEvidence, "SECRET_ACCESS_KEY"),
-      OPENAI_API_KEY: api.env.OPENAI_API_KEY,
+      OPENAI_API_KEY: preserve(),
       OPENAI_BACKGROUND_ENABLED: "true",
       OPENAI_BASE_URL: "https://api.openai.com",
       OPENAI_DAILY_WEB_SEARCH_LIMIT: production ? "20" : "40",
@@ -222,21 +214,19 @@ export default defineRailway((context, project) => {
       APP_ENV: environment,
       AUTH_ALLOWED_GITHUB_USER_ID: "5276132",
       AUTH_PROVIDER_MODE: "github",
-      BETTER_AUTH_SECRET: generatedSecret("Generated per-environment owner session secret."),
+      BETTER_AUTH_SECRET: preserve(),
       BETTER_AUTH_URL: railwayHTTPSOrigin("RAILWAY_PUBLIC_DOMAIN"),
-      DATABASE_URL: postgres.env.DATABASE_URL,
+      DATABASE_URL: preserve(),
       GITHUB_OAUTH_CLIENT_ID: preserve(),
       GITHUB_OAUTH_CLIENT_SECRET: preserve(),
       INTERNAL_API_URL: `http://${railwayVariable("api.RAILWAY_PRIVATE_DOMAIN")}:8080`,
       NODE_ENV: "production",
-      OPENAI_WEBHOOK_SECRET: generatedSecret(
-        "Generated per-environment OpenAI webhook signing secret.",
-      ),
+      OPENAI_WEBHOOK_SECRET: preserve(),
       OWNER_TIMEZONE: "America/New_York",
       PORT: "3000",
       PUBLIC_BASE_URL: railwayHTTPSOrigin("RAILWAY_PUBLIC_DOMAIN"),
       SESSION_MAX_AGE_SECONDS: "604800",
-      WEB_INTERNAL_SERVICE_TOKEN: api.env.WEB_INTERNAL_SERVICE_TOKEN,
+      WEB_INTERNAL_SERVICE_TOKEN: preserve(),
     },
     regions: region,
   });
@@ -264,7 +254,7 @@ export default defineRailway((context, project) => {
       ...commonEnvironment(environment),
       DATABASE_MAX_CONNS: "1",
       DATABASE_MIN_CONNS: "0",
-      DATABASE_URL: postgres.env.DATABASE_URL,
+      DATABASE_URL: preserve(),
     },
     regions: region,
   });

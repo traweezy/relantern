@@ -249,7 +249,7 @@ func (fetcher *Fetcher) processResponse(ctx context.Context, endpoint Endpoint, 
 			processed.attempt.ErrorCode = errorCode(validationErr, ErrorBodyTooLarge)
 			return processed, validationErr
 		}
-		objectKey, keyErr := storage.RawObjectKey(endpoint.SourceID, attempt.AttemptedAt, staged.SHA256, attempt.ContentType)
+		objectKey, keyErr := storage.RawFetchObjectKey(endpoint.SourceID, endpoint.ID, attempt.FinalURL, attempt.AttemptedAt, staged.SHA256, attempt.ContentType)
 		if keyErr != nil {
 			_ = fetcher.abort(ctx, staged)
 			processed.attempt.ErrorCode = ErrorObjectStorage

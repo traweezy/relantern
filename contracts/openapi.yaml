@@ -1071,6 +1071,8 @@ components:
           format: uri
           readOnly: true
           type: string
+        cursor:
+          type: string
         events:
           items:
             $ref: "#/components/schemas/LiveEvent"
@@ -1083,6 +1085,7 @@ components:
       required:
         - events
         - generatedAt
+        - cursor
       type: object
     ManagedSource:
       additionalProperties: false

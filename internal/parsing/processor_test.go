@@ -81,6 +81,13 @@ func (repository *processorRevisionRepository) RecordSuccess(_ context.Context, 
 	return repository.recordResult, repository.recordError
 }
 
+func (repository *processorRevisionRepository) RecordSuccessWithCommit(ctx context.Context, request RecordRequest, commit func(context.Context) error) (RecordResult, error) {
+	if err := commit(ctx); err != nil {
+		return RecordResult{}, err
+	}
+	return repository.RecordSuccess(ctx, request)
+}
+
 func (repository *processorRevisionRepository) RecordFailure(_ context.Context, request FailureRequest) error {
 	repository.failures = append(repository.failures, request)
 	return repository.failureError

@@ -29,11 +29,12 @@ func (Store) Record(
 		return errors.New("registry id, source id, and at least one attempt are required")
 	}
 	var endpointID string
+	var connector string
 	if err := transaction.QueryRow(ctx, `
-		select id::text
+		select id::text, connector
 		from app.source_endpoints
 		where registry_id = $1
-		for update`, registryID).Scan(&endpointID); err != nil {
+		for update`, registryID).Scan(&endpointID, &connector); err != nil {
 		return fmt.Errorf("select endpoint %q: %w", registryID, err)
 	}
 	for index, attempt := range result.Attempts {
@@ -55,7 +56,7 @@ func (Store) Record(
 		if finalAttempt.FinalURL == "" {
 			return errors.New("successful fetch requires a final URL")
 		}
-		if err := recordRawDocument(ctx, transaction, sourceID, contentPolicy, result, finalAttempt); err != nil {
+		if err := recordRawDocument(ctx, transaction, sourceID, registryID, connector, contentPolicy, result, finalAttempt); err != nil {
 			return err
 		}
 	}
@@ -146,8 +147,8 @@ func updateEndpoint(ctx context.Context, transaction pgx.Tx, endpointID string, 
 		update app.source_endpoints
 		set last_attempt_at = $2,
 			last_success_at = case when $3 then $2 else last_success_at end,
-			health_state = case
-				when health_state = 'paused' then 'paused'
+		health_state = case
+				when health_state in ('paused', 'failed') then health_state
 				when $3 then 'healthy'
 				else 'degraded'
 			end,
@@ -190,7 +191,7 @@ func upsertCheckpoint(ctx context.Context, transaction pgx.Tx, endpointID string
 	return nil
 }
 
-func recordRawDocument(ctx context.Context, transaction pgx.Tx, sourceID string, contentPolicy string, result fetcher.Result, attempt fetcher.Attempt) error {
+func recordRawDocument(ctx context.Context, transaction pgx.Tx, sourceID string, registryID string, connector string, contentPolicy string, result fetcher.Result, attempt fetcher.Attempt) error {
 	var objectKey *string
 	if result.Outcome == fetcher.OutcomeStored {
 		objectKey = &result.ObjectKey
@@ -198,9 +199,10 @@ func recordRawDocument(ctx context.Context, transaction pgx.Tx, sourceID string,
 	_, err := transaction.Exec(ctx, `
 		insert into app.raw_documents (
 			source_id, canonical_url, object_key, raw_sha256,
-			first_seen_at, first_fetched_at, content_policy
-		) values ($1, $2, $3, $4, $5, $6, $7)
-		on conflict (source_id, canonical_url, raw_sha256) do nothing`,
+			first_seen_at, first_fetched_at, content_policy,
+			source_registry_id, source_connector, source_content_type
+		) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		on conflict do nothing`,
 		sourceID,
 		attempt.FinalURL,
 		objectKey,
@@ -208,9 +210,67 @@ func recordRawDocument(ctx context.Context, transaction pgx.Tx, sourceID string,
 		attempt.AttemptedAt,
 		attempt.CompletedAt,
 		contentPolicy,
+		registryID,
+		connector,
+		attempt.ContentType,
 	)
 	if err != nil {
 		return fmt.Errorf("record raw document for source %q: %w", sourceID, err)
+	}
+	if objectKey != nil {
+		_, err = transaction.Exec(ctx, `
+			update app.raw_documents
+			set object_key = $4, raw_pruned_at = null, content_policy = 'link-and-excerpt'
+			where source_id = $1 and canonical_url = $2 and raw_sha256 = $3
+				and source_entry_id is null and object_key is null
+				and (raw_pruned_at is not null or content_policy = 'metadata-only')
+				and $5 = 'link-and-excerpt'`,
+			sourceID, attempt.FinalURL, result.SHA256[:], *objectKey, contentPolicy)
+		if err != nil {
+			return fmt.Errorf("restore pruned raw document for source %q: %w", sourceID, err)
+		}
+	}
+	// A later endpoint may fetch the same URL and digest. Only the unique
+	// original stored attempt can supply provenance for a legacy raw row.
+	_, err = transaction.Exec(ctx, `
+		with original as (
+			select raw.id, creator.registry_id, creator.connector,
+				creator.content_type
+			from app.raw_documents raw
+			join lateral (
+				select min(candidate.registry_id) as registry_id,
+					min(candidate.connector) as connector,
+					min(candidate.content_type) as content_type
+				from (
+					select endpoint.registry_id, endpoint.connector,
+						coalesce(source_fetch.content_type, '') as content_type
+					from app.source_fetches source_fetch
+					join app.source_endpoints endpoint
+						on endpoint.id = source_fetch.endpoint_id
+					where source_fetch.object_key = raw.object_key
+						and source_fetch.outcome = 'stored'
+						and source_fetch.final_url = raw.canonical_url
+						and source_fetch.raw_sha256 = raw.raw_sha256
+						and source_fetch.attempted_at = raw.first_seen_at
+						and source_fetch.completed_at = raw.first_fetched_at
+						and endpoint.source_id = raw.source_id
+					limit 2
+				) candidate
+				having count(*) = 1
+			) creator on true
+			where raw.source_id = $1 and raw.canonical_url = $2
+				and raw.raw_sha256 = $3 and raw.source_entry_id is null
+				and raw.source_registry_id is null
+			for update of raw
+		)
+		update app.raw_documents raw
+		set source_registry_id = original.registry_id,
+			source_connector = original.connector,
+			source_content_type = original.content_type
+		from original where raw.id = original.id`,
+		sourceID, attempt.FinalURL, result.SHA256[:])
+	if err != nil {
+		return fmt.Errorf("preserve raw document provenance for source %q: %w", sourceID, err)
 	}
 	return nil
 }
