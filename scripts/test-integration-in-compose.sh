@@ -10,8 +10,10 @@ if [[ "${1:-}" == inside ]]; then
   export PGPASSWORD
   export DATABASE_URL='postgres://relantern@postgres:5432/relantern?sslmode=disable'
   go test -race -p 1 \
+    ./cmd/migrate ./internal/database/schema \
     ./internal/alert/pgstore \
-    ./internal/controlplane/pgstore ./internal/dedupe/pgstore \
+    ./internal/controlplane/pgstore \
+    ./internal/dedupe/pgstore \
     ./internal/digest/pgstore ./internal/discovery/pgstore \
     ./internal/embedding/pgstore ./internal/extraction/pgstore \
     ./internal/fetcher/pgstore ./internal/ingestion/pgstore \

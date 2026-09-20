@@ -46,6 +46,7 @@ type Runner struct {
 	newRunID        func() string
 	reconcileQueue  string
 	shutdownTimeout time.Duration
+	schemaReady     func(context.Context) error
 	operability     *operability.Collector
 }
 
@@ -54,6 +55,7 @@ func NewRunner(
 	pool *pgxpool.Pool,
 	health *SchedulerHealth,
 	shutdownTimeout time.Duration,
+	schemaReady func(context.Context) error,
 ) *Runner {
 	collector, _ := operability.NewCollector(pool)
 	return &Runner{
@@ -62,6 +64,7 @@ func NewRunner(
 		health:          health,
 		newRunID:        uuid.NewString,
 		shutdownTimeout: shutdownTimeout,
+		schemaReady:     schemaReady,
 		operability:     collector,
 	}
 }
@@ -218,14 +221,19 @@ func (runner *Runner) healthHandler() http.Handler {
 		httpx.WriteJSON(response, http.StatusOK, map[string]string{"service": "worker", "status": "ok"})
 	})
 	mux.HandleFunc("GET /readyz", func(response http.ResponseWriter, request *http.Request) {
+		response.Header().Set("Cache-Control", "no-store")
 		lastOKUnixNano := runner.health.lastOK.Load()
 		if lastOKUnixNano == 0 || runner.health.clock.Now().Sub(time.Unix(0, lastOKUnixNano)) > 3*runner.health.interval {
 			httpx.WriteProblem(response, request, http.StatusServiceUnavailable, "Service Unavailable", "No successful scheduler tick is recorded in the last three intervals.")
 			return
 		}
 
-		readinessContext, cancel := context.WithTimeout(request.Context(), time.Second)
+		readinessContext, cancel := context.WithTimeout(request.Context(), 3*time.Second)
 		defer cancel()
+		if runner.schemaReady == nil || runner.schemaReady(readinessContext) != nil {
+			httpx.WriteProblem(response, request, http.StatusServiceUnavailable, "Service Unavailable", "The database schema is not ready.")
+			return
+		}
 		var oldestOverdue *time.Time
 		if err := runner.pool.QueryRow(readinessContext, `
 			select min(scheduled_for)

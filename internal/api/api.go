@@ -165,6 +165,7 @@ func New(logger *slog.Logger, info Info, ready ReadyCheck, configuredOptions ...
 		})
 	})
 	router.Get("/readyz", func(response http.ResponseWriter, request *http.Request) {
+		response.Header().Set("Cache-Control", "no-store")
 		if err := ready(request.Context()); err != nil {
 			logger.WarnContext(request.Context(), "readiness check failed", "error", err)
 			httpx.WriteProblem(
@@ -176,7 +177,7 @@ func New(logger *slog.Logger, info Info, ready ReadyCheck, configuredOptions ...
 			)
 			return
 		}
-		httpx.WriteJSON(response, http.StatusOK, map[string]string{"status": "ready"})
+		httpx.WriteJSON(response, http.StatusOK, map[string]string{"status": "ready", "gitSha": info.GitSHA})
 	})
 	if configuration.openAIWebhook != nil {
 		router.Method(http.MethodPost, "/internal/v1/openai/events", configuration.openAIWebhook)

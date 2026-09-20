@@ -18,6 +18,7 @@ import (
 	"github.com/riverqueue/river/rivermigrate"
 	"github.com/traweezy/relantern/internal/config"
 	"github.com/traweezy/relantern/internal/database"
+	"github.com/traweezy/relantern/internal/database/schema"
 	"github.com/traweezy/relantern/internal/jobqueue"
 	"github.com/traweezy/relantern/internal/sources"
 	"github.com/traweezy/relantern/internal/sources/pgstore"
@@ -35,6 +36,9 @@ func run(arguments []string, logger *slog.Logger) error {
 	common, err := config.LoadCommon()
 	if err != nil {
 		return fmt.Errorf("load common configuration: %w", err)
+	}
+	if err := schema.ValidateReleaseSHA(common.Environment, common.GitSHA); err != nil {
+		return fmt.Errorf("validate migration release identity: %w", err)
 	}
 	databaseConfig, err := config.LoadDatabase()
 	if err != nil {
@@ -59,8 +63,12 @@ func run(arguments []string, logger *slog.Logger) error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	if err := databaseHandle.PingContext(ctx); err != nil {
-		return fmt.Errorf("ping migration database: %w", err)
+	if command != "up" {
+		pingContext, cancelPing := context.WithTimeout(ctx, 3*time.Second)
+		defer cancelPing()
+		if err := databaseHandle.PingContext(pingContext); err != nil {
+			return errors.New("migration database unavailable")
+		}
 	}
 	if err := goose.SetDialect("postgres"); err != nil {
 		return fmt.Errorf("set migration dialect: %w", err)
@@ -69,23 +77,66 @@ func run(arguments []string, logger *slog.Logger) error {
 	const migrationsDirectory = "migrations"
 	switch command {
 	case "up":
+		migrationContext, cancelMigration := context.WithCancel(ctx)
+		defer cancelMigration()
+		lock, err := acquireMigrationLock(migrationContext, databaseConfig.URL, logger)
+		if err != nil {
+			return err
+		}
+		stopWatchdog := startLockWatchdog(
+			migrationContext, cancelMigration, lock.Ping, logger, lockWatchInterval,
+		)
+		defer func() {
+			stopWatchdog()
+			if err := lock.Release(); err != nil {
+				logger.Error("migration lock release failed", "error", err)
+			}
+		}()
 		logger.Info("applying forward migrations")
-		if err := goose.UpContext(ctx, databaseHandle, migrationsDirectory); err != nil {
+		if err := goose.UpContext(migrationContext, databaseHandle, migrationsDirectory); err != nil {
 			return err
 		}
-		if err := applyRiverMigrations(ctx, databaseConfig, logger); err != nil {
+		pool, err := database.Open(migrationContext, databaseConfig)
+		if err != nil {
 			return err
 		}
-		if err := syncSourceRegistry(ctx, databaseConfig, common.Clock.Now()); err != nil {
+		defer pool.Close()
+		releaseGuard, err := schema.New(pool, common.Environment, common.GitSHA)
+		if err != nil {
+			return fmt.Errorf("create migration completion guard: %w", err)
+		}
+		if err := releaseGuard.CheckAppliedSchema(migrationContext); err != nil {
+			return fmt.Errorf("validate applied schema before follow-up migrations: %w", err)
+		}
+		if err := applyRiverMigrations(migrationContext, databaseConfig, logger); err != nil {
+			return err
+		}
+		if err := syncSourceRegistry(migrationContext, databaseConfig, common.Clock.Now()); err != nil {
 			return err
 		}
 		logger.Info("reviewed source registry synchronized")
+		if err := releaseGuard.RecordCompletion(migrationContext); err != nil {
+			return err
+		}
+		logger.Info("migration completion recorded", "release_sha", common.GitSHA)
 		return nil
 	case "status":
 		if err := goose.StatusContext(ctx, databaseHandle, migrationsDirectory); err != nil {
 			return err
 		}
-		return validateRiverMigrations(ctx, databaseConfig, logger)
+		if err := validateRiverMigrations(ctx, databaseConfig, logger); err != nil {
+			return err
+		}
+		pool, err := database.Open(ctx, databaseConfig)
+		if err != nil {
+			return err
+		}
+		defer pool.Close()
+		releaseGuard, err := schema.New(pool, common.Environment, common.GitSHA)
+		if err != nil {
+			return err
+		}
+		return releaseGuard.Check(ctx)
 	case "down":
 		logger.Warn("rolling back one local migration")
 		return goose.DownContext(ctx, databaseHandle, migrationsDirectory)

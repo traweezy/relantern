@@ -15,6 +15,7 @@ import (
 	"github.com/traweezy/relantern/internal/clock"
 	"github.com/traweezy/relantern/internal/config"
 	"github.com/traweezy/relantern/internal/database"
+	"github.com/traweezy/relantern/internal/database/schema"
 	"github.com/traweezy/relantern/internal/dedupe"
 	dedupestore "github.com/traweezy/relantern/internal/dedupe/pgstore"
 	deliveryclient "github.com/traweezy/relantern/internal/delivery"
@@ -122,6 +123,13 @@ func run(arguments []string, logger *slog.Logger) error {
 		return err
 	}
 	defer pool.Close()
+	schemaGuard, err := schema.New(pool, common.Environment, common.GitSHA)
+	if err != nil {
+		return fmt.Errorf("create database schema guard: %w", err)
+	}
+	if err := schemaGuard.Wait(rootContext, logger); err != nil {
+		return fmt.Errorf("wait for database schema: %w", err)
+	}
 	rawStore, err := s3store.New(s3store.Config{
 		Endpoint:  objectStorageConfig.Endpoint,
 		Bucket:    objectStorageConfig.Bucket,
@@ -437,7 +445,7 @@ func run(arguments []string, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	runner := worker.NewRunner(riverClient, pool, health, httpConfig.ShutdownTimeout)
+	runner := worker.NewRunner(riverClient, pool, health, httpConfig.ShutdownTimeout, schemaGuard.Check)
 	if len(arguments) > 0 && arguments[0] == "once" {
 		if len(arguments) == 3 && arguments[1] == "--occurrence-id" {
 			return runner.OnceOccurrence(rootContext, logger, arguments[2])

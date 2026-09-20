@@ -495,6 +495,12 @@ type AppManualCapture struct {
 	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
 }
 
+type AppMigrationCompletion struct {
+	ReleaseSha   string             `json:"release_sha"`
+	GooseVersion int64              `json:"goose_version"`
+	CompletedAt  pgtype.Timestamptz `json:"completed_at"`
+}
+
 type AppModelConfig struct {
 	ID                       pgtype.UUID        `json:"id"`
 	Role                     string             `json:"role"`
