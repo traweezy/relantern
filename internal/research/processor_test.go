@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,6 +14,28 @@ import (
 	"github.com/traweezy/relantern/internal/extraction"
 	"github.com/traweezy/relantern/prompts"
 )
+
+func TestValidateQueuedInputSHA256(t *testing.T) {
+	valid := strings.Repeat("a", 64)
+	for _, test := range []struct {
+		name    string
+		value   string
+		invalid bool
+	}{
+		{name: "legacy job", value: ""},
+		{name: "current snapshot", value: valid},
+		{name: "short", value: valid[:62], invalid: true},
+		{name: "uppercase", value: strings.ToUpper(valid), invalid: true},
+		{name: "non-hex", value: strings.Repeat("z", 64), invalid: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			err := ValidateInputSHA256(test.value)
+			if (err != nil) != test.invalid {
+				t.Fatalf("ValidateInputSHA256(%q) error = %v", test.name, err)
+			}
+		})
+	}
+}
 
 type processorRepository struct {
 	prepared       PreparedRun
@@ -121,7 +144,7 @@ func TestProcessorStartsAndPollsBoundedBackgroundResearch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewProcessor() error = %v", err)
 	}
-	started, err := processor.Process(context.Background(), ProcessRequest{ClusterID: prepared.ClusterID})
+	started, err := processor.Process(context.Background(), ProcessRequest{ClusterID: prepared.ClusterID, RevisionID: prepared.RevisionID})
 	if err != nil {
 		t.Fatalf("Process() error = %v", err)
 	}
@@ -136,6 +159,42 @@ func TestProcessorStartsAndPollsBoundedBackgroundResearch(t *testing.T) {
 	if completed.AssertionCount != 1 || !repository.completeCalled || repository.recordedCode != "" ||
 		repository.completed.Usage.ToolCalls != 1 {
 		t.Fatalf("completed = %+v, repository = %+v", completed, repository)
+	}
+}
+
+func TestProcessorRejectsResearchWithoutQueuedRevision(t *testing.T) {
+	t.Parallel()
+	prepared := validPreparedRun(t)
+	repository := &processorRepository{prepared: prepared}
+	provider := &processorProvider{}
+	processor, err := NewProcessor(repository, provider, clock.NewFixed(time.Now()), testConfig())
+	if err != nil {
+		t.Fatalf("NewProcessor() error = %v", err)
+	}
+	if _, err := processor.Process(context.Background(), ProcessRequest{ClusterID: prepared.ClusterID}); !errors.Is(err, ErrInvalidTarget) {
+		t.Fatalf("Process() error = %v, want ErrInvalidTarget", err)
+	}
+	if provider.started.ModelID != "" {
+		t.Fatalf("provider unexpectedly started: %+v", provider.started)
+	}
+}
+
+func TestProcessorSkipsObsoleteQueuedRevisionWithoutProviderCall(t *testing.T) {
+	t.Parallel()
+	prepared := validPreparedRun(t)
+	prepared.Obsolete = true
+	prepared.State = "obsolete"
+	repository := &processorRepository{prepared: prepared}
+	provider := &processorProvider{}
+	processor, err := NewProcessor(repository, provider, clock.NewFixed(time.Now()), testConfig())
+	if err != nil {
+		t.Fatalf("NewProcessor() error = %v", err)
+	}
+	result, err := processor.Process(context.Background(), ProcessRequest{
+		ClusterID: prepared.ClusterID, RevisionID: prepared.RevisionID,
+	})
+	if err != nil || !result.Obsolete || provider.started.ModelID != "" || repository.attached {
+		t.Fatalf("obsolete Process() = %+v, %v; provider = %+v", result, err, provider.started)
 	}
 }
 
@@ -156,7 +215,7 @@ func TestProcessorRetriesInvalidSchemaOnceThenRequiresReview(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewProcessor() error = %v", err)
 	}
-	if _, err := processor.Process(context.Background(), ProcessRequest{ClusterID: prepared.ClusterID}); !errors.Is(err, ErrSchemaRetry) {
+	if _, err := processor.Process(context.Background(), ProcessRequest{ClusterID: prepared.ClusterID, RevisionID: prepared.RevisionID}); !errors.Is(err, ErrSchemaRetry) {
 		t.Fatalf("Process() error = %v, want ErrSchemaRetry", err)
 	}
 	if repository.recordedCode != "schema_invalid" || repository.failedCode != "schema_invalid_retryable" {
@@ -166,7 +225,7 @@ func TestProcessorRetriesInvalidSchemaOnceThenRequiresReview(t *testing.T) {
 	repository.failedCode = ""
 	repository.reservation.Number = 2
 	repository.prepared.SchemaFailures = 1
-	if _, err := processor.Process(context.Background(), ProcessRequest{ClusterID: prepared.ClusterID}); !errors.Is(err, ErrSchemaInvalid) {
+	if _, err := processor.Process(context.Background(), ProcessRequest{ClusterID: prepared.ClusterID, RevisionID: prepared.RevisionID}); !errors.Is(err, ErrSchemaInvalid) {
 		t.Fatalf("second Process() error = %v, want ErrSchemaInvalid", err)
 	}
 	if repository.failedCode != "schema_invalid" || !Permanent(ErrSchemaInvalid) {
@@ -204,7 +263,7 @@ func TestProcessorFailsClosedOnRegistryDrift(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewProcessor() error = %v", err)
 	}
-	if _, err := processor.Process(context.Background(), ProcessRequest{ClusterID: prepared.ClusterID}); !errors.Is(err, ErrConfigurationDrift) {
+	if _, err := processor.Process(context.Background(), ProcessRequest{ClusterID: prepared.ClusterID, RevisionID: prepared.RevisionID}); !errors.Is(err, ErrConfigurationDrift) {
 		t.Fatalf("Process() error = %v, want configuration drift", err)
 	}
 	if repository.failedCode != "configuration_drift" {

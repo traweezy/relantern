@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -204,6 +205,44 @@ func TestTransactionalInserterSuppressesDuplicateExtractionJob(t *testing.T) {
 	}
 	if !firstInserted || secondInserted || firstJobID != secondJobID {
 		t.Fatalf("duplicate results = first (%d, %t), second (%d, %t)", firstJobID, firstInserted, secondJobID, secondInserted)
+	}
+}
+
+func TestTransactionalInserterKeysResearchByPrimaryRevision(t *testing.T) {
+	pool := openJobQueueIntegrationPool(t)
+	inserter, err := jobqueue.NewIsolatedTestInserter("test_jobqueue_research_revision")
+	if err != nil {
+		t.Fatalf("NewIsolatedTestInserter() error = %v", err)
+	}
+	tx, err := pool.BeginTx(context.Background(), pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	if err != nil {
+		t.Fatalf("BeginTx() error = %v", err)
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+
+	args := jobqueue.ResearchStoryArgs{ClusterID: uuid.NewString(), RevisionID: uuid.NewString(), InputSHA256: strings.Repeat("a", 64)}
+	firstID, firstInserted, err := inserter.EnqueueResearchStory(context.Background(), tx, args)
+	if err != nil {
+		t.Fatalf("first EnqueueResearchStory() error = %v", err)
+	}
+	duplicateID, duplicateInserted, err := inserter.EnqueueResearchStory(context.Background(), tx, args)
+	if err != nil {
+		t.Fatalf("duplicate EnqueueResearchStory() error = %v", err)
+	}
+	args.InputSHA256 = strings.Repeat("b", 64)
+	updatedID, updatedInserted, err := inserter.EnqueueResearchStory(context.Background(), tx, args)
+	if err != nil {
+		t.Fatalf("updated-input EnqueueResearchStory() error = %v", err)
+	}
+	args.RevisionID = uuid.NewString()
+	nextID, nextInserted, err := inserter.EnqueueResearchStory(context.Background(), tx, args)
+	if err != nil {
+		t.Fatalf("next-revision EnqueueResearchStory() error = %v", err)
+	}
+	if !firstInserted || duplicateInserted || firstID != duplicateID || !updatedInserted ||
+		updatedID == firstID || !nextInserted || nextID == firstID || nextID == updatedID {
+		t.Fatalf("snapshot-aware insertion = first (%d, %t), duplicate (%d, %t), updated (%d, %t), next (%d, %t)",
+			firstID, firstInserted, duplicateID, duplicateInserted, updatedID, updatedInserted, nextID, nextInserted)
 	}
 }
 

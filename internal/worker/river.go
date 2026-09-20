@@ -24,6 +24,7 @@ import (
 	"github.com/traweezy/relantern/internal/radar"
 	"github.com/traweezy/relantern/internal/reembedding"
 	"github.com/traweezy/relantern/internal/research"
+	researchstore "github.com/traweezy/relantern/internal/research/pgstore"
 	"github.com/traweezy/relantern/internal/retention"
 	"github.com/traweezy/relantern/internal/scheduler"
 )
@@ -216,6 +217,7 @@ type extractItemWorker struct {
 	processor *extraction.Processor
 	pool      *pgxpool.Pool
 	jobs      *jobqueue.Inserter
+	clock     clock.Clock
 	timeout   time.Duration
 }
 
@@ -309,8 +311,13 @@ func (worker *manualCaptureWorker) Work(
 
 type researchStoryWorker struct {
 	river.WorkerDefaults[jobqueue.ResearchStoryArgs]
-	processor *research.Processor
+	processor researchProcessor
+	logger    *slog.Logger
 	timeout   time.Duration
+}
+
+type researchProcessor interface {
+	Process(context.Context, research.ProcessRequest) (research.ProcessResult, error)
 }
 
 func (worker *researchStoryWorker) Timeout(*river.Job[jobqueue.ResearchStoryArgs]) time.Duration {
@@ -321,7 +328,19 @@ func (worker *researchStoryWorker) Work(
 	ctx context.Context,
 	job *river.Job[jobqueue.ResearchStoryArgs],
 ) error {
-	_, err := worker.processor.Process(ctx, research.ProcessRequest{ClusterID: job.Args.ClusterID})
+	if job.Args.RevisionID == "" || job.Args.InputSHA256 == "" {
+		// Pre-snapshot jobs cannot prove which revision or facts they target.
+		// Reconciliation may enqueue a current, admitted snapshot separately.
+		if worker.logger != nil {
+			worker.logger.InfoContext(ctx, "obsolete legacy research job acknowledged",
+				"job_id", job.ID, "cluster_id", job.Args.ClusterID)
+		}
+		return nil
+	}
+	_, err := worker.processor.Process(ctx, research.ProcessRequest{
+		ClusterID: job.Args.ClusterID, RevisionID: job.Args.RevisionID,
+		InputSHA256: job.Args.InputSHA256,
+	})
 	if research.Permanent(err) {
 		return river.JobCancel(err)
 	}
@@ -476,31 +495,64 @@ func (worker *extractItemWorker) Work(
 	if !shouldEnqueueResearch(result, err, worker.jobs != nil) {
 		return err
 	}
-	return worker.enqueueResearch(ctx, job.Args.ItemID)
+	return worker.enqueueResearch(ctx, job.Args.ItemID, job.Args.RevisionID)
 }
 
 func shouldEnqueueResearch(result extraction.ProcessResult, processError error, researchEnabled bool) bool {
 	return processError == nil && !result.Obsolete && !result.NeedsReview && researchEnabled
 }
 
-func (worker *extractItemWorker) enqueueResearch(ctx context.Context, itemID string) error {
+func (worker *extractItemWorker) enqueueResearch(ctx context.Context, itemID, revisionID string) error {
 	transaction, err := worker.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
 		return fmt.Errorf("begin extraction research handoff: %w", err)
 	}
 	defer func() { _ = transaction.Rollback(ctx) }()
-	var clusterID string
+	var clusterID, primaryRevisionID string
 	if err := transaction.QueryRow(ctx, `
-		select cluster_id::text
-		from app.cluster_members
-		where item_id = $1::uuid
-		for key share`, itemID).Scan(&clusterID); err != nil {
+		select cluster.id::text, primary_item.current_revision_id::text
+		from app.cluster_members member
+		join app.items extracted_item on extracted_item.id = member.item_id
+		join app.story_clusters cluster on cluster.id = member.cluster_id
+		join app.items primary_item on primary_item.id = cluster.primary_item_id
+		where member.item_id = $1::uuid
+			and extracted_item.current_revision_id = $2::uuid
+		for share of cluster, extracted_item, primary_item`, itemID, revisionID).Scan(&clusterID, &primaryRevisionID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
 		return fmt.Errorf("select extraction research cluster: %w", err)
+	}
+	admitted, err := researchstore.ResearchAdmissions(ctx, transaction, worker.clock.Now().UTC(), nil)
+	if err != nil {
+		return fmt.Errorf("select extraction research admission: %w", err)
+	}
+	if _, eligible := admitted[clusterID]; !eligible {
+		return nil
+	}
+	currentRevisionID, inputSHA256, err := researchstore.CurrentInputSHA256(ctx, transaction, clusterID)
+	if err != nil {
+		return fmt.Errorf("read extraction research snapshot: %w", err)
+	}
+	if currentRevisionID != primaryRevisionID {
+		return nil
+	}
+	var attempted bool
+	if err := transaction.QueryRow(ctx, `
+		select exists (
+			select 1 from app.ai_runs run
+			where run.cluster_id = $1::uuid and run.revision_id = $2::uuid
+				and run.purpose = $3 and run.input_sha256 = decode($4, 'hex')
+		)`, clusterID, primaryRevisionID, research.Purpose, inputSHA256).Scan(&attempted); err != nil {
+		return fmt.Errorf("inspect extraction research attempt: %w", err)
+	}
+	if attempted {
+		return nil
 	}
 	if _, _, err := worker.jobs.EnqueueResearchStory(
 		ctx,
 		transaction,
-		jobqueue.ResearchStoryArgs{ClusterID: clusterID},
+		jobqueue.ResearchStoryArgs{ClusterID: clusterID, RevisionID: primaryRevisionID, InputSHA256: inputSHA256},
 	); err != nil {
 		return err
 	}
@@ -641,6 +693,7 @@ func NewRiverClient(
 				processor: extractor,
 				pool:      pool,
 				jobs:      researchJobs,
+				clock:     configuredClock,
 				timeout:   extractionTimeout,
 			},
 		); err != nil {
@@ -650,6 +703,7 @@ func NewRiverClient(
 	if configuration.researcher != nil {
 		if err := river.AddWorkerSafely(workers, &researchStoryWorker{
 			processor: configuration.researcher,
+			logger:    logger,
 			timeout:   configuration.researchTimeout,
 		}); err != nil {
 			return nil, fmt.Errorf("register research worker: %w", err)

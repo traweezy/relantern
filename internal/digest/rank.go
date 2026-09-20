@@ -31,6 +31,8 @@ func storySignalScore(signal string, lifecycle string) (float64, string, string)
 		return 0.68, "coming_soon", "A source-declared preview or proposal can affect near-term planning."
 	case signal == "release":
 		return 0.74, "release", "A stable release is eligible for the bounded release allocation."
+	case signal == "migration":
+		return 0.78, "release", "A documented migration can require changes in the current stack."
 	case signal == "deprecation":
 		return 0.78, "release", "A documented deprecation can require migration planning."
 	default:

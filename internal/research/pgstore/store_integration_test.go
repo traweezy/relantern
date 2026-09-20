@@ -14,11 +14,13 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/traweezy/relantern/internal/config"
 	"github.com/traweezy/relantern/internal/database"
+	"github.com/traweezy/relantern/internal/jobqueue"
 	"github.com/traweezy/relantern/internal/research"
 	"github.com/traweezy/relantern/internal/research/pgstore"
 )
 
 type researchFixture struct {
+	UserID          string
 	SourceID        string
 	RawDocumentID   string
 	RevisionID      string
@@ -27,6 +29,330 @@ type researchFixture struct {
 	ExtractionRunID string
 	ClaimID         string
 	SourceURL       string
+}
+
+func TestResearchAdmissionHonorsHighValueCutoffAndQueuedGrace(t *testing.T) {
+	pool := openIntegrationDatabase(t)
+	ctx := context.Background()
+	now := time.Date(2097, time.March, 14, 12, 0, 0, 0, time.UTC)
+	fixture := insertResearchFixture(t, pool, now)
+	cutoff := now.Add(20*time.Hour - 15*time.Minute)
+	admissionsAt := func(at time.Time, queued *pgstore.QueuedResearch) bool {
+		t.Helper()
+		tx, err := pool.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = tx.Rollback(ctx) }()
+		admitted, err := pgstore.ResearchAdmissions(ctx, tx, at, queued)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, yes := admitted[fixture.ClusterID]
+		return yes
+	}
+	if !admissionsAt(now, nil) {
+		t.Fatal("verified release was not admitted before the cutoff")
+	}
+	if admissionsAt(cutoff, nil) {
+		t.Fatal("new research was admitted at the digest cutoff")
+	}
+
+	if _, err := pool.Exec(ctx, `update app.items set event_type = 'general'
+		where id = $1::uuid`, fixture.ItemID); err != nil {
+		t.Fatal(err)
+	}
+	if admissionsAt(now, nil) {
+		t.Fatal("general story consumed high-value research capacity")
+	}
+	if _, err := pool.Exec(ctx, `update app.items set event_type = 'release'
+		where id = $1::uuid`, fixture.ItemID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `update app.schedule_definitions set minimum_score = 1
+		where user_id = $1::uuid`, fixture.UserID); err != nil {
+		t.Fatal(err)
+	}
+	if admissionsAt(now, nil) {
+		t.Fatal("story below owner minimum score was admitted")
+	}
+	if _, err := pool.Exec(ctx, `update app.schedule_definitions set minimum_score = 0.5
+		where user_id = $1::uuid`, fixture.UserID); err != nil {
+		t.Fatal(err)
+	}
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	revisionID, inputSHA256, err := pgstore.CurrentInputSHA256(ctx, tx, fixture.ClusterID)
+	_ = tx.Rollback(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	queued := &pgstore.QueuedResearch{
+		ClusterID: fixture.ClusterID, RevisionID: revisionID, InputSHA256: inputSHA256,
+	}
+	jobs, err := jobqueue.NewIsolatedTestInserter("test_research_admission")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx, err = pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	jobID, inserted, err := jobs.EnqueueResearchStory(ctx, tx, jobqueue.ResearchStoryArgs{
+		ClusterID: queued.ClusterID, RevisionID: queued.RevisionID,
+		InputSHA256: queued.InputSHA256,
+	})
+	if err != nil || !inserted {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("enqueue research admission job = %d, %t, %v", jobID, inserted, err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = pool.Exec(ctx, `delete from river.river_job where id = $1`, jobID) })
+	if _, err := pool.Exec(ctx, `update river.river_job set created_at = $2 where id = $1`,
+		jobID, cutoff.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	store, err := pgstore.New(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := research.ProcessRequest{
+		ClusterID: fixture.ClusterID, RevisionID: revisionID, InputSHA256: inputSHA256,
+	}
+	late, err := store.Prepare(ctx, request, cutoff.Add(5*time.Minute))
+	if err != nil || !late.Obsolete || late.RunID != "" {
+		t.Fatalf("job queued after cutoff = %+v, %v", late, err)
+	}
+	if _, err := pool.Exec(ctx, `update river.river_job set created_at = $2 where id = $1`,
+		jobID, cutoff.Add(-time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if !admissionsAt(cutoff.Add(5*time.Minute), queued) {
+		t.Fatal("pre-cutoff job was not admitted during completion grace")
+	}
+	prepared, err := store.Prepare(ctx, request, cutoff.Add(5*time.Minute))
+	if err != nil || prepared.Obsolete || prepared.RunID == "" {
+		t.Fatalf("pre-cutoff queued job during grace = %+v, %v", prepared, err)
+	}
+	expired, err := store.Prepare(ctx, request, cutoff.Add(11*time.Minute))
+	if err != nil || !expired.Obsolete {
+		t.Fatalf("job past research deadline = %+v, %v", expired, err)
+	}
+}
+
+func TestStorySummaryRequiresCurrentEligiblePrimaryRevision(t *testing.T) {
+	pool := openIntegrationDatabase(t)
+	ctx := context.Background()
+	now := time.Date(2097, time.March, 14, 10, 0, 0, 0, time.UTC)
+	fixture := insertResearchFixture(t, pool, now)
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	insertBrief := func(revisionID, headline string, completedAt time.Time) {
+		t.Helper()
+		inputHash := sha256.Sum256([]byte(uuid.NewString()))
+		var runID string
+		if err := tx.QueryRow(ctx, `
+			insert into app.ai_runs (
+				item_id, revision_id, cluster_id, purpose, model_config_id,
+				prompt_version_id, background, state, input_sha256, started_at,
+				completed_at
+			) select $1::uuid, $2::uuid, $3::uuid, 'research_synthesis',
+				model.id, prompt.id, true, 'completed', $4, $5, $5
+			from app.model_configs model cross join app.prompt_versions prompt
+			where model.role = 'research' and model.enabled
+				and prompt.purpose = 'research_synthesis' and prompt.active
+			returning id::text`, fixture.ItemID, revisionID, fixture.ClusterID,
+			inputHash[:], completedAt).Scan(&runID); err != nil {
+			t.Fatalf("insert research run for %q: %v", headline, err)
+		}
+		if _, err := tx.Exec(ctx, `
+			insert into app.research_briefs (
+				cluster_id, ai_run_id, headline, summary, why_it_matters,
+				recommended_action, confidence, uncertainties, created_at
+			) values ($1::uuid, $2::uuid, $3, 'Verified release evidence',
+				'Review the release', 'Review the official source', 'high',
+				'[]'::jsonb, $4)`, fixture.ClusterID, runID, headline, completedAt); err != nil {
+			t.Fatalf("insert research brief for %q: %v", headline, err)
+		}
+	}
+	assertHeadline := func(want string) {
+		t.Helper()
+		var count int
+		var headline string
+		if err := tx.QueryRow(ctx, `
+			select count(*), coalesce(max(headline), '')
+			from app.v_story_summaries where story_id = $1::uuid`,
+			fixture.ClusterID).Scan(&count, &headline); err != nil {
+			t.Fatalf("read current story summary: %v", err)
+		}
+		wantCount := 1
+		if want == "" {
+			wantCount = 0
+		}
+		if count != wantCount || headline != want {
+			t.Fatalf("current story summary = %d/%q, want %d/%q", count, headline, wantCount, want)
+		}
+	}
+
+	insertBrief(fixture.RevisionID, "First release brief", now.Add(time.Minute))
+	assertHeadline("First release brief")
+	if _, err := tx.Exec(ctx, `update app.items set lifecycle_state = 'needs_review'
+		where id = $1::uuid`, fixture.ItemID); err != nil {
+		t.Fatal(err)
+	}
+	assertHeadline("")
+	if _, err := tx.Exec(ctx, `update app.items set lifecycle_state = 'ready'
+		where id = $1::uuid`, fixture.ItemID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(ctx, `update app.item_sources set source_tier = 'T2'
+		where item_id = $1::uuid and revision_id = $2::uuid`,
+		fixture.ItemID, fixture.RevisionID); err != nil {
+		t.Fatal(err)
+	}
+	assertHeadline("")
+	if _, err := tx.Exec(ctx, `update app.item_sources set source_tier = 'T0'
+		where item_id = $1::uuid and revision_id = $2::uuid`,
+		fixture.ItemID, fixture.RevisionID); err != nil {
+		t.Fatal(err)
+	}
+	assertHeadline("First release brief")
+
+	updatedHash := sha256.Sum256([]byte(uuid.NewString()))
+	var nextRevisionID string
+	nextURL := fixture.SourceURL + "?updated=1"
+	if err := tx.QueryRow(ctx, `
+		insert into app.content_revisions (
+			raw_document_id, previous_revision_id, normalized_sha256,
+			normalized_text_object_key, parser_name, parser_version, title,
+			language, normalized_bytes, outline, offset_map, warnings,
+			change_kind, change_reason, material_change, observed_at
+		) values ($1::uuid, $2::uuid, $3, $4, 'fixture', '1.0.0',
+			'Updated release', 'en', 15, '[]'::jsonb, '[]'::jsonb,
+			'[]'::jsonb, 'material', 'test new revision', true, $5)
+		returning id::text`, fixture.RawDocumentID, fixture.RevisionID,
+		updatedHash[:], "normalized/research/"+uuid.NewString()+".txt",
+		now.Add(2*time.Minute)).Scan(&nextRevisionID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(ctx, `update app.item_sources set source_role = 'supporting'
+		where item_id = $1::uuid and revision_id = $2::uuid`,
+		fixture.ItemID, fixture.RevisionID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(ctx, `insert into app.item_sources (
+		revision_id, item_id, canonical_url, source_role, source_tier, sort_order
+	) values ($1::uuid, $2::uuid, $3, 'primary', 'T1', 1)`,
+		nextRevisionID, fixture.ItemID, nextURL); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(ctx, `update app.items set current_revision_id = $2::uuid
+		where id = $1::uuid`, fixture.ItemID, nextRevisionID); err != nil {
+		t.Fatal(err)
+	}
+	assertHeadline("")
+	insertBrief(nextRevisionID, "Updated release brief", now.Add(3*time.Minute))
+	assertHeadline("Updated release brief")
+	var tier, sourceURL string
+	if err := tx.QueryRow(ctx, `select source_tier, primary_source_url
+		from app.v_story_summaries where story_id = $1::uuid`,
+		fixture.ClusterID).Scan(&tier, &sourceURL); err != nil {
+		t.Fatal(err)
+	}
+	if tier != "T1" || sourceURL != nextURL {
+		t.Fatalf("current primary source = %s/%s, want T1/%s", tier, sourceURL, nextURL)
+	}
+	if _, err := tx.Exec(ctx, `update app.items set lifecycle_state = 'published'
+		where id = $1::uuid`, fixture.ItemID); err != nil {
+		t.Fatal(err)
+	}
+	assertHeadline("Updated release brief")
+
+	if _, err := tx.Exec(ctx, `update app.item_sources set source_role = 'supporting'
+		where item_id = $1::uuid and revision_id = $2::uuid`,
+		fixture.ItemID, nextRevisionID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(ctx, `update app.item_sources set source_role = 'primary'
+		where item_id = $1::uuid and revision_id = $2::uuid`,
+		fixture.ItemID, fixture.RevisionID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(ctx, `update app.items set current_revision_id = $2::uuid
+		where id = $1::uuid`, fixture.ItemID, fixture.RevisionID); err != nil {
+		t.Fatal(err)
+	}
+	assertHeadline("First release brief")
+}
+
+func TestPrepareSkipsQueuedResearchForObsoletePrimaryRevision(t *testing.T) {
+	pool := openIntegrationDatabase(t)
+	now := time.Date(2097, time.March, 14, 11, 0, 0, 0, time.UTC)
+	fixture := insertResearchFixture(t, pool, now)
+	store, err := pgstore.New(pool)
+	if err != nil {
+		t.Fatalf("pgstore.New() error = %v", err)
+	}
+	updatedHash := sha256.Sum256([]byte(uuid.NewString()))
+	var currentRevisionID string
+	if err := pool.QueryRow(context.Background(), `
+		insert into app.content_revisions (
+			raw_document_id, previous_revision_id, normalized_sha256,
+			normalized_text_object_key, parser_name, parser_version, title,
+			language, normalized_bytes, outline, offset_map, warnings,
+			change_kind, change_reason, material_change, observed_at
+		) values (
+			$1::uuid, $2::uuid, $3, $4, 'fixture', '1.0.0', 'Updated Go release',
+			'en', 17, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb,
+			'material', 'integration revision change', true, $5
+		) returning id::text`, fixture.RawDocumentID, fixture.RevisionID, updatedHash[:],
+		"normalized/research/updated-"+uuid.NewString()+".txt", now.Add(time.Minute),
+	).Scan(&currentRevisionID); err != nil {
+		t.Fatalf("insert new primary revision: %v", err)
+	}
+	t.Cleanup(func() {
+		if _, err := pool.Exec(context.Background(), `
+			update app.items set current_revision_id = $2::uuid where id = $1::uuid`,
+			fixture.ItemID, fixture.RevisionID); err != nil {
+			t.Errorf("restore original primary revision: %v", err)
+		}
+		if _, err := pool.Exec(context.Background(), `
+			delete from app.content_revisions where id = $1::uuid`, currentRevisionID); err != nil {
+			t.Errorf("delete updated primary revision: %v", err)
+		}
+	})
+	if _, err := pool.Exec(context.Background(), `
+		update app.items set current_revision_id = $2::uuid where id = $1::uuid`,
+		fixture.ItemID, currentRevisionID); err != nil {
+		t.Fatalf("set current primary revision: %v", err)
+	}
+	prepared, err := store.Prepare(context.Background(), research.ProcessRequest{
+		ClusterID: fixture.ClusterID, RevisionID: fixture.RevisionID,
+	}, now.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("Prepare() error = %v", err)
+	}
+	if !prepared.Obsolete || prepared.State != "obsolete" || prepared.RunID != "" {
+		t.Fatalf("stale preparation = %+v", prepared)
+	}
+	var runCount int
+	if err := pool.QueryRow(context.Background(), `
+		select count(*) from app.ai_runs
+		where cluster_id = $1::uuid and purpose = $2`, fixture.ClusterID, research.Purpose).Scan(&runCount); err != nil {
+		t.Fatalf("count stale research runs: %v", err)
+	}
+	if runCount != 0 {
+		t.Fatalf("stale queue created %d research runs", runCount)
+	}
 }
 
 func TestStorePersistsBackgroundResearchAndEnforcesSearchBudget(t *testing.T) {
@@ -46,7 +372,7 @@ func TestStorePersistsBackgroundResearchAndEnforcesSearchBudget(t *testing.T) {
 
 	prepared, err := store.Prepare(
 		context.Background(),
-		research.ProcessRequest{ClusterID: fixture.ClusterID},
+		research.ProcessRequest{ClusterID: fixture.ClusterID, RevisionID: fixture.RevisionID},
 		now.Add(time.Minute),
 	)
 	if err != nil {
@@ -158,7 +484,7 @@ func TestStorePersistsBackgroundResearchAndEnforcesSearchBudget(t *testing.T) {
 	insertAdditionalVerifiedClaim(t, pool, fixture, 1)
 	changed, err := store.Prepare(
 		context.Background(),
-		research.ProcessRequest{ClusterID: fixture.ClusterID},
+		research.ProcessRequest{ClusterID: fixture.ClusterID, RevisionID: fixture.RevisionID},
 		now.Add(7*time.Minute),
 	)
 	if err != nil {
@@ -198,7 +524,7 @@ func TestStoreRejectsPublicationWhenEvidenceWasPrunedAfterPreparation(t *testing
 			if err != nil {
 				t.Fatal(err)
 			}
-			prepared, err := store.Prepare(context.Background(), research.ProcessRequest{ClusterID: fixture.ClusterID}, now.Add(time.Minute))
+			prepared, err := store.Prepare(context.Background(), research.ProcessRequest{ClusterID: fixture.ClusterID, RevisionID: fixture.RevisionID}, now.Add(time.Minute))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -328,6 +654,21 @@ func insertResearchFixture(t *testing.T, pool *pgxpool.Pool, now time.Time) rese
 		SourceID:  "research-" + nonce,
 		SourceURL: "https://go.dev/doc/go1.27",
 	}
+	if err := pool.QueryRow(ctx, `insert into app.users (
+		github_user_id, login, display_name, timezone, email, email_verified
+	) values ($1, $2, $2, 'UTC', $3, true) returning id::text`,
+		time.Now().UnixNano(), "research-"+nonce,
+		"research-"+nonce+"@tests.relantern.local").Scan(&fixture.UserID); err != nil {
+		t.Fatalf("insert research owner: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `insert into app.schedule_definitions (
+		user_id, schedule_type, timezone, local_time, days_of_week,
+		enabled, catchup_policy, catchup_grace, next_due_at
+	) values ($1::uuid, 'daily_digest', 'UTC', '08:00',
+		array[1,2,3,4,5,6,7]::smallint[], true, 'catch_up', interval '1 hour', $2)`,
+		fixture.UserID, now.Add(20*time.Hour)); err != nil {
+		t.Fatalf("insert research schedule: %v", err)
+	}
 	if _, err := pool.Exec(ctx, `
 		insert into app.sources (
 			id, name, trust_tier, owner, origin, validation_state, homepage_url,
@@ -365,10 +706,11 @@ func insertResearchFixture(t *testing.T, pool *pgxpool.Pool, now time.Time) rese
 	if err := pool.QueryRow(ctx, `
 		insert into app.items (
 			current_revision_id, canonical_url, title, normalized_title, normalized_author,
-			package_name, version, slug, lifecycle_state, first_seen_at, status, simhash
+			package_name, version, slug, lifecycle_state, event_type,
+			first_seen_at, status, simhash
 		) values (
 			$1::uuid, $2, 'Go 1.27 release', 'go 1.27 release', 'go team',
-			'go', '1.27', $3, 'ready', $4, 'active', $5
+			'go', '1.27', $3, 'ready', 'release', $4, 'active', $5
 		) returning id::text`,
 		fixture.RevisionID, fixture.SourceURL, "research-"+nonce, now, make([]byte, 8),
 	).Scan(&fixture.ItemID); err != nil {
@@ -492,6 +834,8 @@ func cleanupResearchFixture(pool *pgxpool.Pool, fixture researchFixture) {
 	_, _ = pool.Exec(ctx, `delete from app.content_revisions where id = $1::uuid`, fixture.RevisionID)
 	_, _ = pool.Exec(ctx, `delete from app.raw_documents where id = $1::uuid`, fixture.RawDocumentID)
 	_, _ = pool.Exec(ctx, `delete from app.sources where id = $1`, fixture.SourceID)
+	_, _ = pool.Exec(ctx, `delete from app.schedule_definitions where user_id = $1::uuid`, fixture.UserID)
+	_, _ = pool.Exec(ctx, `delete from app.users where id = $1::uuid`, fixture.UserID)
 }
 
 func openIntegrationDatabase(t *testing.T) *pgxpool.Pool {

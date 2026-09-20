@@ -201,7 +201,9 @@ type ExtractItemArgs struct {
 }
 
 type ResearchStoryArgs struct {
-	ClusterID string `json:"clusterId" river:"unique"`
+	ClusterID   string `json:"clusterId" river:"unique"`
+	RevisionID  string `json:"revisionId" river:"unique"`
+	InputSHA256 string `json:"inputSha256" river:"unique"`
 }
 
 func (ResearchStoryArgs) Kind() string {

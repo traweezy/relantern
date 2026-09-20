@@ -21,6 +21,19 @@ func TestScoreStoryKeepsSecurityAbovePopularityFreeGeneralSignals(t *testing.T) 
 	}
 }
 
+func TestScoreStoryTreatsVerifiedMigrationAsHighValueRelease(t *testing.T) {
+	t.Parallel()
+	start := time.Date(2026, time.September, 19, 0, 0, 0, 0, time.UTC)
+	score, category, _ := ScoreStory(StorySignals{
+		Signal: "migration", SourceTier: "T0", Confidence: "high",
+		ObservedAt: start.Add(12 * time.Hour), WindowStart: start,
+		WindowEnd: start.Add(24 * time.Hour),
+	})
+	if category != "release" || score < 0.9 {
+		t.Fatalf("migration score = %.4f, category = %q", score, category)
+	}
+}
+
 func TestSelectAppliesAllocationWithoutDuplicatesAndFillsUnusedCapacity(t *testing.T) {
 	candidates := []DigestCandidate{
 		{Type: "story", ID: "security-1", Category: "security", Score: 1},

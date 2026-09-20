@@ -92,7 +92,9 @@ type Provider interface {
 }
 
 type ProcessRequest struct {
-	ClusterID string
+	ClusterID   string
+	RevisionID  string
+	InputSHA256 string
 }
 
 type PollRequest struct {
