@@ -32,12 +32,57 @@ const (
 	FinalizeDailyDigestKind       = "finalize_daily_digest"
 	DeliverDigestKind             = "deliver_digest"
 	RunRetentionKind              = "run_retention"
+	ReconcileSourcesKind          = "reconcile_sources"
+	PollSourceEndpointKind        = "poll_source_endpoint"
+	ParseRawDocumentKind          = "parse_raw_document"
 )
 
 const reconcileSchedulesPeriodicID = "reconcile-schedules-v1"
 const reconcileOpenAIBackgroundPeriodicID = "reconcile-openai-background-v1"
 const returnSnoozedItemsPeriodicID = "return-snoozed-items-v1"
 const runRetentionPeriodicID = "run-retention-v1"
+const reconcileSourcesPeriodicID = "reconcile-sources-v1"
+
+type ReconcileSourcesArgs struct{}
+
+func (ReconcileSourcesArgs) Kind() string { return ReconcileSourcesKind }
+
+func (ReconcileSourcesArgs) InsertOpts() river.InsertOpts {
+	return river.InsertOpts{
+		MaxAttempts: 3, Priority: 2, Queue: QueueMaintenance,
+		Tags:       []string{"source", "reconcile"},
+		UniqueOpts: river.UniqueOpts{ByPeriod: time.Minute, ByQueue: true, ByState: activeJobStates()},
+	}
+}
+
+type PollSourceEndpointArgs struct {
+	RegistryID string `json:"registryId" river:"unique"`
+}
+
+func (PollSourceEndpointArgs) Kind() string { return PollSourceEndpointKind }
+
+func (PollSourceEndpointArgs) InsertOpts() river.InsertOpts {
+	return river.InsertOpts{
+		MaxAttempts: 5, Priority: 2, Queue: QueueFetch,
+		Tags:       []string{"source", "fetch"},
+		UniqueOpts: river.UniqueOpts{ByArgs: true, ByQueue: true, ByState: activeJobStates()},
+	}
+}
+
+type ParseRawDocumentArgs struct {
+	RawDocumentID string `json:"rawDocumentId" river:"unique"`
+	RegistryID    string `json:"registryId"`
+}
+
+func (ParseRawDocumentArgs) Kind() string { return ParseRawDocumentKind }
+
+func (ParseRawDocumentArgs) InsertOpts() river.InsertOpts {
+	return river.InsertOpts{
+		MaxAttempts: 5, Priority: 2, Queue: QueueParse,
+		Tags:       []string{"source", "parse"},
+		UniqueOpts: river.UniqueOpts{ByArgs: true, ByQueue: true, ByState: activeJobStates()},
+	}
+}
 
 type ReconcileSchedulesArgs struct {
 	RunID string `json:"runId,omitempty" river:"unique"`
@@ -418,6 +463,13 @@ func PeriodicJobs(interval time.Duration, includeOpenAIReconciliation ...bool) [
 				return RunRetentionArgs{}, nil
 			},
 			&river.PeriodicJobOpts{ID: runRetentionPeriodicID, RunOnStart: true},
+		))
+	}
+	if len(includeOpenAIReconciliation) > 3 && includeOpenAIReconciliation[3] {
+		jobs = append(jobs, river.NewPeriodicJob(
+			river.PeriodicInterval(time.Minute),
+			func() (river.JobArgs, *river.InsertOpts) { return ReconcileSourcesArgs{}, nil },
+			&river.PeriodicJobOpts{ID: reconcileSourcesPeriodicID, RunOnStart: true},
 		))
 	}
 	return jobs

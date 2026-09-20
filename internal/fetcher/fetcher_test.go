@@ -106,7 +106,7 @@ func TestFetcherStoresBoundedGzipAndSendsCheckpoint(t *testing.T) {
 	if result.Checkpoint.ETag != `"fixture-v2"` || result.Checkpoint.LastModified == "" {
 		t.Fatalf("Fetch() checkpoint = %+v", result.Checkpoint)
 	}
-	if !strings.HasPrefix(result.ObjectKey, "raw/go-blog/2026/08/29/") || !strings.HasSuffix(result.ObjectKey, ".xml") {
+	if !strings.HasPrefix(result.ObjectKey, "raw/go-blog-fetch-") || !strings.Contains(result.ObjectKey, "/2026/08/29/") || !strings.HasSuffix(result.ObjectKey, ".xml") {
 		t.Fatalf("Fetch() object key = %q", result.ObjectKey)
 	}
 	if !bytes.Equal(store.objects[result.ObjectKey], payload) {

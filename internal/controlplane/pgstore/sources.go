@@ -453,6 +453,12 @@ func (store *Store) actOnSource(
 			request.SourceID, request.Reason, request.UserID, now); err != nil {
 			return controlplane.ManagedSource{}, fmt.Errorf("resume source polling: %w", err)
 		}
+		if _, err := transaction.Exec(ctx, `
+			update app.source_endpoints
+			set health_state = 'unverified', next_poll_at = null, updated_at = $2
+			where source_id = $1 and health_state = 'failed'`, request.SourceID, now); err != nil {
+			return controlplane.ManagedSource{}, fmt.Errorf("re-arm failed source endpoints: %w", err)
+		}
 	}
 	if err := recordMutation(ctx, transaction, request.UserID, "source_"+request.Action, "source", request.SourceID, map[string]any{
 		"reason": request.Reason,

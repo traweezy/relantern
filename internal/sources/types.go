@@ -23,6 +23,8 @@ const (
 	ConnectorGitHubAdvisories Connector = "github_advisories"
 	ConnectorRegistry         Connector = "registry"
 	ConnectorStructuredAPI    Connector = "structured_api"
+	// ConnectorSourceEntry is internal-only; it is never valid in the registry.
+	ConnectorSourceEntry Connector = "source_entry"
 )
 
 type TrustTier string

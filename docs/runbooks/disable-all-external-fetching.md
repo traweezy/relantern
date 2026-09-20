@@ -12,9 +12,10 @@ evidence, deterministic reads, local fixtures, and dashboard history remain.
 
 ## Immediate containment
 
-1. Set `ALLOW_LIVE_EXTERNAL_APIS=false`; disable hosted OpenAI and every source
-   polling override. Disable delivery separately when message safety is also in
-   doubt.
+1. Set `ALLOW_LIVE_EXTERNAL_APIS=false` on the worker; disable hosted OpenAI
+   and every source polling override. Disable delivery separately when message
+   safety is also in doubt. The worker checks this flag for both source
+   reconciliation and already queued source poll jobs.
 2. Restart the worker and verify the old instance exits within its graceful
    timeout.
 3. Revoke any suspected source/provider credential after worker shutdown.

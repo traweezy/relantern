@@ -59,6 +59,16 @@ func RawObjectKey(sourceID string, observedAt time.Time, digest [sha256.Size]byt
 	), nil
 }
 
+// RawFetchObjectKey keeps identical bodies from distinct endpoint and URL
+// identities in separate retention namespaces.
+func RawFetchObjectKey(sourceID, registryID, canonicalURL string, observedAt time.Time, digest [sha256.Size]byte, contentType string) (string, error) {
+	if registryID == "" || canonicalURL == "" {
+		return "", errors.New("endpoint registry ID and final URL are required")
+	}
+	identity := sha256.Sum256([]byte(registryID + "\x00" + canonicalURL))
+	return RawObjectKey(sourceID+"-fetch-"+hex.EncodeToString(identity[:]), observedAt, digest, contentType)
+}
+
 func NormalizedObjectKey(sourceID string, digest [sha256.Size]byte) (string, error) {
 	if !sourceIDPattern.MatchString(sourceID) {
 		return "", fmt.Errorf("invalid source id %q", sourceID)

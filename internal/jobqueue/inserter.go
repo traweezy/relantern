@@ -89,6 +89,31 @@ func (inserter *Inserter) EnqueueScheduleOccurrence(
 	return result.Job.ID, !result.UniqueSkippedAsDuplicate, nil
 }
 
+func (inserter *Inserter) EnqueuePollSourceEndpoint(
+	ctx context.Context,
+	tx pgx.Tx,
+	registryID string,
+) (int64, bool, error) {
+	arguments := PollSourceEndpointArgs{RegistryID: registryID}
+	result, err := inserter.client.InsertTx(ctx, tx, arguments, inserter.insertOptions(arguments))
+	if err != nil {
+		return 0, false, fmt.Errorf("enqueue source endpoint %s: %w", registryID, err)
+	}
+	return result.Job.ID, !result.UniqueSkippedAsDuplicate, nil
+}
+
+func (inserter *Inserter) EnqueueParseRawDocument(
+	ctx context.Context,
+	tx pgx.Tx,
+	arguments ParseRawDocumentArgs,
+) (int64, bool, error) {
+	result, err := inserter.client.InsertTx(ctx, tx, arguments, inserter.insertOptions(arguments))
+	if err != nil {
+		return 0, false, fmt.Errorf("enqueue raw document %s for parsing: %w", arguments.RawDocumentID, err)
+	}
+	return result.Job.ID, !result.UniqueSkippedAsDuplicate, nil
+}
+
 func (inserter *Inserter) EnqueuePreflightDigestSources(
 	ctx context.Context,
 	tx pgx.Tx,

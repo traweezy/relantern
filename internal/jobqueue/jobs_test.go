@@ -112,6 +112,30 @@ func TestPeriodicJobsDeclareRunOnStartSchedule(t *testing.T) {
 	}
 }
 
+func TestSourceJobsAreBoundedAndAvailableOnlyWhenConfigured(t *testing.T) {
+	t.Parallel()
+	if jobs := jobqueue.PeriodicJobs(time.Minute, false, false, false, false); len(jobs) != 1 {
+		t.Fatalf("source polling disabled but periodic jobs = %d", len(jobs))
+	}
+	if jobs := jobqueue.PeriodicJobs(time.Minute, false, false, false, true); len(jobs) != 2 {
+		t.Fatalf("source polling enabled but periodic jobs = %d", len(jobs))
+	}
+	for _, test := range []struct {
+		args     river.JobArgs
+		queue    string
+		attempts int
+	}{
+		{args: jobqueue.ReconcileSourcesArgs{}, queue: jobqueue.QueueMaintenance, attempts: 3},
+		{args: jobqueue.PollSourceEndpointArgs{}, queue: jobqueue.QueueFetch, attempts: 5},
+		{args: jobqueue.ParseRawDocumentArgs{}, queue: jobqueue.QueueParse, attempts: 5},
+	} {
+		options := test.args.(interface{ InsertOpts() river.InsertOpts }).InsertOpts()
+		if options.Queue != test.queue || options.MaxAttempts != test.attempts || !options.UniqueOpts.ByQueue {
+			t.Errorf("%s options = %+v", test.args.Kind(), options)
+		}
+	}
+}
+
 func TestRetentionJobIsBoundedDailyMaintenance(t *testing.T) {
 	t.Parallel()
 	options := (jobqueue.RunRetentionArgs{}).InsertOpts()

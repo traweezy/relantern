@@ -57,7 +57,7 @@ func TestSyncMirrorsEveryReviewedRecord(t *testing.T) {
 	if len(executor.arguments) != wantCalls {
 		t.Fatalf("Exec() calls = %d, want %d", len(executor.arguments), wantCalls)
 	}
-	if got := executor.arguments[2][5]; got != "paused" {
+	if got := executor.arguments[1][5]; got != "paused" {
 		t.Fatalf("first source validation state = %v", got)
 	}
 }
@@ -80,7 +80,7 @@ func TestSyncStopsWhenSourceUpsertFails(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadRegistry() error = %v", err)
 	}
-	executor := &recordingExecutor{err: errors.New("database unavailable"), failAt: 3}
+	executor := &recordingExecutor{err: errors.New("database unavailable"), failAt: 2}
 
 	err = (Store{}).Sync(context.Background(), executor, registry)
 	if err == nil || err.Error() != "upsert source \"go-blog\": database unavailable" {
@@ -99,7 +99,7 @@ func TestSyncMarksSourcesActiveWhenRegistryFuseIsEnabled(t *testing.T) {
 	if err := (Store{}).Sync(context.Background(), executor, registry); err != nil {
 		t.Fatalf("Sync() error = %v", err)
 	}
-	if got := executor.arguments[2][5]; got != "active" {
+	if got := executor.arguments[1][5]; got != "active" {
 		t.Fatalf("first source validation state = %v", got)
 	}
 }

@@ -58,6 +58,37 @@ func TestRawObjectKeyRequiresObservationTime(t *testing.T) {
 	}
 }
 
+func TestRawFetchObjectKeySeparatesEndpointAndURL(t *testing.T) {
+	digest := sha256.Sum256([]byte("same body"))
+	day := time.Date(2026, time.September, 19, 0, 0, 0, 0, time.UTC)
+	first, err := storage.RawFetchObjectKey("github", "github-releases", "https://api.github.com/repos/a/releases", day, digest, "application/json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, identity := range [][2]string{
+		{"github-advisories", "https://api.github.com/repos/a/releases"},
+		{"github-releases", "https://api.github.com/repos/b/releases"},
+	} {
+		other, err := storage.RawFetchObjectKey("github", identity[0], identity[1], day, digest, "application/json")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if first == other {
+			t.Fatalf("separate fetch identities shared object key %q", first)
+		}
+		if err := storage.ValidateObjectKey(other); err != nil {
+			t.Fatal(err)
+		}
+	}
+	repeated, err := storage.RawFetchObjectKey("github", "github-releases", "https://api.github.com/repos/a/releases", day, digest, "application/json")
+	if err != nil || repeated != first {
+		t.Fatalf("repeat key = %q, %v, want %q", repeated, err, first)
+	}
+	if _, err := storage.RawFetchObjectKey("github", "", "https://api.github.com", day, digest, "application/json"); err == nil {
+		t.Fatal("missing endpoint registry ID was accepted")
+	}
+}
+
 func TestNormalizedObjectKeyIsContentAddressed(t *testing.T) {
 	digest := sha256.Sum256([]byte("normalized fixture"))
 	key, err := storage.NormalizedObjectKey("go-blog", digest)

@@ -49,7 +49,7 @@ func SimHashDistance(first uint64, second uint64) int {
 }
 
 func NormalizeMetadata(value string) string {
-	value = norm.NFKC.String(strings.ToLower(strings.TrimSpace(value)))
+	value = strings.ToLower(norm.NFKC.String(strings.ToValidUTF8(strings.TrimSpace(value), " ")))
 	return strings.Join(strings.FieldsFunc(value, func(character rune) bool {
 		return !unicode.IsLetter(character) && !unicode.IsDigit(character) && character != '+' && character != '#'
 	}), " ")

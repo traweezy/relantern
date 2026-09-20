@@ -40,15 +40,26 @@ committed registry and fixture contract, not publisher availability.
    review and deterministic fixtures.
 2. Run the source Test action. Approval requires a recent passing validation.
 3. Resume a previously active built-in source only after the cause is fixed.
-   Approval of an imported source does not activate external polling.
-4. Let durable checkpoints continue from their last committed cursor; do not
+   Resume re-arms endpoints stopped by a permanent fetch error; the next
+   reconciliation queues their first retry. Approval of an imported source
+   does not activate external polling.
+4. Confirm `ALLOW_LIVE_EXTERNAL_APIS=true` only in the environment approved
+   for live read-only polling. The reviewed registry must also be enabled;
+   either fuse being off keeps built-in sources dormant.
+5. Let durable checkpoints continue from their last committed cursor; do not
    delete checkpoints, raw documents, or revisions.
 
 ## Data-integrity checks
 
 - Confirm no source ID or endpoint identity changed unintentionally.
 - Confirm revision history and raw object keys remain present.
+- For feeds and structured APIs, confirm each child raw document retains its
+  parent fetch ID and stable source/external ID. A replay should reuse the
+  child's object key and create a revision only when its entry payload changes.
 - Confirm resumed polling does not create duplicate canonical items.
+- Confirm the `reconcile_sources`, `poll_source_endpoint`, and
+  `parse_raw_document` River jobs drain in order. A stored fetch and its parse
+  job are committed in the same database transaction.
 - Confirm audit events record pause, validation, review, and resume actors and
   reasons.
 

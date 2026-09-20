@@ -42,6 +42,7 @@ func (config Config) Validate() error {
 type Document struct {
 	RevisionID       string
 	SourceID         string
+	SourceEntryID    string
 	SourceTier       string
 	CanonicalURL     string
 	Title            string
@@ -60,6 +61,7 @@ type Candidate struct {
 	ClusterID           string
 	RevisionID          string
 	SourceID            string
+	SourceEntryID       string
 	SourceTier          string
 	CanonicalURL        string
 	NormalizedTitle     string

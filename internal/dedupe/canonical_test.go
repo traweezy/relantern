@@ -1,6 +1,9 @@
 package dedupe
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestCanonicalizeURLRemovesTrackingAndNormalizesIdentity(t *testing.T) {
 	t.Parallel()
@@ -21,6 +24,8 @@ func TestCanonicalizeURLRejectsUnsafeIdentities(t *testing.T) {
 		"ftp://go.dev/release",
 		"https://user:secret@go.dev/release",
 		"https://./release",
+		"http://10../",
+		"https://" + strings.Repeat("c", 64) + "/",
 	} {
 		if _, err := CanonicalizeURL(value); err == nil {
 			t.Errorf("CanonicalizeURL(%q) succeeded", value)

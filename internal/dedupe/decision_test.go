@@ -121,6 +121,26 @@ func TestDecideBreaksCandidateTiesByTrustThenAgeThenID(t *testing.T) {
 	}
 }
 
+func TestDecideUsesStableSourceEntryIdentityAcrossURLChanges(t *testing.T) {
+	now := time.Date(2026, time.September, 19, 12, 0, 0, 0, time.UTC)
+	document := decisionDocument(now)
+	document.SourceEntryID = "entry-one"
+	document.CanonicalURL = "https://example.test/new-link"
+	candidate := decisionCandidate("item-one", "cluster-one", "T0", now, document)
+	candidate.SourceEntryID = "entry-one"
+	candidate.CanonicalURL = "https://example.test/old-link"
+	decision := Decide(document, []Candidate{candidate}, DefaultConfig())
+	if decision.Outcome != OutcomeRevision || decision.Method != MethodRevision {
+		t.Fatalf("same source entry should be a revision: %+v", decision)
+	}
+	candidate.SourceEntryID = "entry-two"
+	candidate.CanonicalURL = document.CanonicalURL
+	decision = Decide(document, []Candidate{candidate}, DefaultConfig())
+	if decision.Outcome != OutcomeDuplicate || decision.Method != MethodCanonicalURL {
+		t.Fatalf("distinct source entries sharing a link should be duplicates: %+v", decision)
+	}
+}
+
 func decisionDocument(now time.Time) Document {
 	return Document{
 		RevisionID:       "revision-current",
