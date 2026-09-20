@@ -342,6 +342,30 @@ func (store *Store) CompleteParsedRevision(
 			}
 		}
 	}
+	if document.SourceEntryID != "" && (sourceTier == "T0" || sourceTier == "T1") {
+		var officialAdvisory bool
+		if err := tx.QueryRow(ctx, `
+			select exists (
+				select 1 from app.raw_documents child
+				join app.raw_documents parent on parent.id = child.parent_raw_document_id
+				join app.source_endpoints endpoint
+					on endpoint.registry_id = child.source_registry_id
+					and endpoint.registry_id = parent.source_registry_id
+				where child.id = $1::uuid and child.source_entry_id = $2::uuid
+					and child.source_id = parent.source_id
+					and endpoint.connector = 'github_advisories'
+			)`, document.ID, document.SourceEntryID).Scan(&officialAdvisory); err != nil {
+			return fmt.Errorf("verify source advisory parent: %w", err)
+		}
+		if officialAdvisory {
+			if _, _, err := store.jobs.EnqueueAssessCriticalAdvisory(ctx, tx,
+				jobqueue.AssessCriticalAdvisoryArgs{
+					RawDocumentID: document.ID, RevisionID: revisionID,
+				}); err != nil {
+				return err
+			}
+		}
+	}
 	result, err := tx.Exec(ctx, `
 		update app.raw_documents
 		set ingestion_error_code = null, ingestion_failed_at = null,
@@ -379,7 +403,13 @@ func (store *Store) LoadEndpoint(ctx context.Context, registryID string) (*inges
 	var state []byte
 	err := store.pool.QueryRow(ctx, `
 		select endpoint.registry_id, endpoint.source_id, endpoint.connector, endpoint.url,
-			source.content_policy, endpoint.expected_content_types,
+			case
+				when endpoint.connector = 'github_advisories'
+					and endpoint.config->>'event' = 'security_advisories'
+					and endpoint.config->>'contentPolicy' = 'link-and-excerpt'
+					then 'link-and-excerpt'
+				else source.content_policy
+			end, endpoint.expected_content_types,
 			endpoint.max_response_bytes, checkpoint.cursor, checkpoint.etag,
 			checkpoint.last_modified, coalesce(checkpoint.provider_state, '{}'::jsonb)
 		from app.source_endpoints endpoint

@@ -117,11 +117,28 @@ func TestUpdateSettingsRejectsInvalidBoundaries(t *testing.T) {
 		{name: "invalid timezone", mutate: func(request *UpdateSettingsRequest) {
 			request.Timezone = "Mars/Olympus"
 		}},
+		{name: "unsupported advisory ecosystem", mutate: func(request *UpdateSettingsRequest) {
+			ecosystem := AdvisoryEcosystem("jvm")
+			request.Technologies[0].Ecosystem = &ecosystem
+		}},
+		{name: "no critical channels", mutate: func(request *UpdateSettingsRequest) {
+			request.CriticalAlertChannels = nil
+		}},
+		{name: "duplicate critical channels", mutate: func(request *UpdateSettingsRequest) {
+			request.CriticalAlertChannels = []string{"dashboard", "dashboard"}
+		}},
+		{name: "unsupported critical channel", mutate: func(request *UpdateSettingsRequest) {
+			request.CriticalAlertChannels = []string{"sms"}
+		}},
+		{name: "critical channels require dashboard", mutate: func(request *UpdateSettingsRequest) {
+			request.CriticalAlertChannels = []string{"email"}
+		}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			request := base
 			request.Topics = append([]InterestTopic(nil), base.Topics...)
+			request.Technologies = append([]WatchedTechnology(nil), base.Technologies...)
 			test.mutate(&request)
 			if _, updateErr := service.UpdateSettings(context.Background(), request, time.Now()); !errors.Is(updateErr, ErrInvalid) {
 				t.Fatalf("UpdateSettings() error = %v, want ErrInvalid", updateErr)
@@ -186,6 +203,28 @@ func TestRunNowRequiresStableIdempotencyKey(t *testing.T) {
 	}
 }
 
+func TestSettingsAllowSamePackageAcrossEcosystems(t *testing.T) {
+	t.Parallel()
+	request := validSettingsRequest()
+	goEcosystem := AdvisoryEcosystemGo
+	npmEcosystem := AdvisoryEcosystemNPM
+	request.Technologies = []WatchedTechnology{
+		{Technology: "Legacy", PackageName: "shared", Status: "active", Source: "test"},
+		{Technology: "Go", PackageName: "shared", Ecosystem: &goEcosystem, Status: "active", Source: "test"},
+		{Technology: "npm", PackageName: "shared", Ecosystem: &npmEcosystem, Status: "active", Source: "test"},
+	}
+	if err := validateSettings(request); err != nil {
+		t.Fatalf("distinct ecosystem identities were rejected: %v", err)
+	}
+	request.Technologies = append(request.Technologies, WatchedTechnology{
+		Technology: "Go duplicate", PackageName: "shared", Ecosystem: &goEcosystem,
+		Status: "active", Source: "test",
+	})
+	if err := validateSettings(request); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("duplicate typed identity error = %v, want ErrInvalid", err)
+	}
+}
+
 func validSettingsRequest() UpdateSettingsRequest {
 	return UpdateSettingsRequest{
 		UserID: fixtureUserID, ExpectedVersion: 1,
@@ -197,7 +236,8 @@ func validSettingsRequest() UpdateSettingsRequest {
 		}},
 		Timezone: "America/New_York", QuietHoursStart: "22:00", QuietHoursEnd: "07:00",
 		CriticalAlertsBypass: true, MonthlySoftBudgetUSD: "25.00", MonthlyHardBudgetUSD: "50.00",
-		RawRetentionDays: 90, AuditRetentionDays: 365,
+		CriticalAlertChannels: []string{"dashboard"},
+		RawRetentionDays:      90, AuditRetentionDays: 365,
 	}
 }
 

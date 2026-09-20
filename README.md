@@ -101,6 +101,15 @@ including from a supporting source. The seven-day source-coverage
 gate and 14-day hosted staging soak have not started, so this is not production
 release evidence.
 
+Staging also admits confirmed critical advisories for exact, affected watched
+packages into an owner-only dashboard ledger. The reviewed GitHub advisory feed
+and repository advisory endpoints poll on a five-minute schedule only after the
+source fuse is enabled with a worker-only GitHub read token. Dashboard alerts
+are always on; optional Discord and email deliveries follow separate owner
+settings and remain disconnected in the default local profile. Unsupported
+ecosystem/version-range combinations stay out of the urgent path, and changing
+an active typed watch queues a bounded recheck of retained advisories.
+
 ## Safe local workflow
 
 Prerequisites are Docker Engine/Desktop with Compose Watch, GNU Make, Git,
@@ -154,7 +163,7 @@ setup gates, then runs the independent frontend and Go checks in parallel. See
 [ADR-011](docs/adr/011-parallel-github-actions.md) for the graph and plan-aware
 security gates.
 
-`make sources-verify` performs strict, zero-network validation of 91 reviewed
+`make sources-verify` performs strict, zero-network validation of 92 reviewed
 source endpoints, the deterministic fixture catalog, and every connector parser
 scenario. The forward-migration release command mirrors built-ins into
 PostgreSQL as paused entries; no poll is scheduled while the registry network

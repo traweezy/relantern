@@ -56,14 +56,30 @@ type TodayStats struct {
 	SourceCoverage   int    `json:"sourceCoverage"`
 }
 
+type CriticalAlert struct {
+	ID             string    `json:"id"`
+	AdvisoryID     string    `json:"advisoryId"`
+	Title          string    `json:"title"`
+	Ecosystem      string    `json:"ecosystem"`
+	PackageName    string    `json:"packageName"`
+	CurrentVersion string    `json:"currentVersion"`
+	VersionRange   string    `json:"versionRange"`
+	PatchedVersion string    `json:"patchedVersion"`
+	SourceURL      string    `json:"sourceUrl"`
+	ObservedAt     time.Time `json:"observedAt"`
+	AlertedAt      time.Time `json:"alertedAt"`
+	Reason         string    `json:"reason"`
+}
+
 type TodaySnapshot struct {
-	CoverageEndAt   time.Time      `json:"coverageEndAt"`
-	CoverageStartAt time.Time      `json:"coverageStartAt"`
-	DeliveryState   string         `json:"deliveryState"`
-	GeneratedAt     time.Time      `json:"generatedAt"`
-	NextRunAt       *time.Time     `json:"nextRunAt"`
-	Stats           TodayStats     `json:"stats"`
-	Stories         []StorySummary `json:"stories"`
+	Alerts          []CriticalAlert `json:"alerts"`
+	CoverageEndAt   time.Time       `json:"coverageEndAt"`
+	CoverageStartAt time.Time       `json:"coverageStartAt"`
+	DeliveryState   string          `json:"deliveryState"`
+	GeneratedAt     time.Time       `json:"generatedAt"`
+	NextRunAt       *time.Time      `json:"nextRunAt"`
+	Stats           TodayStats      `json:"stats"`
+	Stories         []StorySummary  `json:"stories"`
 }
 
 type LiveEvent struct {

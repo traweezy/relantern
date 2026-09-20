@@ -89,7 +89,23 @@ export type TodayStats = Readonly<{
   sourceCoverage: number;
 }>;
 
+export type CriticalAlert = Readonly<{
+  advisoryId: string;
+  alertedAt: string;
+  currentVersion: string;
+  ecosystem: string;
+  id: string;
+  observedAt: string;
+  packageName: string;
+  patchedVersion: string;
+  reason: string;
+  sourceUrl: string;
+  title: string;
+  versionRange: string;
+}>;
+
 export type TodaySnapshot = Readonly<{
+  alerts: readonly CriticalAlert[];
   coverageEndAt: string;
   coverageStartAt: string;
   deliveryState: "delivered" | "pending" | "unavailable";
@@ -370,8 +386,29 @@ export type InterestProfile = Readonly<{
   version: number;
 }>;
 
+// GitHub's global security-advisory ecosystem values. A null watch ecosystem
+// is deliberately unmatchable until the owner confirms its registry.
+export const advisoryEcosystems = [
+  "actions",
+  "composer",
+  "erlang",
+  "go",
+  "maven",
+  "npm",
+  "nuget",
+  "other",
+  "pip",
+  "pub",
+  "rubygems",
+  "rust",
+  "swift",
+] as const;
+
+export type AdvisoryEcosystem = (typeof advisoryEcosystems)[number];
+
 export type WatchedTechnology = Readonly<{
   currentVersion: string;
+  ecosystem: AdvisoryEcosystem | null;
   id: string;
   lastVerifiedAt?: string | undefined;
   packageName: string;
@@ -383,6 +420,7 @@ export type WatchedTechnology = Readonly<{
 
 export type OwnerSettings = Readonly<{
   auditRetentionDays: number;
+  criticalAlertChannels: readonly ("dashboard" | "discord" | "email")[];
   criticalAlertsBypass: boolean;
   monthlyHardBudgetUsd: string;
   monthlySoftBudgetUsd: string;

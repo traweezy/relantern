@@ -10,6 +10,9 @@ import (
 const (
 	RegistryVersion = 1
 	FixtureVersion  = 1
+	// This exact reviewed, update-ordered first page is the only global GitHub
+	// advisory collection admitted by the source registry and alert assessor.
+	GlobalReviewedAdvisoriesURL = "https://api.github.com/advisories?direction=desc&per_page=100&sort=updated&type=reviewed"
 )
 
 type Connector string
@@ -110,24 +113,25 @@ const (
 )
 
 type Repository struct {
-	ID               string                     `yaml:"id"`
-	Name             string                     `yaml:"name"`
-	TrustTier        TrustTier                  `yaml:"trust_tier"`
-	URL              string                     `yaml:"url"`
-	NodeID           string                     `yaml:"node_id"`
-	RepositoryOwner  string                     `yaml:"repository_owner"`
-	RepositoryName   string                     `yaml:"repository_name"`
-	Topics           []string                   `yaml:"topics"`
-	PollInterval     Duration                   `yaml:"poll_interval"`
-	Priority         Priority                   `yaml:"priority"`
-	ContentLicense   string                     `yaml:"content_license"`
-	Enabled          bool                       `yaml:"enabled"`
-	Owner            string                     `yaml:"owner"`
-	Origin           string                     `yaml:"origin"`
-	ReviewedAt       Date                       `yaml:"reviewed_at"`
-	MaxResponseBytes int64                      `yaml:"max_response_bytes"`
-	EnabledEvents    []RepositoryEvent          `yaml:"enabled_events"`
-	FixtureSuites    map[RepositoryEvent]string `yaml:"fixture_suites"`
+	ID                   string                     `yaml:"id"`
+	Name                 string                     `yaml:"name"`
+	TrustTier            TrustTier                  `yaml:"trust_tier"`
+	URL                  string                     `yaml:"url"`
+	NodeID               string                     `yaml:"node_id"`
+	RepositoryOwner      string                     `yaml:"repository_owner"`
+	RepositoryName       string                     `yaml:"repository_name"`
+	Topics               []string                   `yaml:"topics"`
+	PollInterval         Duration                   `yaml:"poll_interval"`
+	AdvisoryPollInterval Duration                   `yaml:"advisory_poll_interval"`
+	Priority             Priority                   `yaml:"priority"`
+	ContentLicense       string                     `yaml:"content_license"`
+	Enabled              bool                       `yaml:"enabled"`
+	Owner                string                     `yaml:"owner"`
+	Origin               string                     `yaml:"origin"`
+	ReviewedAt           Date                       `yaml:"reviewed_at"`
+	MaxResponseBytes     int64                      `yaml:"max_response_bytes"`
+	EnabledEvents        []RepositoryEvent          `yaml:"enabled_events"`
+	FixtureSuites        map[RepositoryEvent]string `yaml:"fixture_suites"`
 }
 
 type Endpoint struct {

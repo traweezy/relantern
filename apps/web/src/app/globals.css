@@ -928,6 +928,81 @@ button {
   line-height: 1.5;
 }
 
+.critical-alerts {
+  padding-top: clamp(2rem, 4vw, 3rem);
+}
+
+.critical-alerts .collection-toolbar > span,
+.critical-alert-card time {
+  color: var(--color-ink-muted);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+}
+
+.critical-alert-list {
+  display: grid;
+  gap: 0.85rem;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr));
+}
+
+.critical-alert-card {
+  padding: clamp(1.2rem, 3vw, 1.7rem);
+  border: 1px solid oklch(0.68 0.14 28 / 45%);
+  border-radius: 0.9rem;
+  background: linear-gradient(150deg, oklch(0.24 0.035 25), oklch(0.18 0.02 250));
+}
+
+.critical-alert-card-heading {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.critical-alert-severity {
+  color: oklch(0.88 0.09 30);
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.critical-alert-card h3 {
+  margin: 1rem 0 0.75rem;
+  color: var(--color-ink);
+  font-size: clamp(1.1rem, 2vw, 1.4rem);
+  line-height: 1.25;
+}
+
+.critical-alert-card p {
+  margin: 0.55rem 0;
+  color: var(--color-ink-muted);
+  font-size: 0.78rem;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.critical-alert-card p strong {
+  color: var(--color-ink);
+}
+
+.critical-alert-card .critical-alert-reason {
+  color: oklch(0.87 0.075 30);
+}
+
+.critical-alert-card a {
+  display: inline-flex;
+  min-height: 2rem;
+  align-items: center;
+  margin-top: 0.7rem;
+  color: var(--color-ink);
+  font-size: 0.75rem;
+  font-weight: 650;
+  text-underline-offset: 0.2rem;
+}
+
 .brief-section {
   padding-top: clamp(2.5rem, 5vw, 4.5rem);
 }
@@ -4474,6 +4549,30 @@ button {
   display: grid;
   gap: 0.7rem;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.settings-alert-channels {
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.settings-alert-channels legend {
+  padding: 0;
+  font-weight: 650;
+}
+
+.settings-alert-channel-options {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 1rem;
+}
+
+.owner-settings-form label.control-check {
+  display: flex;
 }
 
 .owner-settings-form small,

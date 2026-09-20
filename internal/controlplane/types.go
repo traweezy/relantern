@@ -92,27 +92,62 @@ type InterestProfile struct {
 	Topics         []InterestTopic `json:"topics"`
 }
 
+// AdvisoryEcosystem uses the lower-case GitHub global-advisory ecosystem values.
+// An absent value means the watch has no proven registry identity.
+type AdvisoryEcosystem string
+
+const (
+	AdvisoryEcosystemActions  AdvisoryEcosystem = "actions"
+	AdvisoryEcosystemComposer AdvisoryEcosystem = "composer"
+	AdvisoryEcosystemErlang   AdvisoryEcosystem = "erlang"
+	AdvisoryEcosystemGo       AdvisoryEcosystem = "go"
+	AdvisoryEcosystemMaven    AdvisoryEcosystem = "maven"
+	AdvisoryEcosystemNPM      AdvisoryEcosystem = "npm"
+	AdvisoryEcosystemNuGet    AdvisoryEcosystem = "nuget"
+	AdvisoryEcosystemOther    AdvisoryEcosystem = "other"
+	AdvisoryEcosystemPip      AdvisoryEcosystem = "pip"
+	AdvisoryEcosystemPub      AdvisoryEcosystem = "pub"
+	AdvisoryEcosystemRubyGems AdvisoryEcosystem = "rubygems"
+	AdvisoryEcosystemRust     AdvisoryEcosystem = "rust"
+	AdvisoryEcosystemSwift    AdvisoryEcosystem = "swift"
+)
+
+func (ecosystem AdvisoryEcosystem) Valid() bool {
+	switch ecosystem {
+	case AdvisoryEcosystemActions, AdvisoryEcosystemComposer,
+		AdvisoryEcosystemErlang, AdvisoryEcosystemGo, AdvisoryEcosystemMaven,
+		AdvisoryEcosystemNPM, AdvisoryEcosystemNuGet, AdvisoryEcosystemOther,
+		AdvisoryEcosystemPip, AdvisoryEcosystemPub, AdvisoryEcosystemRubyGems,
+		AdvisoryEcosystemRust, AdvisoryEcosystemSwift:
+		return true
+	default:
+		return false
+	}
+}
+
 type WatchedTechnology struct {
-	ID                string     `json:"id,omitempty"`
-	Technology        string     `json:"technology"`
-	PackageName       string     `json:"packageName"`
-	CurrentVersion    string     `json:"currentVersion"`
-	VersionConstraint string     `json:"versionConstraint"`
-	Status            string     `json:"status"`
-	Source            string     `json:"source"`
-	LastVerifiedAt    *time.Time `json:"lastVerifiedAt,omitempty"`
+	ID                string             `json:"id,omitempty"`
+	Technology        string             `json:"technology"`
+	PackageName       string             `json:"packageName"`
+	Ecosystem         *AdvisoryEcosystem `json:"ecosystem"`
+	CurrentVersion    string             `json:"currentVersion"`
+	VersionConstraint string             `json:"versionConstraint"`
+	Status            string             `json:"status"`
+	Source            string             `json:"source"`
+	LastVerifiedAt    *time.Time         `json:"lastVerifiedAt,omitempty"`
 }
 
 type OwnerSettings struct {
-	Timezone             string `json:"timezone"`
-	QuietHoursStart      string `json:"quietHoursStart"`
-	QuietHoursEnd        string `json:"quietHoursEnd"`
-	CriticalAlertsBypass bool   `json:"criticalAlertsBypass"`
-	MonthlySoftBudgetUSD string `json:"monthlySoftBudgetUsd"`
-	MonthlyHardBudgetUSD string `json:"monthlyHardBudgetUsd"`
-	RawRetentionDays     int    `json:"rawRetentionDays"`
-	AuditRetentionDays   int    `json:"auditRetentionDays"`
-	Version              int64  `json:"version"`
+	Timezone              string   `json:"timezone"`
+	QuietHoursStart       string   `json:"quietHoursStart"`
+	QuietHoursEnd         string   `json:"quietHoursEnd"`
+	CriticalAlertsBypass  bool     `json:"criticalAlertsBypass"`
+	CriticalAlertChannels []string `json:"criticalAlertChannels"`
+	MonthlySoftBudgetUSD  string   `json:"monthlySoftBudgetUsd"`
+	MonthlyHardBudgetUSD  string   `json:"monthlyHardBudgetUsd"`
+	RawRetentionDays      int      `json:"rawRetentionDays"`
+	AuditRetentionDays    int      `json:"auditRetentionDays"`
+	Version               int64    `json:"version"`
 }
 
 type ScheduleDefinition struct {
@@ -148,20 +183,21 @@ type SettingsSnapshot struct {
 }
 
 type UpdateSettingsRequest struct {
-	UserID               string
-	ExpectedVersion      int64
-	ProfileName          string
-	ProfileSummary       string
-	Topics               []InterestTopic
-	Technologies         []WatchedTechnology
-	Timezone             string
-	QuietHoursStart      string
-	QuietHoursEnd        string
-	CriticalAlertsBypass bool
-	MonthlySoftBudgetUSD string
-	MonthlyHardBudgetUSD string
-	RawRetentionDays     int
-	AuditRetentionDays   int
+	UserID                string
+	ExpectedVersion       int64
+	ProfileName           string
+	ProfileSummary        string
+	Topics                []InterestTopic
+	Technologies          []WatchedTechnology
+	Timezone              string
+	QuietHoursStart       string
+	QuietHoursEnd         string
+	CriticalAlertsBypass  bool
+	CriticalAlertChannels []string
+	MonthlySoftBudgetUSD  string
+	MonthlyHardBudgetUSD  string
+	RawRetentionDays      int
+	AuditRetentionDays    int
 }
 
 type UpdateScheduleRequest struct {

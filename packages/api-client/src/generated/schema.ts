@@ -934,6 +934,22 @@ export interface components {
             name: string;
             verdict: string;
         };
+        CriticalAlert: {
+            advisoryId: string;
+            /** Format: date-time */
+            alertedAt: string;
+            currentVersion: string;
+            ecosystem: string;
+            id: string;
+            /** Format: date-time */
+            observedAt: string;
+            packageName: string;
+            patchedVersion: string;
+            reason: string;
+            sourceUrl: string;
+            title: string;
+            versionRange: string;
+        };
         Decision: {
             applicableProjectTypes: string[] | null;
             compatibilityRequirements: string[] | null;
@@ -1403,6 +1419,7 @@ export interface components {
         OwnerSettings: {
             /** Format: int64 */
             auditRetentionDays: number;
+            criticalAlertChannels: string[] | null;
             criticalAlertsBypass: boolean;
             monthlyHardBudgetUsd: string;
             monthlySoftBudgetUsd: string;
@@ -1717,6 +1734,7 @@ export interface components {
             readonly $schema?: string;
             /** Format: int64 */
             auditRetentionDays: number;
+            criticalAlertChannels: string[] | null;
             criticalAlertsBypass: boolean;
             /** Format: int64 */
             expectedVersion: number;
@@ -2019,6 +2037,7 @@ export interface components {
              * @example https://example.com/TodaySnapshot.json
              */
             readonly $schema?: string;
+            alerts: components["schemas"]["CriticalAlert"][] | null;
             /** Format: date-time */
             coverageEndAt: string;
             /** Format: date-time */
@@ -2062,6 +2081,7 @@ export interface components {
         };
         WatchedTechnology: {
             currentVersion: string;
+            ecosystem: string | null;
             id?: string;
             /** Format: date-time */
             lastVerifiedAt?: string;

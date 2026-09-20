@@ -20,6 +20,7 @@ import (
 
 const maximumEntries = 500
 const maximumEntryBytes = 1 << 20
+const maximumAdvisoryVulnerabilities = 100
 
 // Entry is a bounded, independently versioned child of one fetched document.
 // Payload is a deterministic JSON representation of the untrusted entry fields.
@@ -44,6 +45,9 @@ func ValidateEntry(sourceURL string, entry Entry) error {
 	}
 	if payload.ID != entry.ExternalID || payload.URL != entry.URL {
 		return parserError(ErrorInvalidDocument, "source entry identity or URL differs from its payload")
+	}
+	if err := validateEntryAdvisory(payload); err != nil {
+		return err
 	}
 	link := entry.URL
 	if payload.ExternalURL != "" {
@@ -70,15 +74,46 @@ func ValidateEntry(sourceURL string, entry Entry) error {
 }
 
 type sourceEntryPayload struct {
-	ID          string `json:"id"`
-	URL         string `json:"url"`
-	ExternalURL string `json:"externalUrl,omitempty"`
-	Title       string `json:"title"`
-	Author      string `json:"author,omitempty"`
-	ContentHTML string `json:"contentHtml,omitempty"`
-	ContentText string `json:"contentText,omitempty"`
-	PublishedAt string `json:"publishedAt,omitempty"`
-	UpdatedAt   string `json:"updatedAt,omitempty"`
+	ID          string                 `json:"id"`
+	URL         string                 `json:"url"`
+	ExternalURL string                 `json:"externalUrl,omitempty"`
+	Title       string                 `json:"title"`
+	Author      string                 `json:"author,omitempty"`
+	ContentHTML string                 `json:"contentHtml,omitempty"`
+	ContentText string                 `json:"contentText,omitempty"`
+	PublishedAt string                 `json:"publishedAt,omitempty"`
+	UpdatedAt   string                 `json:"updatedAt,omitempty"`
+	Advisory    *sourceAdvisoryPayload `json:"advisory,omitempty"`
+}
+
+// Advisory fields retain only bounded source-declared facts. They do not
+// classify an advisory as urgent or establish an affected owner dependency.
+type sourceAdvisoryPayload struct {
+	ID              string                        `json:"id"`
+	Type            string                        `json:"type,omitempty"`
+	Severity        string                        `json:"severity,omitempty"`
+	State           string                        `json:"state,omitempty"`
+	PublishedAt     string                        `json:"publishedAt,omitempty"`
+	ReviewedAt      string                        `json:"reviewedAt,omitempty"`
+	WithdrawnAt     string                        `json:"withdrawnAt,omitempty"`
+	Vulnerabilities []sourceAdvisoryVulnerability `json:"vulnerabilities,omitempty"`
+}
+
+type sourceAdvisoryVulnerability struct {
+	Ecosystem      string `json:"ecosystem"`
+	PackageName    string `json:"packageName,omitempty"`
+	VersionRange   string `json:"versionRange,omitempty"`
+	PatchedVersion string `json:"patchedVersion,omitempty"`
+}
+
+func validateEntryAdvisory(entry sourceEntryPayload) error {
+	if entry.Advisory == nil {
+		return nil
+	}
+	if !strings.HasPrefix(entry.ID, string(sources.ConnectorGitHubAdvisories)+":") {
+		return parserError(ErrorInvalidDocument, "advisory metadata requires a GitHub advisory entry")
+	}
+	return validateAdvisory(entry.Advisory)
 }
 
 func IsCollectionConnector(connector sources.Connector) bool {
@@ -346,7 +381,13 @@ func githubEntries(connector sources.Connector, raw []byte) ([]sourceEntryPayloa
 		identity := firstString(item, "node_id", "ghsa_id", "id")
 		title := firstString(item, "name", "summary", "tag_name", "ghsa_id")
 		body := firstString(item, "body", "description")
+		var advisory *sourceAdvisoryPayload
 		if connector == sources.ConnectorGitHubAdvisories {
+			var err error
+			advisory, err = parseAdvisory(item)
+			if err != nil {
+				return nil, err
+			}
 			if severity := firstString(item, "severity"); severity != "" {
 				body = "Severity: " + severity + "\n\n" + body
 			}
@@ -356,9 +397,186 @@ func githubEntries(connector sources.Connector, raw []byte) ([]sourceEntryPayloa
 			ContentText: body,
 			PublishedAt: firstString(item, "published_at", "created_at"),
 			UpdatedAt:   firstString(item, "updated_at"),
+			Advisory:    advisory,
 		})
 	}
 	return entries, nil
+}
+
+func parseAdvisory(item map[string]any) (*sourceAdvisoryPayload, error) {
+	id, err := advisoryString(item, "ghsa_id", 19)
+	if err != nil {
+		return nil, err
+	}
+	if id == "" {
+		for _, field := range []string{"type", "severity", "state", "published_at", "github_reviewed_at", "withdrawn_at", "vulnerabilities"} {
+			if value, present := item[field]; present && value != nil {
+				return nil, parserError(ErrorInvalidDocument, "GitHub advisory metadata requires ghsa_id")
+			}
+		}
+		return nil, nil
+	}
+	advisory := &sourceAdvisoryPayload{ID: id}
+	if advisory.Type, err = advisoryString(item, "type", 16); err != nil {
+		return nil, err
+	}
+	if advisory.Severity, err = advisoryString(item, "severity", 16); err != nil {
+		return nil, err
+	}
+	if advisory.State, err = advisoryString(item, "state", 16); err != nil {
+		return nil, err
+	}
+	if advisory.PublishedAt, err = advisoryString(item, "published_at", 64); err != nil {
+		return nil, err
+	}
+	if advisory.ReviewedAt, err = advisoryString(item, "github_reviewed_at", 64); err != nil {
+		return nil, err
+	}
+	if advisory.WithdrawnAt, err = advisoryString(item, "withdrawn_at", 64); err != nil {
+		return nil, err
+	}
+	if raw, present := item["vulnerabilities"]; present && raw != nil {
+		vulnerabilities, ok := raw.([]any)
+		if !ok || len(vulnerabilities) > maximumAdvisoryVulnerabilities {
+			return nil, parserError(ErrorInvalidDocument, "GitHub advisory vulnerabilities are malformed or exceed %d", maximumAdvisoryVulnerabilities)
+		}
+		advisory.Vulnerabilities = make([]sourceAdvisoryVulnerability, 0, len(vulnerabilities))
+		for _, rawVulnerability := range vulnerabilities {
+			vulnerability, ok := rawVulnerability.(map[string]any)
+			if !ok {
+				return nil, parserError(ErrorInvalidDocument, "GitHub advisory vulnerability is malformed")
+			}
+			packageObject, ok := vulnerability["package"].(map[string]any)
+			if !ok {
+				return nil, parserError(ErrorInvalidDocument, "GitHub advisory package is malformed")
+			}
+			var parsed sourceAdvisoryVulnerability
+			if parsed.Ecosystem, err = advisoryString(packageObject, "ecosystem", 32); err != nil {
+				return nil, err
+			}
+			if parsed.PackageName, err = advisoryString(packageObject, "name", 255); err != nil {
+				return nil, err
+			}
+			if parsed.VersionRange, err = advisoryString(vulnerability, "vulnerable_version_range", 512); err != nil {
+				return nil, err
+			}
+			patchedVersions, patchErr := advisoryString(vulnerability, "patched_versions", 255)
+			if patchErr != nil {
+				return nil, patchErr
+			}
+			firstPatchedVersion, patchErr := advisoryString(vulnerability, "first_patched_version", 255)
+			if patchErr != nil {
+				return nil, patchErr
+			}
+			if patchedVersions != "" && firstPatchedVersion != "" && patchedVersions != firstPatchedVersion {
+				return nil, parserError(ErrorInvalidDocument, "GitHub advisory patch versions conflict")
+			}
+			parsed.PatchedVersion = patchedVersions
+			if parsed.PatchedVersion == "" {
+				parsed.PatchedVersion = firstPatchedVersion
+			}
+			advisory.Vulnerabilities = append(advisory.Vulnerabilities, parsed)
+		}
+	}
+	if err := validateAdvisory(advisory); err != nil {
+		return nil, err
+	}
+	return advisory, nil
+}
+
+func advisoryString(object map[string]any, key string, maximum int) (string, error) {
+	value, present := object[key]
+	if !present || value == nil {
+		return "", nil
+	}
+	text, ok := value.(string)
+	if !ok {
+		return "", parserError(ErrorInvalidDocument, "GitHub advisory %s must be text or null", key)
+	}
+	if !validAdvisoryText(text, maximum) {
+		return "", parserError(ErrorInvalidDocument, "GitHub advisory %s is invalid or exceeds %d bytes", key, maximum)
+	}
+	return text, nil
+}
+
+func validateAdvisory(advisory *sourceAdvisoryPayload) error {
+	if advisory == nil || !validGHSAID(advisory.ID) {
+		return parserError(ErrorInvalidDocument, "GitHub advisory ID is invalid")
+	}
+	if !oneOfOrEmpty(advisory.Type, "reviewed", "unreviewed", "malware") ||
+		!oneOfOrEmpty(advisory.Severity, "critical", "high", "medium", "low", "unknown") ||
+		!oneOfOrEmpty(advisory.State, "triage", "draft", "published", "closed") {
+		return parserError(ErrorInvalidDocument, "GitHub advisory type, severity, or state is invalid")
+	}
+	for _, timestamp := range []string{advisory.PublishedAt, advisory.ReviewedAt, advisory.WithdrawnAt} {
+		if timestamp != "" {
+			if !validAdvisoryText(timestamp, 64) {
+				return parserError(ErrorInvalidDocument, "GitHub advisory timestamp is invalid")
+			}
+			if _, err := time.Parse(time.RFC3339, timestamp); err != nil {
+				return parserError(ErrorInvalidDocument, "GitHub advisory timestamp is invalid")
+			}
+		}
+	}
+	if len(advisory.Vulnerabilities) > maximumAdvisoryVulnerabilities {
+		return parserError(ErrorInvalidDocument, "GitHub advisory has too many vulnerabilities")
+	}
+	for _, vulnerability := range advisory.Vulnerabilities {
+		if !oneOfOrEmpty(vulnerability.Ecosystem,
+			"rubygems", "npm", "pip", "maven", "nuget", "composer", "go", "rust",
+			"erlang", "actions", "pub", "other", "swift") ||
+			vulnerability.Ecosystem == "" ||
+			!validAdvisoryText(vulnerability.PackageName, 255) ||
+			!validAdvisoryText(vulnerability.VersionRange, 512) ||
+			!validAdvisoryText(vulnerability.PatchedVersion, 255) {
+			return parserError(ErrorInvalidDocument, "GitHub advisory vulnerability metadata is invalid")
+		}
+	}
+	return nil
+}
+
+func validGHSAID(id string) bool {
+	if len(id) != 19 || !strings.HasPrefix(id, "GHSA-") {
+		return false
+	}
+	for index := 5; index < len(id); index++ {
+		if index == 9 || index == 14 {
+			if id[index] != '-' {
+				return false
+			}
+			continue
+		}
+		if !((id[index] >= 'a' && id[index] <= 'z') ||
+			(id[index] >= 'A' && id[index] <= 'Z') ||
+			(id[index] >= '0' && id[index] <= '9')) {
+			return false
+		}
+	}
+	return true
+}
+
+func oneOfOrEmpty(value string, choices ...string) bool {
+	if value == "" {
+		return true
+	}
+	for _, choice := range choices {
+		if value == choice {
+			return true
+		}
+	}
+	return false
+}
+
+func validAdvisoryText(value string, maximum int) bool {
+	if len(value) > maximum || value != strings.TrimSpace(value) {
+		return false
+	}
+	for _, character := range value {
+		if character < 0x20 || character == 0x7f {
+			return false
+		}
+	}
+	return true
 }
 
 func structuredEntries(raw []byte) ([]sourceEntryPayload, error) {
@@ -421,6 +639,9 @@ func parseSourceEntry(sourceURL *url.URL, raw []byte) (extractedDocument, error)
 	}
 	if entry.ID == "" || entry.URL != sourceURL.String() {
 		return extractedDocument{}, parserError(ErrorInvalidDocument, "source entry identity or URL is inconsistent")
+	}
+	if err := validateEntryAdvisory(entry); err != nil {
+		return extractedDocument{}, err
 	}
 	document := extractedDocument{
 		ParserName: "source-entry-json", CanonicalURL: sourceURL.String(),

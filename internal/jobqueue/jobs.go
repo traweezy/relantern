@@ -8,13 +8,14 @@ import (
 )
 
 const (
-	QueueCritical    = "critical"
-	QueueFetch       = "fetch"
-	QueueParse       = "parse"
-	QueueAIFast      = "ai_fast"
-	QueueAIResearch  = "ai_research"
-	QueueDelivery    = "delivery"
-	QueueMaintenance = "maintenance"
+	QueueCritical         = "critical"
+	QueueAdvisoryBackfill = "advisory_backfill"
+	QueueFetch            = "fetch"
+	QueueParse            = "parse"
+	QueueAIFast           = "ai_fast"
+	QueueAIResearch       = "ai_research"
+	QueueDelivery         = "delivery"
+	QueueMaintenance      = "maintenance"
 
 	ReconcileSchedulesKind        = "reconcile_schedules"
 	ScheduleOccurrenceKind        = "schedule_occurrence"
@@ -35,6 +36,10 @@ const (
 	ReconcileSourcesKind          = "reconcile_sources"
 	PollSourceEndpointKind        = "poll_source_endpoint"
 	ParseRawDocumentKind          = "parse_raw_document"
+	AssessCriticalAdvisoryKind    = "assess_critical_advisory"
+	ReassessCurrentAdvisoriesKind = "reassess_current_advisories"
+	DeliverCriticalAlertKind      = "deliver_critical_alert"
+	ReconcileCriticalAlertsKind   = "reconcile_critical_alerts"
 	// ReembedProjectionVersion changes when a completed job must rebuild the
 	// search projection even if its item, revision, and model are unchanged.
 	ReembedProjectionVersion = 2
@@ -45,6 +50,7 @@ const reconcileOpenAIBackgroundPeriodicID = "reconcile-openai-background-v1"
 const returnSnoozedItemsPeriodicID = "return-snoozed-items-v1"
 const runRetentionPeriodicID = "run-retention-v1"
 const reconcileSourcesPeriodicID = "reconcile-sources-v1"
+const reconcileCriticalAlertsPeriodicID = "reconcile-critical-alerts-v1"
 
 type ReconcileSourcesArgs struct{}
 
@@ -75,6 +81,66 @@ func (PollSourceEndpointArgs) InsertOpts() river.InsertOpts {
 type ParseRawDocumentArgs struct {
 	RawDocumentID string `json:"rawDocumentId" river:"unique"`
 	RegistryID    string `json:"registryId"`
+}
+
+type AssessCriticalAdvisoryArgs struct {
+	RawDocumentID string `json:"rawDocumentId" river:"unique"`
+	RevisionID    string `json:"revisionId" river:"unique"`
+}
+
+// ReassessCurrentAdvisoriesArgs pages through the current official advisory
+// corpus after a watched dependency changes. SettingsVersion distinguishes
+// separate owner edits even when an earlier scan is still active.
+type ReassessCurrentAdvisoriesArgs struct {
+	UserID          string `json:"userId" river:"unique"`
+	SettingsVersion int64  `json:"settingsVersion" river:"unique"`
+	Cursor          string `json:"cursor" river:"unique"`
+}
+
+func (ReassessCurrentAdvisoriesArgs) Kind() string { return ReassessCurrentAdvisoriesKind }
+
+func (ReassessCurrentAdvisoriesArgs) InsertOpts() river.InsertOpts {
+	return river.InsertOpts{
+		MaxAttempts: 5, Priority: 2, Queue: QueueAdvisoryBackfill,
+		Tags:       []string{"advisory", "watch", "backfill"},
+		UniqueOpts: river.UniqueOpts{ByArgs: true, ByQueue: true, ByState: activeJobStates()},
+	}
+}
+
+func (AssessCriticalAdvisoryArgs) Kind() string { return AssessCriticalAdvisoryKind }
+
+func (AssessCriticalAdvisoryArgs) InsertOpts() river.InsertOpts {
+	return river.InsertOpts{
+		MaxAttempts: 5, Priority: 1, Queue: QueueCritical,
+		Tags:       []string{"advisory", "assessment"},
+		UniqueOpts: river.UniqueOpts{ByArgs: true, ByQueue: true, ByState: activeJobStates()},
+	}
+}
+
+type DeliverCriticalAlertArgs struct {
+	DeliveryID string `json:"deliveryId" river:"unique"`
+}
+
+type ReconcileCriticalAlertsArgs struct{}
+
+func (ReconcileCriticalAlertsArgs) Kind() string { return ReconcileCriticalAlertsKind }
+
+func (ReconcileCriticalAlertsArgs) InsertOpts() river.InsertOpts {
+	return river.InsertOpts{
+		MaxAttempts: 3, Priority: 1, Queue: QueueMaintenance,
+		Tags:       []string{"advisory", "delivery", "reconcile"},
+		UniqueOpts: river.UniqueOpts{ByPeriod: time.Minute, ByQueue: true, ByState: activeJobStates()},
+	}
+}
+
+func (DeliverCriticalAlertArgs) Kind() string { return DeliverCriticalAlertKind }
+
+func (DeliverCriticalAlertArgs) InsertOpts() river.InsertOpts {
+	return river.InsertOpts{
+		MaxAttempts: 8, Priority: 1, Queue: QueueCritical,
+		Tags:       []string{"advisory", "delivery"},
+		UniqueOpts: river.UniqueOpts{ByArgs: true, ByQueue: true, ByState: activeJobStates()},
+	}
 }
 
 func (ParseRawDocumentArgs) Kind() string { return ParseRawDocumentKind }
@@ -424,13 +490,14 @@ func activeJobStates() []rivertype.JobState {
 
 func QueueConfigs() map[string]river.QueueConfig {
 	return map[string]river.QueueConfig{
-		QueueCritical:    {MaxWorkers: 4},
-		QueueFetch:       {MaxWorkers: 12},
-		QueueParse:       {MaxWorkers: 8},
-		QueueAIFast:      {MaxWorkers: 4},
-		QueueAIResearch:  {MaxWorkers: 2},
-		QueueDelivery:    {MaxWorkers: 2},
-		QueueMaintenance: {MaxWorkers: 1},
+		QueueAdvisoryBackfill: {MaxWorkers: 1},
+		QueueCritical:         {MaxWorkers: 4},
+		QueueFetch:            {MaxWorkers: 12},
+		QueueParse:            {MaxWorkers: 8},
+		QueueAIFast:           {MaxWorkers: 4},
+		QueueAIResearch:       {MaxWorkers: 2},
+		QueueDelivery:         {MaxWorkers: 2},
+		QueueMaintenance:      {MaxWorkers: 1},
 	}
 }
 
@@ -476,6 +543,13 @@ func PeriodicJobs(interval time.Duration, includeOpenAIReconciliation ...bool) [
 			river.PeriodicInterval(time.Minute),
 			func() (river.JobArgs, *river.InsertOpts) { return ReconcileSourcesArgs{}, nil },
 			&river.PeriodicJobOpts{ID: reconcileSourcesPeriodicID, RunOnStart: true},
+		))
+	}
+	if len(includeOpenAIReconciliation) > 4 && includeOpenAIReconciliation[4] {
+		jobs = append(jobs, river.NewPeriodicJob(
+			river.PeriodicInterval(time.Minute),
+			func() (river.JobArgs, *river.InsertOpts) { return ReconcileCriticalAlertsArgs{}, nil },
+			&river.PeriodicJobOpts{ID: reconcileCriticalAlertsPeriodicID, RunOnStart: true},
 		))
 	}
 	return jobs

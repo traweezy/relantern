@@ -1,5 +1,6 @@
 import type {
   ClaimEvidence,
+  CriticalAlert,
   LiveEvent,
   LiveSnapshot,
   SourceTier,
@@ -166,10 +167,31 @@ export const parseStoryDetail = (value: unknown): StoryDetail => {
 export const parseTodaySnapshot = (value: unknown): TodaySnapshot => {
   const snapshot = recordValue(value, "today");
   const stats = recordValue(snapshot.stats, "today.stats");
-  if (!Array.isArray(snapshot.stories)) {
-    throw new IntelligenceContractError("today.stories must be an array");
+  if (!Array.isArray(snapshot.stories) || !Array.isArray(snapshot.alerts)) {
+    throw new IntelligenceContractError("today collections must be arrays");
   }
   return {
+    alerts: snapshot.alerts.map((value, index): CriticalAlert => {
+      const name = `today.alerts[${index}]`;
+      const item = recordValue(value, name);
+      return {
+        id: stringValue(item.id, `${name}.id`, 80),
+        advisoryId: stringValue(item.advisoryId, `${name}.advisoryId`, 19),
+        title: stringValue(item.title, `${name}.title`, 500),
+        ecosystem: stringValue(item.ecosystem, `${name}.ecosystem`, 32),
+        packageName: stringValue(item.packageName, `${name}.packageName`, 255),
+        currentVersion: stringValue(item.currentVersion, `${name}.currentVersion`, 100),
+        versionRange: stringValue(item.versionRange, `${name}.versionRange`, 200),
+        patchedVersion:
+          item.patchedVersion === ""
+            ? ""
+            : stringValue(item.patchedVersion, `${name}.patchedVersion`, 100),
+        sourceUrl: sourceURLValue(item.sourceUrl, `${name}.sourceUrl`),
+        observedAt: timestampValue(item.observedAt, `${name}.observedAt`),
+        alertedAt: timestampValue(item.alertedAt, `${name}.alertedAt`),
+        reason: stringValue(item.reason, `${name}.reason`, 500),
+      };
+    }),
     coverageEndAt: timestampValue(snapshot.coverageEndAt, "today.coverageEndAt"),
     coverageStartAt: timestampValue(snapshot.coverageStartAt, "today.coverageStartAt"),
     deliveryState: enumValue(

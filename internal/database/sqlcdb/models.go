@@ -173,6 +173,52 @@ type AppContentRevision struct {
 	NormalizedTextPrunedAt  pgtype.Timestamptz `json:"normalized_text_pruned_at"`
 }
 
+type AppCriticalAlert struct {
+	ID              pgtype.UUID        `json:"id"`
+	UserID          pgtype.UUID        `json:"user_id"`
+	AdvisoryID      string             `json:"advisory_id"`
+	Ecosystem       string             `json:"ecosystem"`
+	PackageName     string             `json:"package_name"`
+	CurrentVersion  string             `json:"current_version"`
+	VulnerableRange string             `json:"vulnerable_range"`
+	PatchedVersion  string             `json:"patched_version"`
+	RawDocumentID   pgtype.UUID        `json:"raw_document_id"`
+	RevisionID      pgtype.UUID        `json:"revision_id"`
+	ItemID          pgtype.UUID        `json:"item_id"`
+	SourceID        string             `json:"source_id"`
+	SourceUrl       string             `json:"source_url"`
+	Title           string             `json:"title"`
+	ObservedAt      pgtype.Timestamptz `json:"observed_at"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+}
+
+type AppCriticalAlertAttempt struct {
+	ID            int64              `json:"id"`
+	DeliveryID    pgtype.UUID        `json:"delivery_id"`
+	AttemptNumber int32              `json:"attempt_number"`
+	Outcome       string             `json:"outcome"`
+	ErrorCode     pgtype.Text        `json:"error_code"`
+	ProviderID    pgtype.Text        `json:"provider_id"`
+	AttemptedAt   pgtype.Timestamptz `json:"attempted_at"`
+	CompletedAt   pgtype.Timestamptz `json:"completed_at"`
+}
+
+type AppCriticalAlertDelivery struct {
+	ID             pgtype.UUID        `json:"id"`
+	AlertID        pgtype.UUID        `json:"alert_id"`
+	Channel        string             `json:"channel"`
+	State          string             `json:"state"`
+	IdempotencyKey string             `json:"idempotency_key"`
+	PayloadSha256  []byte             `json:"payload_sha256"`
+	NextAttemptAt  pgtype.Timestamptz `json:"next_attempt_at"`
+	AttemptCount   int32              `json:"attempt_count"`
+	LastAttemptAt  pgtype.Timestamptz `json:"last_attempt_at"`
+	ProviderID     pgtype.Text        `json:"provider_id"`
+	DeliveredAt    pgtype.Timestamptz `json:"delivered_at"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+}
+
 type AppDedupeDecision struct {
 	RevisionID      pgtype.UUID        `json:"revision_id"`
 	ItemID          pgtype.UUID        `json:"item_id"`
@@ -459,16 +505,17 @@ type AppOutboxEvent struct {
 }
 
 type AppOwnerSetting struct {
-	UserID               pgtype.UUID        `json:"user_id"`
-	QuietHoursStart      pgtype.Time        `json:"quiet_hours_start"`
-	QuietHoursEnd        pgtype.Time        `json:"quiet_hours_end"`
-	CriticalAlertsBypass bool               `json:"critical_alerts_bypass"`
-	MonthlySoftBudgetUsd pgtype.Numeric     `json:"monthly_soft_budget_usd"`
-	MonthlyHardBudgetUsd pgtype.Numeric     `json:"monthly_hard_budget_usd"`
-	RawRetentionDays     int32              `json:"raw_retention_days"`
-	AuditRetentionDays   int32              `json:"audit_retention_days"`
-	Version              int64              `json:"version"`
-	UpdatedAt            pgtype.Timestamptz `json:"updated_at"`
+	UserID                pgtype.UUID        `json:"user_id"`
+	QuietHoursStart       pgtype.Time        `json:"quiet_hours_start"`
+	QuietHoursEnd         pgtype.Time        `json:"quiet_hours_end"`
+	CriticalAlertsBypass  bool               `json:"critical_alerts_bypass"`
+	MonthlySoftBudgetUsd  pgtype.Numeric     `json:"monthly_soft_budget_usd"`
+	MonthlyHardBudgetUsd  pgtype.Numeric     `json:"monthly_hard_budget_usd"`
+	RawRetentionDays      int32              `json:"raw_retention_days"`
+	AuditRetentionDays    int32              `json:"audit_retention_days"`
+	Version               int64              `json:"version"`
+	UpdatedAt             pgtype.Timestamptz `json:"updated_at"`
+	CriticalAlertChannels []string           `json:"critical_alert_channels"`
 }
 
 type AppPackageCandidate struct {
@@ -957,4 +1004,5 @@ type AppWatchedTechnology struct {
 	Status            string             `json:"status"`
 	Source            string             `json:"source"`
 	LastVerifiedAt    pgtype.Timestamptz `json:"last_verified_at"`
+	Ecosystem         pgtype.Text        `json:"ecosystem"`
 }

@@ -73,6 +73,11 @@ type Sources struct {
 	FixturesPath string
 }
 
+type SourcePolling struct {
+	Enabled         bool
+	GitHubReadToken string
+}
+
 type ObjectStorage struct {
 	Endpoint  string
 	Bucket    string
@@ -356,6 +361,36 @@ func LoadSources() Sources {
 		RegistryPath: valueOrDefault("SOURCE_REGISTRY_PATH", "sources/registry.yaml"),
 		FixturesPath: valueOrDefault("SOURCE_FIXTURES_PATH", "sources/fixtures.yaml"),
 	}
+}
+
+func LoadSourcePolling() (SourcePolling, error) {
+	enabled, err := strconv.ParseBool(valueOrDefault("ALLOW_LIVE_EXTERNAL_APIS", "false"))
+	if err != nil {
+		return SourcePolling{}, errors.New("ALLOW_LIVE_EXTERNAL_APIS must be true or false")
+	}
+	if !enabled {
+		return SourcePolling{}, nil
+	}
+	token, err := secretValue("GITHUB_READ_TOKEN", "GITHUB_READ_TOKEN_FILE")
+	if err != nil {
+		return SourcePolling{}, err
+	}
+	if !validBearerSecret(token) {
+		return SourcePolling{}, errors.New("live source polling requires a single-line GITHUB_READ_TOKEN")
+	}
+	return SourcePolling{Enabled: true, GitHubReadToken: token}, nil
+}
+
+func validBearerSecret(value string) bool {
+	if value == "" || len(value) > 4096 {
+		return false
+	}
+	for index := range len(value) {
+		if value[index] < 0x21 || value[index] > 0x7e {
+			return false
+		}
+	}
+	return true
 }
 
 func LoadObjectStorage(environment Environment) (ObjectStorage, error) {

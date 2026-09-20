@@ -10,7 +10,59 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/traweezy/relantern/internal/controlplane"
+	"github.com/traweezy/relantern/internal/jobqueue"
 )
+
+type watchIdentity struct {
+	ecosystem   string
+	packageName string
+}
+
+type watchVersion struct {
+	currentVersion    string
+	versionConstraint string
+}
+
+func changedActiveTypedWatch(
+	ctx context.Context, tx pgx.Tx, request controlplane.UpdateSettingsRequest,
+) (bool, error) {
+	rows, err := tx.Query(ctx, `
+		select ecosystem, package_name, current_version, version_constraint
+		from app.watched_technologies
+		where user_id = $1::uuid and status = 'active' and ecosystem is not null`, request.UserID)
+	if err != nil {
+		return false, fmt.Errorf("load current active advisory watches: %w", err)
+	}
+	previous := make(map[watchIdentity]watchVersion)
+	for rows.Next() {
+		var identity watchIdentity
+		var version watchVersion
+		if err := rows.Scan(&identity.ecosystem, &identity.packageName,
+			&version.currentVersion, &version.versionConstraint); err != nil {
+			rows.Close()
+			return false, fmt.Errorf("scan current active advisory watch: %w", err)
+		}
+		previous[identity] = version
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return false, fmt.Errorf("iterate current active advisory watches: %w", err)
+	}
+	rows.Close()
+	for _, technology := range request.Technologies {
+		if technology.Status != "active" || technology.Ecosystem == nil {
+			continue
+		}
+		identity := watchIdentity{ecosystem: string(*technology.Ecosystem), packageName: technology.PackageName}
+		version := watchVersion{
+			currentVersion: technology.CurrentVersion, versionConstraint: technology.VersionConstraint,
+		}
+		if prior, exists := previous[identity]; !exists || prior != version {
+			return true, nil
+		}
+	}
+	return false, nil
+}
 
 func (store *Store) Settings(
 	ctx context.Context,
@@ -24,6 +76,7 @@ func (store *Store) Settings(
 			to_char(settings.quiet_hours_start, 'HH24:MI'),
 			to_char(settings.quiet_hours_end, 'HH24:MI'),
 			settings.critical_alerts_bypass,
+			settings.critical_alert_channels,
 			settings.monthly_soft_budget_usd::text,
 			settings.monthly_hard_budget_usd::text,
 			settings.raw_retention_days,
@@ -36,6 +89,7 @@ func (store *Store) Settings(
 		&settings.Owner.QuietHoursStart,
 		&settings.Owner.QuietHoursEnd,
 		&settings.Owner.CriticalAlertsBypass,
+		&settings.Owner.CriticalAlertChannels,
 		&settings.Owner.MonthlySoftBudgetUSD,
 		&settings.Owner.MonthlyHardBudgetUSD,
 		&settings.Owner.RawRetentionDays,
@@ -118,6 +172,7 @@ func (store *Store) loadWatchedTechnologies(
 			id::text,
 			technology,
 			package_name,
+			ecosystem,
 			current_version,
 			version_constraint,
 			status,
@@ -133,10 +188,12 @@ func (store *Store) loadWatchedTechnologies(
 	technologies := make([]controlplane.WatchedTechnology, 0)
 	for rows.Next() {
 		var technology controlplane.WatchedTechnology
+		var ecosystem *string
 		if err := rows.Scan(
 			&technology.ID,
 			&technology.Technology,
 			&technology.PackageName,
+			&ecosystem,
 			&technology.CurrentVersion,
 			&technology.VersionConstraint,
 			&technology.Status,
@@ -144,6 +201,13 @@ func (store *Store) loadWatchedTechnologies(
 			&technology.LastVerifiedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan watched technology: %w", err)
+		}
+		if ecosystem != nil {
+			value := controlplane.AdvisoryEcosystem(*ecosystem)
+			if !value.Valid() {
+				return nil, fmt.Errorf("watched technology %s has an invalid ecosystem", technology.ID)
+			}
+			technology.Ecosystem = &value
 		}
 		technologies = append(technologies, technology)
 	}
@@ -186,6 +250,10 @@ func (store *Store) updateSettings(
 	if currentVersion != request.ExpectedVersion {
 		return controlplane.SettingsSnapshot{}, controlplane.ErrConflict
 	}
+	watchChanged, err := changedActiveTypedWatch(ctx, transaction, request)
+	if err != nil {
+		return controlplane.SettingsSnapshot{}, err
+	}
 	if _, err := transaction.Exec(ctx, `
 		update app.users
 		set timezone = $2, updated_at = $3
@@ -197,17 +265,19 @@ func (store *Store) updateSettings(
 		set quiet_hours_start = $2::time,
 			quiet_hours_end = $3::time,
 			critical_alerts_bypass = $4,
-			monthly_soft_budget_usd = $5::numeric,
-			monthly_hard_budget_usd = $6::numeric,
-			raw_retention_days = $7,
-			audit_retention_days = $8,
+			critical_alert_channels = $5,
+			monthly_soft_budget_usd = $6::numeric,
+			monthly_hard_budget_usd = $7::numeric,
+			raw_retention_days = $8,
+			audit_retention_days = $9,
 			version = version + 1,
-			updated_at = $9
+			updated_at = $10
 		where user_id = $1::uuid`,
 		request.UserID,
 		request.QuietHoursStart,
 		request.QuietHoursEnd,
 		request.CriticalAlertsBypass,
+		request.CriticalAlertChannels,
 		request.MonthlySoftBudgetUSD,
 		request.MonthlyHardBudgetUSD,
 		request.RawRetentionDays,
@@ -254,13 +324,14 @@ func (store *Store) updateSettings(
 	for _, technology := range request.Technologies {
 		if _, err := transaction.Exec(ctx, `
 			insert into app.watched_technologies (
-				user_id, technology, package_name, current_version,
+				user_id, technology, package_name, ecosystem, current_version,
 				version_constraint, status, source, last_verified_at,
 				created_at, updated_at
-			) values ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $9)`,
+			) values ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10)`,
 			request.UserID,
 			technology.Technology,
 			technology.PackageName,
+			technology.Ecosystem,
 			technology.CurrentVersion,
 			technology.VersionConstraint,
 			technology.Status,
@@ -269,6 +340,17 @@ func (store *Store) updateSettings(
 			now,
 		); err != nil {
 			return controlplane.SettingsSnapshot{}, fmt.Errorf("insert watched technology %q: %w", technology.PackageName, err)
+		}
+	}
+	if watchChanged {
+		if store.jobs == nil {
+			return controlplane.SettingsSnapshot{}, errors.New("advisory catch-up requires a transactional job inserter")
+		}
+		if _, _, err := store.jobs.EnqueueReassessCurrentAdvisories(ctx, transaction,
+			jobqueue.ReassessCurrentAdvisoriesArgs{
+				UserID: request.UserID, SettingsVersion: currentVersion + 1,
+			}); err != nil {
+			return controlplane.SettingsSnapshot{}, err
 		}
 	}
 	if err := recordMutation(ctx, transaction, request.UserID, "owner_settings_updated", "owner_settings", request.UserID, map[string]any{

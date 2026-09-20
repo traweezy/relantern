@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -63,12 +65,32 @@ func NewSecureHTTPClient(policy *Policy, dialer ContextDialer, limits NetworkLim
 			if len(previous) > maximumRedirects {
 				return newFetchError(ErrorDestinationDenied, false, fmt.Errorf("redirect limit %d exceeded", maximumRedirects))
 			}
+			if len(previous) > 0 && previous[0].Header.Get("Authorization") != "" && !sameHTTPSOrigin(previous[0].URL, request.URL) {
+				request.Header.Del("Authorization")
+				return newFetchError(ErrorDestinationDenied, false, fmt.Errorf("authenticated redirect to a different origin is denied"))
+			}
 			if _, err := policy.ValidateURL(request.Context(), request.URL); err != nil {
 				return fmt.Errorf("validate redirect target: %w", err)
 			}
 			return nil
 		},
 	}, nil
+}
+
+func sameHTTPSOrigin(first *url.URL, second *url.URL) bool {
+	if first == nil || second == nil || first.Scheme != "https" || second.Scheme != "https" ||
+		!strings.EqualFold(first.Hostname(), second.Hostname()) {
+		return false
+	}
+	firstPort := first.Port()
+	if firstPort == "" {
+		firstPort = "443"
+	}
+	secondPort := second.Port()
+	if secondPort == "" {
+		secondPort = "443"
+	}
+	return firstPort == secondPort
 }
 
 func pinnedDialContext(policy *Policy, dialer ContextDialer) func(context.Context, string, string) (net.Conn, error) {

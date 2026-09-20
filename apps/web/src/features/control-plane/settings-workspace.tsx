@@ -5,10 +5,9 @@ import type {
   ScheduleDefinition,
   SchedulePreview,
   SettingsSnapshot,
-  WatchedTechnology,
 } from "@relantern/domain";
 import { useForm } from "@tanstack/react-form";
-import type { FormEvent } from "react";
+import type { ChangeEvent, FormEvent } from "react";
 import { memo, useCallback, useMemo, useState } from "react";
 import { scheduleCommandSchema, settingsCommandSchema } from "@/features/control-plane/commands";
 import {
@@ -17,10 +16,63 @@ import {
   parseSchedulePreview,
   parseSettingsSnapshot,
 } from "@/features/control-plane/contract";
+import {
+  parseTechnologies,
+  technologiesToText,
+} from "@/features/control-plane/watched-technologies";
 
 type SettingsWorkspaceProps = Readonly<{
   initialSettings: SettingsSnapshot;
 }>;
+
+type AlertChannel = SettingsSnapshot["owner"]["criticalAlertChannels"][number];
+
+type CriticalAlertChannelsInputProps = Readonly<{
+  onChange: (channels: AlertChannel[]) => void;
+  value: readonly AlertChannel[];
+}>;
+
+const criticalAlertChannelOptions = ["discord", "email"] as const;
+
+const CriticalAlertChannelsInputComponent = ({
+  onChange,
+  value,
+}: CriticalAlertChannelsInputProps) => {
+  const handleChange = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => {
+      const channel = event.currentTarget.value as AlertChannel;
+      onChange(
+        event.currentTarget.checked
+          ? [...value, channel]
+          : value.filter((selected) => selected !== channel),
+      );
+    },
+    [onChange, value],
+  );
+
+  return (
+    <fieldset className="settings-alert-channels">
+      <legend>Critical alert channels</legend>
+      <p>Dashboard is always on. Choose optional delivery channels:</p>
+      <div className="settings-alert-channel-options">
+        {criticalAlertChannelOptions.map((channel) => (
+          <label className="control-check" key={channel}>
+            <input
+              checked={value.includes(channel)}
+              onChange={handleChange}
+              type="checkbox"
+              value={channel}
+            />
+            {channel === "discord" ? "Discord" : "Email"}
+          </label>
+        ))}
+      </div>
+      <small>These channels are independent of the daily digest schedule.</small>
+    </fieldset>
+  );
+};
+
+const CriticalAlertChannelsInput = memo(CriticalAlertChannelsInputComponent);
 
 const requestJSON = async <T,>(
   path: string,
@@ -64,14 +116,6 @@ const topicsToText = (settings: SettingsSnapshot): string =>
     )
     .join("\n");
 
-const technologiesToText = (settings: SettingsSnapshot): string =>
-  settings.technologies
-    .map(
-      (technology) =>
-        `${technology.technology} | ${technology.packageName} | ${technology.currentVersion} | ${technology.versionConstraint} | ${technology.status}`,
-    )
-    .join("\n");
-
 const parseTopics = (value: string) =>
   value
     .split("\n")
@@ -90,32 +134,6 @@ const parseTopics = (value: string) =>
       };
     });
 
-const parseTechnologies = (value: string, existing: readonly WatchedTechnology[]) =>
-  value
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => {
-      const [
-        technology = "",
-        packageName = "",
-        currentVersion = "",
-        versionConstraint = "",
-        status = "",
-      ] = line.split("|").map((part) => part.trim());
-      const prior = existing.find((candidate) => candidate.packageName === packageName);
-      return {
-        currentVersion,
-        ...(prior === undefined ? {} : { id: prior.id }),
-        ...(prior?.lastVerifiedAt === undefined ? {} : { lastVerifiedAt: prior.lastVerifiedAt }),
-        packageName,
-        source: prior?.source ?? "owner-settings",
-        status,
-        technology,
-        versionConstraint,
-      };
-    });
-
 type OwnerSettingsFormProps = Readonly<{
   onChange: (settings: SettingsSnapshot) => void;
   settings: SettingsSnapshot;
@@ -128,6 +146,7 @@ const OwnerSettingsFormComponent = ({ onChange, settings }: OwnerSettingsFormPro
   const settingsForm = useForm({
     defaultValues: {
       auditRetentionDays: String(settings.owner.auditRetentionDays),
+      criticalAlertChannels: [...settings.owner.criticalAlertChannels],
       criticalAlertsBypass: settings.owner.criticalAlertsBypass,
       monthlyHardBudgetUsd: settings.owner.monthlyHardBudgetUsd,
       monthlySoftBudgetUsd: settings.owner.monthlySoftBudgetUsd,
@@ -136,13 +155,14 @@ const OwnerSettingsFormComponent = ({ onChange, settings }: OwnerSettingsFormPro
       quietHoursEnd: settings.owner.quietHoursEnd,
       quietHoursStart: settings.owner.quietHoursStart,
       rawRetentionDays: String(settings.owner.rawRetentionDays),
-      technologiesText: technologiesToText(settings),
+      technologiesText: technologiesToText(settings.technologies),
       timezone: settings.owner.timezone,
       topicsText: topicsToText(settings),
     },
     onSubmit: async ({ value }) => {
       const command = settingsCommandSchema.parse({
         auditRetentionDays: Number(value.auditRetentionDays),
+        criticalAlertChannels: value.criticalAlertChannels,
         criticalAlertsBypass: value.criticalAlertsBypass,
         expectedVersion: settings.owner.version,
         monthlyHardBudgetUsd: value.monthlyHardBudgetUsd,
@@ -264,8 +284,11 @@ const OwnerSettingsFormComponent = ({ onChange, settings }: OwnerSettingsFormPro
                 value={field.state.value}
               />
               <small id="technology-format-help">
-                One per line: technology | package | current version | version constraint |
-                active/evaluating/legacy/planned
+                One per line: technology | package | advisory ecosystem | current version | version
+                constraint | active/evaluating/legacy/planned. Urgent alerts currently support go,
+                npm, rust, and pub with simple numeric version ranges. Other GitHub advisory
+                ecosystems can be recorded but do not yet trigger urgent alerts. Leave the ecosystem
+                blank for an unverified legacy watch; it will not match urgent advisories.
               </small>
             </label>
           )}
@@ -376,6 +399,11 @@ const OwnerSettingsFormComponent = ({ onChange, settings }: OwnerSettingsFormPro
               />
               Confirmed critical watched-dependency alerts may bypass quiet hours
             </label>
+          )}
+        </settingsForm.Field>
+        <settingsForm.Field name="criticalAlertChannels">
+          {(field) => (
+            <CriticalAlertChannelsInput onChange={field.handleChange} value={field.state.value} />
           )}
         </settingsForm.Field>
       </section>

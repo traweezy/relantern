@@ -208,6 +208,22 @@ func validateSettings(request UpdateSettingsRequest) error {
 	if err != nil || quietStart == quietEnd {
 		return ErrInvalid
 	}
+	if len(request.CriticalAlertChannels) < 1 || len(request.CriticalAlertChannels) > 3 {
+		return ErrInvalid
+	}
+	seenAlertChannels := make(map[string]struct{}, len(request.CriticalAlertChannels))
+	for _, channel := range request.CriticalAlertChannels {
+		if !slices.Contains([]string{"dashboard", "discord", "email"}, channel) {
+			return ErrInvalid
+		}
+		if _, duplicate := seenAlertChannels[channel]; duplicate {
+			return ErrInvalid
+		}
+		seenAlertChannels[channel] = struct{}{}
+	}
+	if _, includesDashboard := seenAlertChannels["dashboard"]; !includesDashboard {
+		return ErrInvalid
+	}
 	soft, err := extraction.ParseUSD(request.MonthlySoftBudgetUSD)
 	if err != nil {
 		return ErrInvalid
@@ -231,19 +247,28 @@ func validateSettings(request UpdateSettingsRequest) error {
 			return ErrInvalid
 		}
 	}
-	seenPackages := make(map[string]struct{}, len(request.Technologies))
+	type watchIdentity struct {
+		ecosystem   AdvisoryEcosystem
+		packageName string
+	}
+	seenPackages := make(map[watchIdentity]struct{}, len(request.Technologies))
 	for _, technology := range request.Technologies {
 		if len(strings.TrimSpace(technology.Technology)) < 1 || len(technology.Technology) > 120 ||
 			len(strings.TrimSpace(technology.PackageName)) < 1 || len(technology.PackageName) > 255 ||
+			(technology.Ecosystem != nil && !technology.Ecosystem.Valid()) ||
 			len(technology.CurrentVersion) > 100 || len(technology.VersionConstraint) > 200 ||
 			!slices.Contains([]string{"active", "evaluating", "legacy", "planned"}, technology.Status) ||
 			len(strings.TrimSpace(technology.Source)) < 1 || len(technology.Source) > 120 {
 			return ErrInvalid
 		}
-		if _, duplicate := seenPackages[technology.PackageName]; duplicate {
+		identity := watchIdentity{packageName: technology.PackageName}
+		if technology.Ecosystem != nil {
+			identity.ecosystem = *technology.Ecosystem
+		}
+		if _, duplicate := seenPackages[identity]; duplicate {
 			return ErrInvalid
 		}
-		seenPackages[technology.PackageName] = struct{}{}
+		seenPackages[identity] = struct{}{}
 	}
 	return nil
 }

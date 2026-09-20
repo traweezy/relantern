@@ -20,6 +20,7 @@ type fixtureReader struct{}
 
 func (fixtureReader) Today(_ context.Context, _ string, generatedAt time.Time) (intelligence.TodaySnapshot, error) {
 	return intelligence.TodaySnapshot{
+		Alerts:        []intelligence.CriticalAlert{},
 		CoverageEndAt: generatedAt, CoverageStartAt: generatedAt.Add(-24 * time.Hour),
 		DeliveryState: "pending", GeneratedAt: generatedAt, Stories: []intelligence.StorySummary{},
 		Stats: intelligence.TodayStats{EstimatedCostUSD: "0.00000000"},

@@ -8,7 +8,7 @@ import (
 )
 
 func TestValidationRejectsRegistryContractViolations(t *testing.T) {
-	now := time.Date(2026, time.August, 29, 12, 0, 0, 0, time.UTC)
+	now := time.Date(2026, time.September, 20, 12, 0, 0, 0, time.UTC)
 	tests := []struct {
 		name        string
 		mutate      func(*sources.Registry)
@@ -41,6 +41,37 @@ func TestValidationRejectsRegistryContractViolations(t *testing.T) {
 				registry.Sources[0].Connector = sources.ConnectorGitHubReleases
 			},
 			expectation: "GitHub connectors require a repository watch",
+		},
+		{
+			name: "repository advisory connector on ordinary source",
+			mutate: func(registry *sources.Registry) {
+				registry.Sources[0].Connector = sources.ConnectorGitHubAdvisories
+			},
+			expectation: "GitHub advisories require the exact reviewed global endpoint",
+		},
+		{
+			name: "global advisory query changed",
+			mutate: func(registry *sources.Registry) {
+				for index := range registry.Sources {
+					if registry.Sources[index].ID == "github-global-advisories" {
+						registry.Sources[index].URL = "https://api.github.com/advisories?type=reviewed&per_page=100"
+						return
+					}
+				}
+			},
+			expectation: "GitHub advisories require the exact reviewed global endpoint",
+		},
+		{
+			name: "global advisory cadence changed",
+			mutate: func(registry *sources.Registry) {
+				for index := range registry.Sources {
+					if registry.Sources[index].ID == "github-global-advisories" {
+						registry.Sources[index].PollInterval.Duration = 15 * time.Minute
+						return
+					}
+				}
+			},
+			expectation: "reviewed global advisories must poll every 5m",
 		},
 		{
 			name: "invalid content type",
@@ -99,6 +130,27 @@ func TestValidationRejectsRegistryContractViolations(t *testing.T) {
 			expectation: "URL must be",
 		},
 		{
+			name: "missing repository advisory interval",
+			mutate: func(registry *sources.Registry) {
+				registry.Repositories[0].AdvisoryPollInterval.Duration = 0
+			},
+			expectation: "advisory_poll_interval must be from 5m through 168h",
+		},
+		{
+			name: "repository advisory interval below minimum",
+			mutate: func(registry *sources.Registry) {
+				registry.Repositories[0].AdvisoryPollInterval.Duration = 4 * time.Minute
+			},
+			expectation: "advisory_poll_interval must be from 5m through 168h",
+		},
+		{
+			name: "repository advisory interval above maximum",
+			mutate: func(registry *sources.Registry) {
+				registry.Repositories[0].AdvisoryPollInterval.Duration = 7*24*time.Hour + time.Second
+			},
+			expectation: "advisory_poll_interval must be from 5m through 168h",
+		},
+		{
 			name: "duplicate repository event",
 			mutate: func(registry *sources.Registry) {
 				registry.Repositories[0].EnabledEvents = append(registry.Repositories[0].EnabledEvents, sources.RepositoryEventReleases)
@@ -125,7 +177,7 @@ func TestValidationRejectsRegistryContractViolations(t *testing.T) {
 }
 
 func TestValidationRejectsFixtureContractViolations(t *testing.T) {
-	now := time.Date(2026, time.August, 29, 12, 0, 0, 0, time.UTC)
+	now := time.Date(2026, time.September, 20, 12, 0, 0, 0, time.UTC)
 	tests := []struct {
 		name        string
 		mutate      func(*sources.FixtureCatalog)

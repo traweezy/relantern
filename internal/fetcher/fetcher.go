@@ -24,6 +24,7 @@ const (
 
 type Config struct {
 	UserAgent               string
+	GitHubReadToken         string
 	RetryAttempts           int
 	BaseBackoff             time.Duration
 	MaximumRetryDelay       time.Duration
@@ -44,6 +45,9 @@ type Fetcher struct {
 func New(configuration Config, policy *Policy, client HTTPDoer, limiter RequestLimiter, store ObjectStore) (*Fetcher, error) {
 	if strings.TrimSpace(configuration.UserAgent) == "" || !validHeaderValue(configuration.UserAgent) {
 		return nil, errors.New("a single-line contact-bearing user agent is required")
+	}
+	if configuration.GitHubReadToken != "" && !validBearerToken(configuration.GitHubReadToken) {
+		return nil, errors.New("GitHub read token must be a bounded single-line bearer credential")
 	}
 	if configuration.RetryAttempts < 1 || configuration.RetryAttempts > 5 {
 		return nil, errors.New("retry attempts must be between one and five")
@@ -155,6 +159,9 @@ func (fetcher *Fetcher) request(ctx context.Context, endpoint Endpoint, targetUR
 	request.Header.Set("User-Agent", fetcher.configuration.UserAgent)
 	request.Header.Set("Accept", strings.Join(endpoint.ExpectedContentTypes, ", "))
 	request.Header.Set("Accept-Encoding", "gzip")
+	if fetcher.configuration.GitHubReadToken != "" && githubRESTURL(targetURL) {
+		request.Header.Set("Authorization", "Bearer "+fetcher.configuration.GitHubReadToken)
+	}
 	if etag := boundedHeader(checkpoint.ETag); etag != "" {
 		request.Header.Set("If-None-Match", etag)
 	}
@@ -185,6 +192,23 @@ func (fetcher *Fetcher) request(ctx context.Context, endpoint Endpoint, targetUR
 	attempt.LastModified = validLastModified(response.Header.Get("Last-Modified"))
 	attempt.RetryAfter = parseRetryAfter(response.Header.Get("Retry-After"), completedAt)
 	return attempt, response, nil
+}
+
+func githubRESTURL(target *url.URL) bool {
+	return target != nil && target.Scheme == "https" && strings.EqualFold(target.Hostname(), "api.github.com") &&
+		(target.Port() == "" || target.Port() == "443") && target.User == nil
+}
+
+func validBearerToken(value string) bool {
+	if len(value) > 4096 {
+		return false
+	}
+	for index := range len(value) {
+		if value[index] < 0x21 || value[index] > 0x7e {
+			return false
+		}
+	}
+	return true
 }
 
 type processedResponse struct {

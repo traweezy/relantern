@@ -1,3 +1,4 @@
+import { advisoryEcosystems } from "@relantern/domain";
 import { z } from "zod";
 
 export const sourcePreferenceCommandSchema = z
@@ -26,6 +27,7 @@ const interestTopicCommandSchema = z.object({
 
 const watchedTechnologyCommandSchema = z.object({
   currentVersion: z.string().max(100),
+  ecosystem: z.enum(advisoryEcosystems).nullable(),
   id: z.uuid().optional(),
   lastVerifiedAt: z.iso.datetime({ offset: true }).optional(),
   packageName: z.string().trim().min(1).max(255),
@@ -38,6 +40,13 @@ const watchedTechnologyCommandSchema = z.object({
 export const settingsCommandSchema = z
   .object({
     auditRetentionDays: z.number().int().min(30).max(3650),
+    criticalAlertChannels: z
+      .array(z.enum(["dashboard", "discord", "email"]))
+      .min(1)
+      .max(3)
+      .refine(
+        (channels) => channels.includes("dashboard") && new Set(channels).size === channels.length,
+      ),
     criticalAlertsBypass: z.boolean(),
     expectedVersion: z.number().int().positive(),
     monthlyHardBudgetUsd: z.string().regex(/^(?:0|[1-9][0-9]{0,7})(?:\.[0-9]{1,8})?$/),

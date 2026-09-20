@@ -38,6 +38,41 @@ func TestSecureHTTPClientDisablesProxyAndRevalidatesRedirect(t *testing.T) {
 	}
 }
 
+func TestSecureHTTPClientRejectsAuthenticatedCrossOriginRedirect(t *testing.T) {
+	resolver := staticResolver{
+		"api.github.com": {netip.MustParseAddr("93.184.216.34")},
+		"other.example":  {netip.MustParseAddr("1.1.1.1")},
+	}
+	policy, err := NewPolicy(resolver, []string{"api.github.com", "other.example"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client, err := NewSecureHTTPClient(policy, nil, DefaultNetworkLimits(), 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, err := withAllowedHosts(context.Background(), []string{"api.github.com", "other.example"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	previous, _ := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.github.com/advisories", nil)
+	previous.Header.Set("Authorization", "Bearer fixture-secret")
+	for _, target := range []string{"https://other.example/advisories", "http://api.github.com/advisories"} {
+		redirect, _ := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
+		redirect.Header.Set("Authorization", previous.Header.Get("Authorization"))
+		if err := client.CheckRedirect(redirect, []*http.Request{previous}); err == nil {
+			t.Fatalf("CheckRedirect() accepted authenticated redirect to %s", target)
+		}
+		if redirect.Header.Get("Authorization") != "" {
+			t.Fatal("rejected redirect retained authorization header")
+		}
+	}
+	sameOrigin, _ := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.github.com/repos/owner/repo", nil)
+	if err := client.CheckRedirect(sameOrigin, []*http.Request{previous}); err != nil {
+		t.Fatalf("CheckRedirect() rejected same-origin redirect: %v", err)
+	}
+}
+
 func TestSecureHTTPClientRejectsInvalidLimits(t *testing.T) {
 	policy, err := NewPolicy(staticResolver{"source.example": {netip.MustParseAddr("93.184.216.34")}}, []string{"source.example"}, nil)
 	if err != nil {

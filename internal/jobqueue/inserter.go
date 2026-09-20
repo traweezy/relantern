@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/riverqueue/river"
@@ -110,6 +111,70 @@ func (inserter *Inserter) EnqueueParseRawDocument(
 	result, err := inserter.client.InsertTx(ctx, tx, arguments, inserter.insertOptions(arguments))
 	if err != nil {
 		return 0, false, fmt.Errorf("enqueue raw document %s for parsing: %w", arguments.RawDocumentID, err)
+	}
+	return result.Job.ID, !result.UniqueSkippedAsDuplicate, nil
+}
+
+func (inserter *Inserter) EnqueueAssessCriticalAdvisory(
+	ctx context.Context,
+	tx pgx.Tx,
+	arguments AssessCriticalAdvisoryArgs,
+) (int64, bool, error) {
+	result, err := inserter.client.InsertTx(ctx, tx, arguments, inserter.insertOptions(arguments))
+	if err != nil {
+		return 0, false, fmt.Errorf("enqueue advisory assessment for %s: %w", arguments.RawDocumentID, err)
+	}
+	return result.Job.ID, !result.UniqueSkippedAsDuplicate, nil
+}
+
+// Backfill assessments use the same worker and matcher as live advisories, but
+// an isolated queue prevents a large historical scan from delaying new alerts.
+func (inserter *Inserter) EnqueueBackfillCriticalAdvisory(
+	ctx context.Context,
+	tx pgx.Tx,
+	arguments AssessCriticalAdvisoryArgs,
+) (int64, bool, error) {
+	options := arguments.InsertOpts()
+	options.Queue = QueueAdvisoryBackfill
+	options.Priority = 2
+	if inserter.queueOverride != "" {
+		options.Queue = inserter.queueOverride
+	}
+	result, err := inserter.client.InsertTx(ctx, tx, arguments, &options)
+	if err != nil {
+		return 0, false, fmt.Errorf("enqueue backfill advisory assessment for %s: %w", arguments.RawDocumentID, err)
+	}
+	return result.Job.ID, !result.UniqueSkippedAsDuplicate, nil
+}
+
+func (inserter *Inserter) EnqueueReassessCurrentAdvisories(
+	ctx context.Context,
+	tx pgx.Tx,
+	arguments ReassessCurrentAdvisoriesArgs,
+) (int64, bool, error) {
+	result, err := inserter.client.InsertTx(ctx, tx, arguments, inserter.insertOptions(arguments))
+	if err != nil {
+		return 0, false, fmt.Errorf("enqueue advisory catch-up for owner %s: %w", arguments.UserID, err)
+	}
+	return result.Job.ID, !result.UniqueSkippedAsDuplicate, nil
+}
+
+func (inserter *Inserter) EnqueueDeliverCriticalAlert(
+	ctx context.Context,
+	tx pgx.Tx,
+	arguments DeliverCriticalAlertArgs,
+	scheduledAt time.Time,
+) (int64, bool, error) {
+	options := arguments.InsertOpts()
+	if inserter.queueOverride != "" {
+		options.Queue = inserter.queueOverride
+	}
+	if !scheduledAt.IsZero() {
+		options.ScheduledAt = scheduledAt.UTC()
+	}
+	result, err := inserter.client.InsertTx(ctx, tx, arguments, &options)
+	if err != nil {
+		return 0, false, fmt.Errorf("enqueue critical alert delivery %s: %w", arguments.DeliveryID, err)
 	}
 	return result.Job.ID, !result.UniqueSkippedAsDuplicate, nil
 }

@@ -27,6 +27,7 @@ func TestEndpointConfigurationIncludesStableRepositoryIdentity(t *testing.T) {
 		RepositoryOwner:  "react",
 		RepositoryName:   "react",
 		RepositoryEvent:  sources.RepositoryEventReleases,
+		ContentLicense:   "metadata-only",
 	})
 	if err != nil {
 		t.Fatalf("endpointConfiguration() error = %v", err)
@@ -40,6 +41,30 @@ func TestEndpointConfigurationIncludesStableRepositoryIdentity(t *testing.T) {
 	}
 	if decoded["event"] != "releases" {
 		t.Fatalf("event = %q", decoded["event"])
+	}
+	if decoded["contentPolicy"] != "metadata-only" {
+		t.Fatalf("contentPolicy = %q", decoded["contentPolicy"])
+	}
+}
+
+func TestEndpointConfigurationOverridesRepositoryAdvisoryPolicy(t *testing.T) {
+	configuration, err := endpointConfiguration(sources.Endpoint{
+		ID:               "github-react-react-security-advisories",
+		RepositoryNodeID: "MDEwOlJlcG9zaXRvcnkxMDI3MDI1MA==",
+		RepositoryOwner:  "react",
+		RepositoryName:   "react",
+		RepositoryEvent:  sources.RepositoryEventSecurityAdvisories,
+		ContentLicense:   "link-and-excerpt",
+	})
+	if err != nil {
+		t.Fatalf("endpointConfiguration() error = %v", err)
+	}
+	var decoded map[string]string
+	if err := json.Unmarshal(configuration, &decoded); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if decoded["event"] != "security_advisories" || decoded["contentPolicy"] != "link-and-excerpt" {
+		t.Fatalf("advisory endpoint configuration = %+v", decoded)
 	}
 }
 

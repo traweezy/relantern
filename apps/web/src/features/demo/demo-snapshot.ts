@@ -304,6 +304,22 @@ export const demoSnapshot = deepFreeze({
     "react-actions-transition": { ...reactStory, related: [nextStory, goStory] },
   },
   today: {
+    alerts: [
+      {
+        id: "00000000-0000-7000-8000-000000000001",
+        advisoryId: "GHSA-abcd-1234-efgh",
+        title: "Example critical dependency advisory",
+        ecosystem: "go",
+        packageName: "example.com/fixture/library",
+        currentVersion: "1.4.2",
+        versionRange: ">= 1.2.0, < 1.4.3",
+        patchedVersion: "1.4.3",
+        sourceUrl: "https://github.com/advisories/GHSA-abcd-1234-efgh",
+        observedAt: "2025-10-14T14:00:00Z",
+        alertedAt: "2025-10-14T14:01:00Z",
+        reason: "Confirmed critical advisory affects a watched dependency.",
+      },
+    ],
     coverageEndAt: "2025-10-14T15:15:00Z",
     coverageStartAt: "2025-10-13T15:15:00Z",
     deliveryState: "delivered",

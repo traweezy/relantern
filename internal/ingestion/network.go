@@ -26,13 +26,14 @@ type NetworkFetcher struct {
 	limiter            fetcher.RequestLimiter
 	clock              clock.Clock
 	allowLocalFixtures bool
+	githubReadToken    string
 }
 
-func NewNetworkFetcher(objects storage.RawStore, limiter fetcher.RequestLimiter, configuredClock clock.Clock, allowLocalFixtures bool) (*NetworkFetcher, error) {
+func NewNetworkFetcher(objects storage.RawStore, limiter fetcher.RequestLimiter, configuredClock clock.Clock, allowLocalFixtures bool, githubReadToken string) (*NetworkFetcher, error) {
 	if objects == nil || limiter == nil || configuredClock == nil {
 		return nil, errors.New("source network fetcher requires storage, limiter, and clock")
 	}
-	return &NetworkFetcher{objects: objects, limiter: limiter, clock: configuredClock, allowLocalFixtures: allowLocalFixtures}, nil
+	return &NetworkFetcher{objects: objects, limiter: limiter, clock: configuredClock, allowLocalFixtures: allowLocalFixtures, githubReadToken: githubReadToken}, nil
 }
 
 func (network *NetworkFetcher) Fetch(ctx context.Context, endpoint Endpoint) (fetcher.Result, error) {
@@ -66,6 +67,7 @@ func (network *NetworkFetcher) Fetch(ctx context.Context, endpoint Endpoint) (fe
 	configuration := fetcher.DefaultConfig(userAgent)
 	configuration.RetryAttempts = 2
 	configuration.Now = network.clock.Now
+	configuration.GitHubReadToken = network.githubReadToken
 	configuredFetcher, err := fetcher.New(configuration, policy, client, network.limiter, network.objects)
 	if err != nil {
 		return network.failure(fetcher.ErrorTransport, false, err)

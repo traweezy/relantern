@@ -231,11 +231,13 @@ func endpointConfiguration(endpoint sources.Endpoint) ([]byte, error) {
 		RepositoryOwner string                  `json:"repositoryOwner"`
 		RepositoryName  string                  `json:"repositoryName"`
 		Event           sources.RepositoryEvent `json:"event"`
+		ContentPolicy   string                  `json:"contentPolicy"`
 	}{
 		NodeID:          endpoint.RepositoryNodeID,
 		RepositoryOwner: endpoint.RepositoryOwner,
 		RepositoryName:  endpoint.RepositoryName,
 		Event:           endpoint.RepositoryEvent,
+		ContentPolicy:   endpoint.ContentLicense,
 	}
 	encoded, err := json.Marshal(configuration)
 	if err != nil {

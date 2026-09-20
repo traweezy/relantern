@@ -16,13 +16,14 @@ func TestQueueConfigsDeclareEverySpecificationQueue(t *testing.T) {
 
 	queues := jobqueue.QueueConfigs()
 	want := map[string]int{
-		jobqueue.QueueCritical:    4,
-		jobqueue.QueueFetch:       12,
-		jobqueue.QueueParse:       8,
-		jobqueue.QueueAIFast:      4,
-		jobqueue.QueueAIResearch:  2,
-		jobqueue.QueueDelivery:    2,
-		jobqueue.QueueMaintenance: 1,
+		jobqueue.QueueAdvisoryBackfill: 1,
+		jobqueue.QueueCritical:         4,
+		jobqueue.QueueFetch:            12,
+		jobqueue.QueueParse:            8,
+		jobqueue.QueueAIFast:           4,
+		jobqueue.QueueAIResearch:       2,
+		jobqueue.QueueDelivery:         2,
+		jobqueue.QueueMaintenance:      1,
 	}
 	for name, workers := range want {
 		configuration, ok := queues[name]
@@ -109,6 +110,15 @@ func TestPeriodicJobsDeclareRunOnStartSchedule(t *testing.T) {
 	}
 	if completeJobs := jobqueue.PeriodicJobs(time.Minute, true, true, true); len(completeJobs) != 4 {
 		t.Fatalf("complete PeriodicJobs() = %+v", completeJobs)
+	}
+	if criticalJobs := jobqueue.PeriodicJobs(time.Minute, false, false, false, false, true); len(criticalJobs) != 2 {
+		t.Fatalf("critical alerts PeriodicJobs() = %+v", criticalJobs)
+	}
+	options := (jobqueue.ReconcileCriticalAlertsArgs{}).InsertOpts()
+	if (jobqueue.ReconcileCriticalAlertsArgs{}).Kind() != jobqueue.ReconcileCriticalAlertsKind ||
+		options.Queue != jobqueue.QueueMaintenance || options.MaxAttempts != 3 ||
+		options.UniqueOpts.ByPeriod != time.Minute {
+		t.Fatalf("critical delivery reconciliation options = %+v", options)
 	}
 }
 

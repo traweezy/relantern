@@ -17,15 +17,15 @@ const (
 
 func TestReviewedRegistryAndFixturesValidate(t *testing.T) {
 	registry, catalog := loadReviewedFiles(t)
-	now := time.Date(2026, time.August, 29, 12, 0, 0, 0, time.UTC)
+	now := time.Date(2026, time.September, 20, 12, 0, 0, 0, time.UTC)
 
 	if err := sources.Validate(registry, catalog, now); err != nil {
 		t.Fatalf("Validate() error = %v", err)
 	}
-	if got, want := len(registry.Endpoints()), 91; got != want {
+	if got, want := len(registry.Endpoints()), 92; got != want {
 		t.Fatalf("len(Endpoints()) = %d, want %d", got, want)
 	}
-	if got, want := len(catalog.Suites), 8; got != want {
+	if got, want := len(catalog.Suites), 9; got != want {
 		t.Fatalf("len(Suites) = %d, want %d", got, want)
 	}
 }
@@ -34,6 +34,10 @@ func TestRepositoryWatchExpandsStableEndpoints(t *testing.T) {
 	registry, _ := loadReviewedFiles(t)
 	var releaseURL string
 	var advisoryURL string
+	var releaseInterval time.Duration
+	var advisoryInterval time.Duration
+	var releasePolicy string
+	var advisoryPolicy string
 	for _, endpoint := range registry.Endpoints() {
 		if endpoint.SourceID != "github-react-react" {
 			continue
@@ -41,8 +45,12 @@ func TestRepositoryWatchExpandsStableEndpoints(t *testing.T) {
 		switch endpoint.RepositoryEvent {
 		case sources.RepositoryEventReleases:
 			releaseURL = endpoint.URL
+			releaseInterval = endpoint.PollInterval
+			releasePolicy = endpoint.ContentLicense
 		case sources.RepositoryEventSecurityAdvisories:
 			advisoryURL = endpoint.URL
+			advisoryInterval = endpoint.PollInterval
+			advisoryPolicy = endpoint.ContentLicense
 		}
 		if endpoint.RepositoryNodeID != "MDEwOlJlcG9zaXRvcnkxMDI3MDI1MA==" {
 			t.Fatalf("RepositoryNodeID = %q", endpoint.RepositoryNodeID)
@@ -54,13 +62,44 @@ func TestRepositoryWatchExpandsStableEndpoints(t *testing.T) {
 	if advisoryURL != "https://api.github.com/repos/react/react/security-advisories" {
 		t.Fatalf("advisory URL = %q", advisoryURL)
 	}
+	if releaseInterval != 15*time.Minute || advisoryInterval != 5*time.Minute {
+		t.Fatalf("repository intervals = releases %s, advisories %s; want 15m and 5m",
+			releaseInterval, advisoryInterval)
+	}
+	if releasePolicy != "metadata-only" || advisoryPolicy != "link-and-excerpt" {
+		t.Fatalf("repository content policies = releases %q, advisories %q",
+			releasePolicy, advisoryPolicy)
+	}
+}
+
+func TestReviewedGlobalAdvisoryEndpointIsPinned(t *testing.T) {
+	registry, _ := loadReviewedFiles(t)
+	var matches int
+	for _, endpoint := range registry.Endpoints() {
+		if endpoint.SourceID != "github-global-advisories" {
+			continue
+		}
+		matches++
+		if endpoint.Connector != sources.ConnectorGitHubAdvisories ||
+			endpoint.URL != sources.GlobalReviewedAdvisoriesURL ||
+			endpoint.PollInterval != 5*time.Minute ||
+			endpoint.ContentLicense != "link-and-excerpt" {
+			t.Fatalf("global advisory endpoint = %+v", endpoint)
+		}
+	}
+	if matches != 1 {
+		t.Fatalf("global advisory endpoints = %d, want 1", matches)
+	}
+	if registry.Enabled {
+		t.Fatal("global advisory registry unexpectedly enabled live network access")
+	}
 }
 
 func TestValidationRejectsEnabledNetworkFuse(t *testing.T) {
 	registry, catalog := loadReviewedFiles(t)
 	registry.Enabled = true
 
-	err := sources.Validate(registry, catalog, time.Date(2026, time.August, 29, 12, 0, 0, 0, time.UTC))
+	err := sources.Validate(registry, catalog, time.Date(2026, time.September, 20, 12, 0, 0, 0, time.UTC))
 	assertErrorContains(t, err, "live source fetching requires a separately reviewed owner rollout")
 }
 
@@ -75,7 +114,7 @@ func TestValidationRejectsUnsafeURL(t *testing.T) {
 	registry, catalog := loadReviewedFiles(t)
 	registry.Sources[0].URL = "https://user:secret@go.dev:8443/blog/feed.atom#fragment"
 
-	err := sources.Validate(registry, catalog, time.Date(2026, time.August, 29, 12, 0, 0, 0, time.UTC))
+	err := sources.Validate(registry, catalog, time.Date(2026, time.September, 20, 12, 0, 0, 0, time.UTC))
 	assertErrorContains(t, err, "URL must not contain user information")
 }
 
@@ -83,7 +122,7 @@ func TestValidationRejectsMissingFixturePayload(t *testing.T) {
 	registry, catalog := loadReviewedFiles(t)
 	delete(catalog.Suites[0].Payloads, "prompt_injection")
 
-	err := sources.Validate(registry, catalog, time.Date(2026, time.August, 29, 12, 0, 0, 0, time.UTC))
+	err := sources.Validate(registry, catalog, time.Date(2026, time.September, 20, 12, 0, 0, 0, time.UTC))
 	assertErrorContains(t, err, "lacks payload \"prompt_injection\"")
 }
 

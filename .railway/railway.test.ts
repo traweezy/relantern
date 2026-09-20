@@ -127,6 +127,7 @@ describe("Railway infrastructure contract", () => {
     });
     expect(services.get("worker")?.variables).toMatchObject({
       DATABASE_URL: { type: "preserve" },
+      GITHUB_READ_TOKEN: { type: "preserve" },
       OPENAI_API_KEY: { type: "preserve" },
     });
     expect(services.get("migrate")?.variables).toMatchObject({
