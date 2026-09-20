@@ -247,8 +247,10 @@ prodlike: secrets ## Build and run the exact production Docker stages
 
 prodlike-smoke: prodlike ## Smoke test all production-like health surfaces
 	curl --fail --silent --show-error http://127.0.0.1:3000/healthz >/dev/null
+	curl --fail --silent --show-error http://127.0.0.1:3000/readyz >/dev/null
 	curl --fail --silent --show-error http://127.0.0.1:8080/readyz >/dev/null
 	curl --fail --silent --show-error http://127.0.0.1:8092/healthz >/dev/null
+	curl --fail --silent --show-error http://127.0.0.1:8092/readyz >/dev/null
 	$(MAKE) auth-smoke
 
 sbom: ## Generate the pinned SPDX repository SBOM

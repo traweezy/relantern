@@ -17,12 +17,33 @@ const postgresImage =
   "pgvector/pgvector:0.8.6-pg18-trixie@sha256:78bf48b801e792f99e3ac62b5036fd3876e9be48afda16c1e331af1c75ceb2ff";
 const railwayVariable = (name: string): string => ["$", "{{", name, "}}"].join("");
 const railwayHTTPSOrigin = (name: string): string => `https://${railwayVariable(name)}`;
+const applicationWatchPatterns = [
+  ".dockerignore",
+  ".railway/**",
+  "apps/**",
+  "cmd/**",
+  "contracts/**",
+  "deploy/**",
+  "go.mod",
+  "go.sum",
+  "internal/**",
+  "migrations/**",
+  "package.json",
+  "packages/**",
+  "pnpm-lock.yaml",
+  "pnpm-workspace.yaml",
+  "prompts/**",
+  "queries/**",
+  "scripts/**",
+  "sources/**",
+  "tsconfig.base.json",
+];
 
 const commonEnvironment = (environment: "production" | "staging") => ({
   APP_ENV: environment,
   APP_VERSION: `0.0.0-${environment}`,
   CLOCK_MODE: "system",
-  GIT_SHA: railwayVariable("RAILWAY_GIT_COMMIT_SHA"),
+  GIT_SHA: environment === "production" ? preserve() : railwayVariable("RAILWAY_GIT_COMMIT_SHA"),
   LOG_LEVEL: "info",
   PROVIDER_REQUEST_TIMEOUT: "5s",
   SHUTDOWN_TIMEOUT: "15s",
@@ -78,19 +99,12 @@ export default defineRailway((context, project) => {
     build: {
       builder: "DOCKERFILE",
       dockerfilePath: "deploy/docker/api.Dockerfile",
-      watchPatterns: [
-        "cmd/api/**",
-        "contracts/**",
-        "deploy/docker/api.Dockerfile",
-        "go.mod",
-        "go.sum",
-        "internal/**",
-      ],
+      watchPatterns: [...applicationWatchPatterns],
     },
     deploy: {
       drainingSeconds: 30,
       healthcheckPath: "/readyz",
-      healthcheckTimeout: 180,
+      healthcheckTimeout: 600,
       overlapSeconds: 30,
       restartPolicyMaxRetries: 10,
       restartPolicyType: "ON_FAILURE",
@@ -119,19 +133,12 @@ export default defineRailway((context, project) => {
     build: {
       builder: "DOCKERFILE",
       dockerfilePath: "deploy/docker/worker.Dockerfile",
-      watchPatterns: [
-        "cmd/worker/**",
-        "deploy/docker/worker.Dockerfile",
-        "go.mod",
-        "go.sum",
-        "internal/**",
-        "sources/**",
-      ],
+      watchPatterns: [...applicationWatchPatterns],
     },
     deploy: {
       drainingSeconds: 45,
-      healthcheckPath: "/healthz",
-      healthcheckTimeout: 180,
+      healthcheckPath: "/readyz",
+      healthcheckTimeout: 600,
       overlapSeconds: 30,
       restartPolicyMaxRetries: 10,
       restartPolicyType: "ON_FAILURE",
@@ -193,19 +200,12 @@ export default defineRailway((context, project) => {
     build: {
       builder: "DOCKERFILE",
       dockerfilePath: "deploy/docker/web.Dockerfile",
-      watchPatterns: [
-        "apps/web/**",
-        "deploy/docker/web.Dockerfile",
-        "package.json",
-        "packages/**",
-        "pnpm-lock.yaml",
-        "pnpm-workspace.yaml",
-      ],
+      watchPatterns: [...applicationWatchPatterns],
     },
     deploy: {
       drainingSeconds: 30,
-      healthcheckPath: "/healthz",
-      healthcheckTimeout: 180,
+      healthcheckPath: "/readyz",
+      healthcheckTimeout: 600,
       overlapSeconds: 30,
       restartPolicyMaxRetries: 10,
       restartPolicyType: "ON_FAILURE",
@@ -220,6 +220,7 @@ export default defineRailway((context, project) => {
       DATABASE_URL: preserve(),
       GITHUB_OAUTH_CLIENT_ID: preserve(),
       GITHUB_OAUTH_CLIENT_SECRET: preserve(),
+      GIT_SHA: production ? preserve() : railwayVariable("RAILWAY_GIT_COMMIT_SHA"),
       INTERNAL_API_URL: `http://${railwayVariable("api.RAILWAY_PRIVATE_DOMAIN")}:8080`,
       NODE_ENV: "production",
       OPENAI_WEBHOOK_SECRET: preserve(),
@@ -237,15 +238,7 @@ export default defineRailway((context, project) => {
     build: {
       builder: "DOCKERFILE",
       dockerfilePath: "deploy/docker/migrate.Dockerfile",
-      watchPatterns: [
-        "cmd/migrate/**",
-        "deploy/docker/migrate.Dockerfile",
-        "go.mod",
-        "go.sum",
-        "internal/**",
-        "migrations/**",
-        "sources/**",
-      ],
+      watchPatterns: [...applicationWatchPatterns],
     },
     deploy: {
       restartPolicyType: "NEVER",

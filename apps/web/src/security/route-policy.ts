@@ -1,6 +1,6 @@
 import { isPublicDemoPath } from "../features/demo/demo-route";
 
-const publicExactRoutes = new Set(["/favicon.ico", "/healthz", "/login", "/robots.txt"]);
+const publicExactRoutes = new Set(["/favicon.ico", "/healthz", "/login", "/readyz", "/robots.txt"]);
 
 export const isPublicRoute = (pathname: string): boolean =>
   publicExactRoutes.has(pathname) ||

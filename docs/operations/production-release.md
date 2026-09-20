@@ -102,7 +102,9 @@ detached, signed release checkout to `migrate`, `api`, `worker`, and `web`; it
 must not connect those services to mutable `master` autodeploys. The migration
 must pass before application services are started, and every resulting
 deployment must report the authorized release SHA before traffic or ingestion
-is enabled.
+is enabled. Set the preserved `GIT_SHA` variable on `migrate`, `api`, `worker`,
+and `web` to that full SHA as part of the attended upload. Web `/readyz` stays
+unavailable until the private API is ready and reports the same full SHA.
 
 ## Emergency hotfix
 

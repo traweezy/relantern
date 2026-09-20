@@ -2,6 +2,7 @@
 
 Status: Accepted
 Date: 2026-08-30
+Amended: 2026-09-20
 
 ## Context
 
@@ -24,6 +25,29 @@ environment contains a service, volume, or bucket, so no hosted soak has begun.
 - Source staging application services only from `staging` and production
   application services only from `master`. Railway must wait for GitHub check
   suites. Every Dockerfile and database image is exact and reviewable.
+- Give `migrate`, `api`, `worker`, and `web` the same reviewed runtime-input
+  watch patterns. A code or infrastructure change must queue all four at one
+  SHA; documentation and evidence-only commits do not redeploy applications.
+  Bound API, worker, and web readiness to 600 seconds to allow parallel builds,
+  migration, and the eight-minute schema wait before declaring a rollout failed.
+- Add forward migration 36 for `app.migration_completions`, keyed by a full
+  release SHA and exact Goose version. The one-shot migrator records
+  completion only after River and source-registry work succeed. A same-SHA
+  rerun preserves its prior successful marker so existing replicas remain
+  available. API and worker wait for this row before serving or starting jobs
+  and recheck it for readiness. Local and test may use the literal `unknown`
+  SHA; hosted environments require a full lowercase SHA. This closes the gap
+  between Goose finishing and the complete migration job finishing, even when
+  SQL versions do not change across releases.
+- Hold a PostgreSQL advisory lock through each complete `migrate up` run, with
+  bounded acquisition and session release on every exit. The migrator uses a
+  direct PostgreSQL connection or session pooling. Transaction-pooled
+  PgBouncer cannot support this lock. Normal staging releases wait for the
+  prior migration to finish and the prior application to become ready before
+  the next merge. Incident recovery may supersede an unhealthy release after
+  its migration job is terminal and worker intake is disabled. Overlapping
+  deployment generation fencing is deferred; the lock serializes jobs but
+  cannot infer Git ancestry from opaque SHAs.
 - Keep database, API, worker, migration, and object storage private. A public
   domain is a separately reviewed platform control and may exist only for
   `web`; public TCP proxies are forbidden for every service.
@@ -53,12 +77,12 @@ or an incomplete exercise cannot be mistaken for a successful soak. A security
 boundary failure, lost evidence, unbounded provider cost, repeated critical
 miss, or hard-cap overrun fails immediately.
 
-This change has no database migration. Before the first infrastructure apply,
-rollback is a normal code revert. After a hosted database, bucket, or volume
-contains evidence, rollback is application-first to a prior compatible SHA;
-those durable resources are never deleted as a code rollback. Database schema
-changes remain forward-only, and restore is reserved for proven corruption.
+Migration 36 is additive and has a five-second schema lock timeout. Rollback
+deploys a prior compatible application SHA while retaining migration history,
+the hosted database, bucket, volume, and evidence. Database schema changes
+remain forward-only, and restore is reserved for proven corruption.
 
-The Railway project is not modified by this decision. Deployment, provider
-credential entry, public-domain creation, and the soak clock require a later
-attended operation after all local gates pass.
+This amendment does not apply Railway configuration. Staging activation
+requires a successful migration job and verified application readiness.
+Public-domain creation and the soak clock remain attended operations after
+the local gates.

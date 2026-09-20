@@ -94,7 +94,7 @@ func TestRiverOneShotRunsReconciliationAndOccurrenceToCompletion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRiverClient() error = %v", err)
 	}
-	runner := NewRunner(client, pool, health, 2*time.Second)
+	runner := NewRunner(client, pool, health, 2*time.Second, func(context.Context) error { return nil })
 	runner.newRunID = func() string { return runID }
 	runner.reconcileQueue = testQueue
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -177,7 +177,7 @@ func TestRunnerReadinessAndGracefulStop(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRiverClient() error = %v", err)
 	}
-	runner := NewRunner(client, pool, health, 2*time.Second)
+	runner := NewRunner(client, pool, health, 2*time.Second, func(context.Context) error { return nil })
 
 	unreadyRequest := httptest.NewRequest(http.MethodGet, "/readyz", nil)
 	unreadyResponse := httptest.NewRecorder()
@@ -238,7 +238,7 @@ func TestRunnerStopsRiverWhenHealthServerCannotBind(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRiverClient() error = %v", err)
 	}
-	runner := NewRunner(client, pool, health, 2*time.Second)
+	runner := NewRunner(client, pool, health, 2*time.Second, func(context.Context) error { return nil })
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := runner.Run(ctx, logger, uint16(port)); err == nil {

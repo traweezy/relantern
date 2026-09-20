@@ -19,6 +19,7 @@ import (
 	"github.com/traweezy/relantern/internal/controlplane"
 	controlplanestore "github.com/traweezy/relantern/internal/controlplane/pgstore"
 	"github.com/traweezy/relantern/internal/database"
+	"github.com/traweezy/relantern/internal/database/schema"
 	"github.com/traweezy/relantern/internal/digest"
 	digeststore "github.com/traweezy/relantern/internal/digest/pgstore"
 	"github.com/traweezy/relantern/internal/discovery"
@@ -80,6 +81,13 @@ func run(arguments []string, logger *slog.Logger) error {
 		return err
 	}
 	defer pool.Close()
+	schemaGuard, err := schema.New(pool, common.Environment, common.GitSHA)
+	if err != nil {
+		return fmt.Errorf("create database schema guard: %w", err)
+	}
+	if err := schemaGuard.Wait(rootContext, logger); err != nil {
+		return fmt.Errorf("wait for database schema: %w", err)
+	}
 
 	inserter, err := jobqueue.NewInserter()
 	if err != nil {
@@ -159,11 +167,7 @@ func run(arguments []string, logger *slog.Logger) error {
 	if err != nil {
 		return fmt.Errorf("create digest service: %w", err)
 	}
-	application := api.New(logger, api.Info{Version: common.Version, GitSHA: common.GitSHA}, func(ctx context.Context) error {
-		pingContext, cancel := context.WithTimeout(ctx, 2*time.Second)
-		defer cancel()
-		return pool.Ping(pingContext)
-	},
+	application := api.New(logger, api.Info{Version: common.Version, GitSHA: common.GitSHA}, schemaGuard.Check,
 		api.WithIntelligence(intelligenceStore, webhookConfig.ServiceToken),
 		api.WithReadingState(readingStateStore, webhookConfig.ServiceToken),
 		api.WithDiscovery(discoveryService, webhookConfig.ServiceToken),
