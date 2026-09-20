@@ -12,6 +12,7 @@ describe("intelligence API contract validation", () => {
   it("accepts the complete typed fixture contracts", () => {
     expect(parseTodaySnapshot(demoSnapshot.today).stories).toHaveLength(4);
     expect(parseTodaySnapshot(demoSnapshot.today).alerts).toHaveLength(1);
+    expect(parseTodaySnapshot(demoSnapshot.today).alerts[0]?.episodeNumber).toBe(1);
     expect(parseLiveSnapshot(demoSnapshot.live).events).toHaveLength(4);
     expect(parseStoryDetail(demoSnapshot.stories["go-toolchain-security"]).assertions).toHaveLength(
       1,
@@ -37,6 +38,12 @@ describe("intelligence API contract validation", () => {
         alerts: [{ ...demoSnapshot.today.alerts[0], sourceUrl: "javascript:alert(1)" }],
       }),
     ).toThrow("must use HTTPS outside local fixtures");
+    expect(() =>
+      parseTodaySnapshot({
+        ...demoSnapshot.today,
+        alerts: [{ ...demoSnapshot.today.alerts[0], episodeNumber: 0 }],
+      }),
+    ).toThrow("episodeNumber must be positive");
   });
 
   it("rejects unsupported signal values and excessive numeric fields", () => {
@@ -65,6 +72,7 @@ describe("intelligence API contract validation", () => {
       alerts: [
         {
           ...alert,
+          episodeNumber: 1,
           correctionReason: null,
           correctedAt: null,
           deliveries: [
@@ -83,6 +91,7 @@ describe("intelligence API contract validation", () => {
 
     expect(parseAlertHistoryPage(history).alerts[0]?.deliveries[0]?.state).toBe("sent");
     expect(parseAlertHistoryPage(history).alerts[0]?.correctionReason).toBeNull();
+    expect(parseAlertHistoryPage(history).alerts[0]?.episodeNumber).toBe(1);
     expect(parseAlertHistoryPage(history).nextCursor).toBe("YWxlcnRzXzE");
     const corrected = {
       ...history,
@@ -129,6 +138,12 @@ describe("intelligence API contract validation", () => {
         alerts: [{ ...history.alerts[0], sourceUrl: "javascript:alert(1)" }],
       }),
     ).toThrow("must use HTTPS outside local fixtures");
+    expect(() =>
+      parseAlertHistoryPage({
+        ...history,
+        alerts: [{ ...history.alerts[0], episodeNumber: 0 }],
+      }),
+    ).toThrow("episodeNumber must be positive");
     expect(() =>
       parseAlertHistoryPage({
         ...history,

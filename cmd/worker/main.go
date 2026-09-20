@@ -406,6 +406,7 @@ func run(arguments []string, logger *slog.Logger) error {
 		worker.WithRadarProcessor(radarProcessor),
 		worker.WithDigestProcessor(digestStore, digestSender),
 		worker.WithCriticalAlerts(criticalAlerts, digestSender),
+		worker.WithAdvisoryObservations(criticalAlerts),
 		worker.WithRetentionRunner(retentionRunner),
 	}
 	if manualCaptureProcessor != nil {

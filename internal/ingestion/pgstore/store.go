@@ -22,6 +22,7 @@ import (
 	"github.com/traweezy/relantern/internal/ingestion"
 	"github.com/traweezy/relantern/internal/jobqueue"
 	"github.com/traweezy/relantern/internal/parsing"
+	"github.com/traweezy/relantern/internal/sources"
 	"github.com/traweezy/relantern/internal/storage"
 )
 
@@ -118,6 +119,10 @@ func (store *Store) ScheduleDue(ctx context.Context, now time.Time, limit int) (
 			and source.enabled and source.validation_state = 'active'
 			and coalesce(runtime.polling_enabled, true)
 			and endpoint.health_state not in ('paused', 'failed')
+			and not exists (
+				select 1 from app.advisory_collection_observations observation
+				where observation.parent_raw_document_id = raw.id
+			)
 			and not exists (
 				select 1 from river.river_job job
 				where job.kind = $2 and job.args ->> 'rawDocumentId' = raw.id::text
@@ -342,6 +347,7 @@ func (store *Store) CompleteParsedRevision(
 			}
 		}
 	}
+	managedAdvisoryParent := false
 	if document.SourceEntryID != "" && (sourceTier == "T0" || sourceTier == "T1") {
 		var officialAdvisory bool
 		if err := tx.QueryRow(ctx, `
@@ -358,11 +364,21 @@ func (store *Store) CompleteParsedRevision(
 			return fmt.Errorf("verify source advisory parent: %w", err)
 		}
 		if officialAdvisory {
-			if _, _, err := store.jobs.EnqueueAssessCriticalAdvisory(ctx, tx,
-				jobqueue.AssessCriticalAdvisoryArgs{
-					RawDocumentID: document.ID, RevisionID: revisionID,
-				}); err != nil {
-				return err
+			if err := tx.QueryRow(ctx, `select exists (
+				select 1 from app.advisory_collection_observations observation
+				join app.raw_documents child
+					on child.parent_raw_document_id = observation.parent_raw_document_id
+				where child.id = $1::uuid
+			)`, document.ID).Scan(&managedAdvisoryParent); err != nil {
+				return fmt.Errorf("check managed advisory parent: %w", err)
+			}
+			if !managedAdvisoryParent {
+				if _, _, err := store.jobs.EnqueueAssessCriticalAdvisory(ctx, tx,
+					jobqueue.AssessCriticalAdvisoryArgs{
+						RawDocumentID: document.ID, RevisionID: revisionID,
+					}); err != nil {
+					return err
+				}
 			}
 		}
 	}
@@ -378,6 +394,11 @@ func (store *Store) CompleteParsedRevision(
 	}
 	if result.RowsAffected() != 1 {
 		return errors.New("parsed source revision lost its raw provenance")
+	}
+	if managedAdvisoryParent {
+		if _, err := store.enqueueFirstReadyAdvisoryEvent(ctx, tx, document.SourceID, document.ID); err != nil {
+			return err
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit source revision handoff: %w", err)
@@ -451,7 +472,24 @@ func (store *Store) RecordFetch(ctx context.Context, endpoint ingestion.Endpoint
 		return fmt.Errorf("begin source fetch record: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	if err := store.fetches.Record(ctx, tx, endpoint.RegistryID, endpoint.SourceID, endpoint.ContentPolicy, result); err != nil {
+	officialAdvisoryCollection := result.Outcome == fetcher.OutcomeStored &&
+		endpoint.Connector == sources.ConnectorGitHubAdvisories
+	if officialAdvisoryCollection {
+		// Source-wide locking orders observations across distinct advisory
+		// endpoints before either transaction allocates its fetch/observation IDs.
+		var lockedSourceID string
+		if err := tx.QueryRow(ctx, `
+			select source.id from app.sources source
+			join app.source_endpoints source_endpoint on source_endpoint.source_id = source.id
+			where source.id = $1 and source_endpoint.registry_id = $2
+				and source_endpoint.connector = $3
+			for update of source`, endpoint.SourceID, endpoint.RegistryID,
+			string(sources.ConnectorGitHubAdvisories)).Scan(&lockedSourceID); err != nil {
+			return fmt.Errorf("lock official advisory source %q: %w", endpoint.SourceID, err)
+		}
+	}
+	finalFetchID, err := store.fetches.RecordWithFinalAttemptID(ctx, tx, endpoint.RegistryID, endpoint.SourceID, endpoint.ContentPolicy, result)
+	if err != nil {
 		return err
 	}
 	last := result.Attempts[len(result.Attempts)-1]
@@ -549,6 +587,22 @@ func (store *Store) RecordFetch(ctx context.Context, endpoint ingestion.Endpoint
 			}
 			return fmt.Errorf("source endpoint %s conflicts with raw document %s provenance", endpoint.RegistryID, rawDocumentID)
 		}
+		if officialAdvisoryCollection {
+			var observationID int64
+			if err := tx.QueryRow(ctx, `
+				insert into app.advisory_collection_observations (
+					source_id, source_registry_id, source_fetch_id,
+					parent_raw_document_id, observed_at
+				) values ($1, $2, $3, $4::uuid, $5) returning id`,
+				endpoint.SourceID, endpoint.RegistryID, finalFetchID,
+				rawDocumentID, last.CompletedAt).Scan(&observationID); err != nil {
+				return fmt.Errorf("record official advisory collection observation: %w", err)
+			}
+			if _, _, err := store.jobs.EnqueueSplitAdvisoryObservation(ctx, tx,
+				jobqueue.SplitAdvisoryObservationArgs{ObservationID: observationID}); err != nil {
+				return err
+			}
+		}
 		pendingCode := "pending_parse"
 		if parsing.IsCollectionConnector(endpoint.Connector) {
 			pendingCode = "pending_entries"
@@ -564,10 +618,12 @@ func (store *Store) RecordFetch(ctx context.Context, endpoint ingestion.Endpoint
 		if err != nil {
 			return fmt.Errorf("mark stored source document pending: %w", err)
 		}
-		if _, _, err := store.jobs.EnqueueParseRawDocument(ctx, tx, jobqueue.ParseRawDocumentArgs{
-			RawDocumentID: rawDocumentID, RegistryID: *rawRegistryID,
-		}); err != nil {
-			return err
+		if !officialAdvisoryCollection {
+			if _, _, err := store.jobs.EnqueueParseRawDocument(ctx, tx, jobqueue.ParseRawDocumentArgs{
+				RawDocumentID: rawDocumentID, RegistryID: *rawRegistryID,
+			}); err != nil {
+				return err
+			}
 		}
 	}
 	var typed *fetcher.FetchError
@@ -660,6 +716,16 @@ func (store *Store) RecordEntries(ctx context.Context, parent ingestion.RawDocum
 	if parent.ID == "" || parent.SourceID == "" || parent.ParentRawID != "" || parent.ContentPolicy != "link-and-excerpt" || registryID == "" || entries == nil || len(entries) > 500 {
 		return 0, errors.New("source entry batch or parent document is invalid")
 	}
+	var managedParent bool
+	if err := store.pool.QueryRow(ctx, `select exists (
+		select 1 from app.advisory_collection_observations
+		where parent_raw_document_id = $1::uuid
+	)`, parent.ID).Scan(&managedParent); err != nil {
+		return 0, fmt.Errorf("check source collection observation: %w", err)
+	}
+	if managedParent {
+		return 0, errors.New("managed advisory collection requires observation splitting")
+	}
 	seen := make(map[string][sha256.Size]byte, len(entries))
 	for _, entry := range entries {
 		if err := parsing.ValidateEntry(parent.URL, entry); err != nil {
@@ -676,7 +742,7 @@ func (store *Store) RecordEntries(ctx context.Context, parent ingestion.RawDocum
 		if err := ctx.Err(); err != nil {
 			return created, err
 		}
-		inserted, err := store.recordEntry(ctx, parent, registryID, entry)
+		inserted, err := store.recordEntry(ctx, parent, registryID, entry, 0, 0)
 		if err != nil {
 			return created, err
 		}
@@ -739,7 +805,7 @@ func (store *Store) RecordEntries(ctx context.Context, parent ingestion.RawDocum
 	return created, nil
 }
 
-func (store *Store) recordEntry(ctx context.Context, parent ingestion.RawDocument, registryID string, entry parsing.Entry) (created bool, recordErr error) {
+func (store *Store) recordEntry(ctx context.Context, parent ingestion.RawDocument, registryID string, entry parsing.Entry, observationID int64, ordinal int) (created bool, recordErr error) {
 	observedAt := store.clock.Now().UTC()
 	digest := sha256.Sum256(entry.Payload)
 	tx, err := store.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
@@ -771,6 +837,9 @@ func (store *Store) recordEntry(ctx context.Context, parent ingestion.RawDocumen
 	}
 	if err == nil {
 		if existingObjectKey != nil {
+			if err := recordAdvisoryEntryObservation(ctx, tx, observationID, ordinal, sourceEntryID, existingRawID); err != nil {
+				return false, err
+			}
 			if pendingCode != nil {
 				if _, _, err := store.jobs.EnqueueParseRawDocument(ctx, tx, jobqueue.ParseRawDocumentArgs{
 					RawDocumentID: existingRawID, RegistryID: registryID,
@@ -839,6 +908,9 @@ func (store *Store) recordEntry(ctx context.Context, parent ingestion.RawDocumen
 	}
 	if err != nil {
 		return false, fmt.Errorf("record source entry raw document: %w", err)
+	}
+	if err := recordAdvisoryEntryObservation(ctx, tx, observationID, ordinal, sourceEntryID, rawID); err != nil {
+		return false, err
 	}
 	if _, _, err := store.jobs.EnqueueParseRawDocument(ctx, tx, jobqueue.ParseRawDocumentArgs{
 		RawDocumentID: rawID, RegistryID: registryID,

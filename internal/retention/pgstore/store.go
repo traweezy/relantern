@@ -20,6 +20,9 @@ func New(pool *pgxpool.Pool) (*Store, error) {
 	if pool == nil {
 		return nil, errors.New("retention store requires a database pool")
 	}
+	if pool.Config().MaxConns < 2 {
+		return nil, errors.New("raw retention source guard requires at least two database connections")
+	}
 	return &Store{pool: pool}, nil
 }
 
@@ -95,6 +98,17 @@ func (store *Store) RawCandidates(ctx context.Context, cutoff time.Time, limit i
 			and document.first_seen_at < $1
 			and document.ingestion_error_code is null
 			and not exists (
+				select 1 from app.advisory_collection_observations observation
+				where observation.parent_raw_document_id = document.id
+					and observation.state = 'pending'
+			)
+			and not exists (
+				select 1 from app.advisory_collection_observations observation
+				where document.source_entry_id is not null
+					and observation.source_id = document.source_id
+					and observation.state = 'pending'
+			)
+			and not exists (
 				select 1
 				from app.content_revisions revision
 				join app.claims claim on claim.revision_id = revision.id
@@ -128,13 +142,50 @@ func (store *Store) PruneRaw(
 	cutoff time.Time,
 	now time.Time,
 	objects retention.ObjectStore,
-) (bool, error) {
+) (pruned bool, pruneErr error) {
+	// A new advisory observation takes FOR UPDATE on the source before it can
+	// reuse a raw object. Hold the conflicting source lock until deletion ends;
+	// the raw reference itself must still commit before object deletion.
+	guard, err := store.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	if err != nil {
+		return false, fmt.Errorf("begin raw retention source guard: %w", err)
+	}
+	defer func() {
+		releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		if err := guard.Rollback(releaseCtx); err != nil && !errors.Is(err, pgx.ErrTxClosed) {
+			pruneErr = errors.Join(pruneErr, fmt.Errorf("release raw retention source guard: %w", err))
+		}
+	}()
+	var sourceID string
+	err = guard.QueryRow(ctx, `
+		select source.id from app.sources source
+		join app.raw_documents document on document.source_id = source.id
+		where document.id = $1::uuid
+		for share of source`, candidate.ID).Scan(&sourceID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("lock raw retention source: %w", err)
+	}
 	command, err := store.pool.Exec(ctx, `
 		update app.raw_documents document
 		set object_key = null, raw_pruned_at = $4
 		where document.id = $1::uuid and document.object_key = $2
 			and document.raw_pruned_at is null and document.first_seen_at < $3
 			and document.ingestion_error_code is null
+			and not exists (
+				select 1 from app.advisory_collection_observations observation
+				where observation.parent_raw_document_id = document.id
+					and observation.state = 'pending'
+			)
+			and not exists (
+				select 1 from app.advisory_collection_observations observation
+				where document.source_entry_id is not null
+					and observation.source_id = document.source_id
+					and observation.state = 'pending'
+			)
 			and not exists (
 				select 1 from app.content_revisions revision
 				join app.claims claim on claim.revision_id = revision.id
@@ -179,6 +230,18 @@ func (store *Store) PruneRaw(
 						)
 					)
 				)
+			)
+			or exists (
+				select 1 from app.advisory_collection_observations observation
+				where observation.parent_raw_document_id = $1::uuid
+					and observation.state = 'pending'
+			)
+			or exists (
+				select 1 from app.raw_documents document
+				join app.advisory_collection_observations observation
+					on observation.source_id = document.source_id
+					and observation.state = 'pending'
+				where document.id = $1::uuid and document.source_entry_id is not null
 			),
 			exists (select 1 from app.raw_documents where object_key = $2)`,
 		candidate.ID, candidate.Key).Scan(&protected, &reused)
@@ -193,7 +256,9 @@ func (store *Store) PruneRaw(
 	if protected {
 		return false, store.restoreRaw(ctx, candidate, now)
 	}
-	if err := objects.Delete(ctx, candidate.Key); err != nil {
+	deleteCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	if err := objects.Delete(deleteCtx, candidate.Key); err != nil {
 		// Delete may have reached object storage before its response failed.
 		// Keep the database reference pruned rather than point at a missing object.
 		return false, fmt.Errorf("delete pruned raw object %q; inspect for an orphan: %w", candidate.Key, err)

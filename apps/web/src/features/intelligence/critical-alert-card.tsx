@@ -65,6 +65,7 @@ const CriticalAlertCardComponent = ({ alert, deliveries, timezone }: CriticalAle
       ? null
       : correctionMessages[alert.correctionReason];
   const corrected = correction !== null;
+  const reopened = alert.episodeNumber > 1;
 
   return (
     <article
@@ -74,11 +75,15 @@ const CriticalAlertCardComponent = ({ alert, deliveries, timezone }: CriticalAle
     >
       <div className="critical-alert-card-heading">
         <span className="critical-alert-severity">
-          {corrected ? "Corrected alert" : "Critical"} · {alert.ecosystem}
+          {corrected ? "Corrected alert" : reopened ? "Critical again" : "Critical"} ·{" "}
+          {alert.ecosystem}
         </span>
         <time dateTime={alert.alertedAt}>{formatDate(alert.alertedAt, timezone)}</time>
       </div>
       <h3>{corrected ? `Original alert: ${alert.title}` : alert.title}</h3>
+      {reopened && !corrected && (
+        <p>This is a new alert after the official advisory returned to critical.</p>
+      )}
       {corrected && (
         <div className="alert-correction">
           <strong>{correction?.title}</strong>

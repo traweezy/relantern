@@ -55,6 +55,23 @@ type retentionFixture struct {
 	now      time.Time
 }
 
+func TestRetentionStoreRejectsSingleConnectionPool(t *testing.T) {
+	configuration, err := pgxpool.ParseConfig("postgres://relantern@127.0.0.1/relantern?sslmode=disable")
+	if err != nil {
+		t.Fatal(err)
+	}
+	configuration.MaxConns = 1
+	configuration.MinConns = 0
+	pool, err := pgxpool.NewWithConfig(context.Background(), configuration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	if _, err := retentionstore.New(pool); err == nil {
+		t.Fatal("retention store accepted a pool that cannot hold its source guard")
+	}
+}
+
 func newRetentionFixture(t *testing.T) *retentionFixture {
 	t.Helper()
 	databaseURL := os.Getenv("DATABASE_URL")
@@ -283,6 +300,195 @@ func TestRawRetentionRechecksLatePublicationAndPreservesPendingReplay(t *testing
 	var retainedKey string
 	if err := fixture.pool.QueryRow(ctx, `select object_key from app.raw_documents where id = $1::uuid`, rawID).Scan(&retainedKey); err != nil || retainedKey != key {
 		t.Fatalf("pending raw evidence key = %q, %v", retainedKey, err)
+	}
+}
+
+func TestRawRetentionPreservesPendingAdvisoryObservationEvidence(t *testing.T) {
+	fixture := newRetentionFixture(t)
+	ctx := context.Background()
+	store, err := retentionstore.New(fixture.pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	priorParentID, _ := fixture.raw(t, "advisory-prior-parent", fixture.old)
+	currentParentID, currentParentKey := fixture.raw(t, "advisory-current-parent", fixture.old)
+	childID, childKey := fixture.raw(t, "advisory-reused-child", fixture.old)
+	var sourceEntryID string
+	if err := fixture.pool.QueryRow(ctx, `
+		insert into app.source_entries (source_id, external_id, first_seen_at, last_seen_at)
+		values ($1, 'github_advisories:GHSA-abcd-1234-efgh', $2, $2)
+		returning id::text`, fixture.sourceID, fixture.old).Scan(&sourceEntryID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.pool.Exec(ctx, `
+		update app.raw_documents
+		set parent_raw_document_id = $2::uuid, source_entry_id = $3::uuid
+		where id = $1::uuid`, childID, priorParentID, sourceEntryID); err != nil {
+		t.Fatal(err)
+	}
+	cutoff := fixture.now.Add(-retention.DefaultPolicy().RawSnapshots)
+	candidates, err := store.RawCandidates(ctx, cutoff, 10)
+	if err != nil || len(candidates) != 3 {
+		t.Fatalf("advisory evidence before observation = %+v, %v", candidates, err)
+	}
+	var observationID int64
+	if err := fixture.pool.QueryRow(ctx, `
+		insert into app.advisory_collection_observations (
+			source_id, source_registry_id, source_fetch_id,
+			parent_raw_document_id, observed_at
+		) values ($1, $2,
+			nextval(pg_get_serial_sequence('app.source_fetches', 'id')),
+			$3::uuid, $4)
+		returning id`, fixture.sourceID, fixture.sourceID+"-advisories",
+		currentParentID, fixture.now).Scan(&observationID); err != nil {
+		t.Fatal(err)
+	}
+	candidates, err = store.RawCandidates(ctx, cutoff, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, candidate := range candidates {
+		if candidate.ID == currentParentID || candidate.ID == childID {
+			t.Fatalf("pending advisory evidence was selected for retention: %+v", candidates)
+		}
+	}
+	objects := &retentionObjects{}
+	for _, candidate := range []retention.ObjectCandidate{
+		{ID: currentParentID, Key: currentParentKey},
+		{ID: childID, Key: childKey},
+	} {
+		pruned, pruneErr := store.PruneRaw(ctx, candidate, cutoff, fixture.now, objects)
+		if pruneErr != nil || pruned {
+			t.Fatalf("late pending advisory raw prune = %t, %v for %s", pruned, pruneErr, candidate.ID)
+		}
+	}
+	if len(objects.deleted) != 0 {
+		t.Fatalf("pending advisory object was deleted: %v", objects.deleted)
+	}
+	for _, id := range []string{currentParentID, childID} {
+		var retained bool
+		if err := fixture.pool.QueryRow(ctx, `
+			select object_key is not null and raw_pruned_at is null
+			from app.raw_documents where id = $1::uuid`, id).Scan(&retained); err != nil || !retained {
+			t.Fatalf("pending advisory raw %s retained = %t, %v", id, retained, err)
+		}
+	}
+	if _, err := fixture.pool.Exec(ctx, `
+		update app.advisory_collection_observations
+		set state = 'processed', entry_count = 1,
+			split_completed_at = $2, processed_at = $2
+		where id = $1`, observationID, fixture.now); err != nil {
+		t.Fatal(err)
+	}
+	candidates, err = store.RawCandidates(ctx, cutoff, 10)
+	if err != nil || len(candidates) != 3 {
+		t.Fatalf("processed advisory evidence candidates = %+v, %v", candidates, err)
+	}
+}
+
+func TestRawRetentionSerializesAdvisoryCaptureThroughObjectDelete(t *testing.T) {
+	fixture := newRetentionFixture(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	store, err := retentionstore.New(fixture.pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rawID, key := fixture.raw(t, "advisory-retention-capture", fixture.old)
+	cutoff := fixture.now.Add(-retention.DefaultPolicy().RawSnapshots)
+	objects := &blockingRetentionObjects{entered: make(chan struct{}), release: make(chan struct{})}
+	defer func() {
+		select {
+		case <-objects.release:
+		default:
+			close(objects.release)
+		}
+	}()
+	type pruneResult struct {
+		pruned bool
+		err    error
+	}
+	pruned := make(chan pruneResult, 1)
+	go func() {
+		result, pruneError := store.PruneRaw(ctx,
+			retention.ObjectCandidate{ID: rawID, Key: key}, cutoff, fixture.now, objects)
+		pruned <- pruneResult{pruned: result, err: pruneError}
+	}()
+	select {
+	case <-objects.entered:
+	case <-ctx.Done():
+		t.Fatal("raw retention did not reach object deletion")
+	}
+	acquired := make(chan struct{})
+	captured := make(chan error, 1)
+	restoredKey := strings.TrimSuffix(key, ".json") + "-restored.json"
+	go func() {
+		tx, beginErr := fixture.pool.Begin(ctx)
+		if beginErr != nil {
+			captured <- beginErr
+			return
+		}
+		defer func() { _ = tx.Rollback(ctx) }()
+		var lockedSourceID string
+		if lockErr := tx.QueryRow(ctx, `
+			select id from app.sources where id = $1 for update`, fixture.sourceID).
+			Scan(&lockedSourceID); lockErr != nil {
+			captured <- lockErr
+			return
+		}
+		close(acquired)
+		if _, updateErr := tx.Exec(ctx, `
+			update app.raw_documents
+			set object_key = $2, raw_pruned_at = null
+			where id = $1::uuid`, rawID, restoredKey); updateErr != nil {
+			captured <- updateErr
+			return
+		}
+		if _, insertErr := tx.Exec(ctx, `
+			insert into app.advisory_collection_observations (
+				source_id, source_registry_id, source_fetch_id,
+				parent_raw_document_id, observed_at
+			) values ($1, $2,
+				nextval(pg_get_serial_sequence('app.source_fetches', 'id')),
+				$3::uuid, $4)`, fixture.sourceID, fixture.sourceID+"-advisories",
+			rawID, fixture.now); insertErr != nil {
+			captured <- insertErr
+			return
+		}
+		captured <- tx.Commit(ctx)
+	}()
+	select {
+	case <-acquired:
+		t.Fatal("advisory capture acquired the source while retention was deleting its object")
+	case err := <-captured:
+		t.Fatalf("advisory capture ended before retention released its source lock: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(objects.release)
+	select {
+	case result := <-pruned:
+		if result.err != nil || !result.pruned {
+			t.Fatalf("raw retention = %t, %v", result.pruned, result.err)
+		}
+	case <-ctx.Done():
+		t.Fatal("raw retention did not finish object deletion")
+	}
+	select {
+	case err := <-captured:
+		if err != nil {
+			t.Fatalf("advisory capture after raw deletion: %v", err)
+		}
+	case <-ctx.Done():
+		t.Fatal("advisory capture did not resume after raw deletion")
+	}
+	var storedKey string
+	if err := fixture.pool.QueryRow(ctx, `
+		select object_key from app.raw_documents where id = $1::uuid`, rawID).Scan(&storedKey); err != nil || storedKey != restoredKey {
+		t.Fatalf("restored advisory raw key = %q, %v", storedKey, err)
+	}
+	candidates, err := store.RawCandidates(ctx, cutoff, 10)
+	if err != nil || len(candidates) != 0 {
+		t.Fatalf("new pending observation raw candidates = %+v, %v", candidates, err)
 	}
 }
 

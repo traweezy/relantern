@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
@@ -115,6 +116,21 @@ func (inserter *Inserter) EnqueueParseRawDocument(
 	return result.Job.ID, !result.UniqueSkippedAsDuplicate, nil
 }
 
+func (inserter *Inserter) EnqueueSplitAdvisoryObservation(
+	ctx context.Context,
+	tx pgx.Tx,
+	arguments SplitAdvisoryObservationArgs,
+) (int64, bool, error) {
+	if arguments.ObservationID <= 0 {
+		return 0, false, fmt.Errorf("advisory collection observation ID must be positive")
+	}
+	result, err := inserter.client.InsertTx(ctx, tx, arguments, inserter.insertOptions(arguments))
+	if err != nil {
+		return 0, false, fmt.Errorf("enqueue advisory observation %d for splitting: %w", arguments.ObservationID, err)
+	}
+	return result.Job.ID, !result.UniqueSkippedAsDuplicate, nil
+}
+
 func (inserter *Inserter) EnqueueAssessCriticalAdvisory(
 	ctx context.Context,
 	tx pgx.Tx,
@@ -123,6 +139,24 @@ func (inserter *Inserter) EnqueueAssessCriticalAdvisory(
 	result, err := inserter.client.InsertTx(ctx, tx, arguments, inserter.insertOptions(arguments))
 	if err != nil {
 		return 0, false, fmt.Errorf("enqueue advisory assessment for %s: %w", arguments.RawDocumentID, err)
+	}
+	return result.Job.ID, !result.UniqueSkippedAsDuplicate, nil
+}
+
+func (inserter *Inserter) EnqueueAssessAdvisoryObservation(
+	ctx context.Context,
+	tx pgx.Tx,
+	arguments AssessAdvisoryObservationArgs,
+) (int64, bool, error) {
+	if arguments.EventID <= 0 {
+		return 0, false, fmt.Errorf("advisory entry observation ID must be positive")
+	}
+	if _, err := uuid.Parse(arguments.RevisionID); err != nil {
+		return 0, false, fmt.Errorf("advisory entry observation revision ID is invalid: %w", err)
+	}
+	result, err := inserter.client.InsertTx(ctx, tx, arguments, inserter.insertOptions(arguments))
+	if err != nil {
+		return 0, false, fmt.Errorf("enqueue advisory entry observation %d for assessment: %w", arguments.EventID, err)
 	}
 	return result.Job.ID, !result.UniqueSkippedAsDuplicate, nil
 }

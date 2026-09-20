@@ -145,6 +145,62 @@ func TestTransactionalInserterSuppressesDuplicateOccurrenceJob(t *testing.T) {
 	}
 }
 
+func TestTransactionalInserterDeduplicatesAdvisoryObservationJobs(t *testing.T) {
+	pool := openJobQueueIntegrationPool(t)
+	inserter, err := jobqueue.NewIsolatedTestInserter("test_advisory_observation_jobs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	tx, err := pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	split := jobqueue.SplitAdvisoryObservationArgs{ObservationID: 17}
+	firstSplitID, firstSplitInserted, err := inserter.EnqueueSplitAdvisoryObservation(ctx, tx, split)
+	if err != nil {
+		t.Fatal(err)
+	}
+	duplicateSplitID, duplicateSplitInserted, err := inserter.EnqueueSplitAdvisoryObservation(ctx, tx, split)
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherSplitID, otherSplitInserted, err := inserter.EnqueueSplitAdvisoryObservation(
+		ctx, tx, jobqueue.SplitAdvisoryObservationArgs{ObservationID: 18})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !firstSplitInserted || duplicateSplitInserted || !otherSplitInserted ||
+		firstSplitID != duplicateSplitID || firstSplitID == otherSplitID {
+		t.Fatalf("split idempotency = first (%d,%t), duplicate (%d,%t), other (%d,%t)",
+			firstSplitID, firstSplitInserted, duplicateSplitID, duplicateSplitInserted,
+			otherSplitID, otherSplitInserted)
+	}
+
+	assessment := jobqueue.AssessAdvisoryObservationArgs{EventID: 41, RevisionID: uuid.NewString()}
+	firstAssessmentID, firstAssessmentInserted, err := inserter.EnqueueAssessAdvisoryObservation(ctx, tx, assessment)
+	if err != nil {
+		t.Fatal(err)
+	}
+	duplicateAssessmentID, duplicateAssessmentInserted, err := inserter.EnqueueAssessAdvisoryObservation(ctx, tx, assessment)
+	if err != nil {
+		t.Fatal(err)
+	}
+	differentRevisionID, differentRevisionInserted, err := inserter.EnqueueAssessAdvisoryObservation(
+		ctx, tx, jobqueue.AssessAdvisoryObservationArgs{EventID: assessment.EventID, RevisionID: uuid.NewString()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !firstAssessmentInserted || duplicateAssessmentInserted || !differentRevisionInserted ||
+		firstAssessmentID != duplicateAssessmentID || firstAssessmentID == differentRevisionID {
+		t.Fatalf("assessment idempotency = first (%d,%t), duplicate (%d,%t), other revision (%d,%t)",
+			firstAssessmentID, firstAssessmentInserted, duplicateAssessmentID,
+			duplicateAssessmentInserted, differentRevisionID, differentRevisionInserted)
+	}
+}
+
 func TestTransactionalInserterSuppressesDuplicateReembeddingJob(t *testing.T) {
 	pool := openJobQueueIntegrationPool(t)
 	inserter, err := jobqueue.NewIsolatedTestInserter("test_jobqueue_reembedding")

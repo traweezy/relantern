@@ -74,6 +74,40 @@ func TestNewRejectsMissingDependencies(t *testing.T) {
 	}
 }
 
+func TestLegacyAdvisoryAssessmentRemainsIdempotentBeforeEpisodeCutover(t *testing.T) {
+	pool := openAssessmentPool(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	var legacyUniqueExists bool
+	if err := pool.QueryRow(ctx, `select exists (
+		select 1 from pg_constraint
+		where conrelid = 'app.critical_alerts'::regclass
+			and conname = 'critical_alerts_user_advisory_package_key'
+	)`).Scan(&legacyUniqueExists); err != nil {
+		t.Fatal(err)
+	}
+	if !legacyUniqueExists {
+		t.Skip("legacy one-alert uniqueness has already been cut over")
+	}
+	fixture := seedAssessment(t, ctx, pool)
+	jobs, err := jobqueue.NewIsolatedTestInserter("test_alert_assessment")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := New(pool, jobs,
+		&fixtureReader{payload: bytes.Clone(fixture.payload)},
+		clock.NewFixed(fixture.now.Add(time.Minute)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for attempt := 1; attempt <= 2; attempt++ {
+		if err := store.Assess(ctx, fixture.childID, fixture.revisionID); err != nil {
+			t.Fatalf("legacy assessment attempt %d: %v", attempt, err)
+		}
+	}
+	assertAlertCount(t, ctx, pool, fixture.userID, 1)
+}
+
 func TestReadAdvisoryUsesOfficialPublicLinkFromGlobalEntry(t *testing.T) {
 	ctx := context.Background()
 	endpoint := sources.GlobalReviewedAdvisoriesURL

@@ -128,6 +128,17 @@ func IsCollectionConnector(connector sources.Connector) bool {
 }
 
 func SplitEntries(ctx context.Context, connector sources.Connector, sourceURL string, raw []byte) ([]Entry, error) {
+	return splitEntries(ctx, connector, sourceURL, raw, false)
+}
+
+// SplitAdvisoryObservationEntries retains each page position as evidence,
+// including identical repeated advisories. Other collection flows keep their
+// existing duplicate handling.
+func SplitAdvisoryObservationEntries(ctx context.Context, sourceURL string, raw []byte) ([]Entry, error) {
+	return splitEntries(ctx, sources.ConnectorGitHubAdvisories, sourceURL, raw, true)
+}
+
+func splitEntries(ctx context.Context, connector sources.Connector, sourceURL string, raw []byte, retainIdentical bool) ([]Entry, error) {
 	if !IsCollectionConnector(connector) {
 		return nil, fmt.Errorf("connector %q does not contain independent entries", connector)
 	}
@@ -173,7 +184,9 @@ func SplitEntries(ctx context.Context, connector sources.Connector, sourceURL st
 			if previous != digest {
 				return nil, parserError(ErrorInvalidDocument, "source repeats external ID %q with conflicting content", entry.ExternalID)
 			}
-			continue
+			if !retainIdentical {
+				continue
+			}
 		}
 		seen[entry.ExternalID] = digest
 		entries = append(entries, entry)

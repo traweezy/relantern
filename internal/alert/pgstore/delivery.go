@@ -35,13 +35,14 @@ func (store *Store) BeginDelivery(ctx context.Context, deliveryID string, now ti
 	var lastAttemptAt *time.Time
 	var attemptCount int
 	var expectedSHA []byte
+	var sourceID string
 	err = tx.QueryRow(ctx, `
 		select alert.id::text, delivery.channel, delivery.idempotency_key,
 			alert.title, alert.source_url, alert.package_name,
 			alert.ecosystem, alert.current_version, alert.vulnerable_range,
 			alert.patched_version, delivery.state, delivery.next_attempt_at,
 			delivery.attempt_count, delivery.payload_sha256,
-			delivery.last_attempt_at
+			delivery.last_attempt_at, alert.source_id
 		from app.critical_alert_deliveries delivery
 		join app.critical_alerts alert on alert.id = delivery.alert_id
 		where delivery.id = $1::uuid
@@ -50,7 +51,7 @@ func (store *Store) BeginDelivery(ctx context.Context, deliveryID string, now ti
 		&request.Title, &request.SourceURL, &request.PackageName,
 		&request.Ecosystem, &request.CurrentVersion, &request.VersionRange,
 		&request.PatchedVersion, &state, &nextAttemptAt, &attemptCount, &expectedSHA,
-		&lastAttemptAt,
+		&lastAttemptAt, &sourceID,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
@@ -77,6 +78,20 @@ func (store *Store) BeginDelivery(ctx context.Context, deliveryID string, now ti
 				return nil, fmt.Errorf("commit critical alert suppression: %w", err)
 			}
 		}
+		return nil, nil
+	}
+	// A pending official fetch may contain a correction. Observation IDs carry
+	// source order; fetch timestamps can be skewed, so hold every send for this
+	// source until ordered assessment settles. Reconciliation restores the job.
+	var observationPending bool
+	if err := tx.QueryRow(ctx, `
+		select exists (
+			select 1 from app.advisory_collection_observations observation
+			where observation.source_id = $1 and observation.state = 'pending'
+		)`, sourceID).Scan(&observationPending); err != nil {
+		return nil, fmt.Errorf("inspect pending advisory observations before delivery: %w", err)
+	}
+	if observationPending {
 		return nil, nil
 	}
 	if now.Before(nextAttemptAt) {

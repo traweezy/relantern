@@ -317,6 +317,7 @@ export const demoSnapshot = deepFreeze({
         sourceUrl: "https://github.com/advisories/GHSA-abcd-1234-efgh",
         observedAt: "2025-10-14T14:00:00Z",
         alertedAt: "2025-10-14T14:01:00Z",
+        episodeNumber: 1,
         reason: "Confirmed critical advisory affects a watched dependency.",
       },
     ],

@@ -2,6 +2,7 @@ package jobqueue_test
 
 import (
 	"errors"
+	"reflect"
 	"testing"
 	"time"
 
@@ -20,6 +21,7 @@ func TestQueueConfigsDeclareEverySpecificationQueue(t *testing.T) {
 		jobqueue.QueueCritical:         4,
 		jobqueue.QueueFetch:            12,
 		jobqueue.QueueParse:            8,
+		jobqueue.QueueAdvisorySplit:    1,
 		jobqueue.QueueAIFast:           4,
 		jobqueue.QueueAIResearch:       2,
 		jobqueue.QueueDelivery:         2,
@@ -138,10 +140,47 @@ func TestSourceJobsAreBoundedAndAvailableOnlyWhenConfigured(t *testing.T) {
 		{args: jobqueue.ReconcileSourcesArgs{}, queue: jobqueue.QueueMaintenance, attempts: 3},
 		{args: jobqueue.PollSourceEndpointArgs{}, queue: jobqueue.QueueFetch, attempts: 5},
 		{args: jobqueue.ParseRawDocumentArgs{}, queue: jobqueue.QueueParse, attempts: 5},
+		{args: jobqueue.SplitAdvisoryObservationArgs{}, queue: jobqueue.QueueAdvisorySplit, attempts: 5},
 	} {
 		options := test.args.(interface{ InsertOpts() river.InsertOpts }).InsertOpts()
 		if options.Queue != test.queue || options.MaxAttempts != test.attempts || !options.UniqueOpts.ByQueue {
 			t.Errorf("%s options = %+v", test.args.Kind(), options)
+		}
+	}
+}
+
+func TestAdvisoryObservationJobsUseExactUniqueIdentities(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		args  river.JobArgs
+		kind  string
+		queue string
+		keys  []string
+	}{
+		{jobqueue.SplitAdvisoryObservationArgs{}, jobqueue.SplitAdvisoryObservationKind,
+			jobqueue.QueueAdvisorySplit, []string{"observationId"}},
+		{jobqueue.AssessAdvisoryObservationArgs{}, jobqueue.AssessAdvisoryObservationKind,
+			jobqueue.QueueCritical, []string{"eventId", "revisionId"}},
+	} {
+		if test.args.Kind() != test.kind {
+			t.Fatalf("job kind = %q, want %q", test.args.Kind(), test.kind)
+		}
+		options := test.args.(interface{ InsertOpts() river.InsertOpts }).InsertOpts()
+		if options.Queue != test.queue || options.MaxAttempts != 5 ||
+			!options.UniqueOpts.ByArgs || !options.UniqueOpts.ByQueue ||
+			len(options.UniqueOpts.ByState) != 5 {
+			t.Fatalf("job %s options = %+v", test.kind, options)
+		}
+		shape := reflect.TypeOf(test.args)
+		if shape.NumField() != len(test.keys) {
+			t.Fatalf("job %s has %d fields, want %d", test.kind, shape.NumField(), len(test.keys))
+		}
+		for index, key := range test.keys {
+			field := shape.Field(index)
+			if field.Tag.Get("json") != key || field.Tag.Get("river") != "unique" {
+				t.Fatalf("job %s field %s tags = %q, want %s/unique",
+					test.kind, field.Name, field.Tag, key)
+			}
 		}
 	}
 }

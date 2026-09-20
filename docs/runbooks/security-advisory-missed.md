@@ -1,5 +1,10 @@
 # Security advisory missed runbook
 
+Episode-two admission requires the separate forward uniqueness cutover. With
+only additive migrations 32 through 35, retain a corrected-to-critical
+observation as pending for the compatible worker; do not mark it processed or
+reuse an earlier delivery identity.
+
 ## Trigger
 
 - A confirmed watched-dependency critical advisory was not visible within ten
@@ -17,6 +22,11 @@
   unfinished page cursor for more than 24 hours.
 - `reviewed_advisory_scan_invalid` fires when the validated cursor chain
   repeats a recent page or exceeds its 10,000-page safety ceiling.
+- `advisory_observation_stalled` fires when the oldest pending official
+  advisory collection observation has awaited complete entry assessment for
+  more than ten minutes. The private `advisory_observation_pending` and
+  `advisory_observation_oldest_age_seconds` gauges have no source, advisory,
+  or owner labels.
 
 ## Impact
 
@@ -69,10 +79,26 @@ where endpoint.registry_id = 'github-global-advisories';
 Repository advisories use retained source-entry evidence; repository release
 endpoints remain metadata-only.
 
+Check the ordered observation backlog without copying advisory or owner IDs
+into shared metrics or logs:
+
+```sql
+select count(*) as pending_collections,
+       min(observed_at) as oldest_observed_at,
+       count(*) filter (where split_completed_at is null) as awaiting_split
+from app.advisory_collection_observations
+where state = 'pending';
+
+select count(*) as pending_entries
+from app.advisory_entry_observations
+where state = 'pending';
+```
+
 Check the immutable admission and delivery records in the private database:
 
 ```sql
-select advisory_id, ecosystem, package_name, observed_at, created_at,
+select advisory_id, ecosystem, package_name, episode_number,
+       observed_at, created_at,
        created_at - observed_at as admission_delay
 from app.critical_alerts
 order by created_at desc
@@ -115,7 +141,13 @@ limit 20;
    ```
 
    A `page_limit` requires a reviewed coverage plan before changing the cap.
-2. Reprocess the durable source revision; do not create a synthetic claim.
+2. Reprocess the earliest pending collection observation for the affected
+   source in order, then inspect its pending entry observations. Check River
+   retries and the split checkpoint before replaying a failed assessment.
+   Reprocessing the same fetch must retain its observation identity. After the
+   episode cutover, a byte-identical return to critical after a correction
+   must open a new alert episode. Do not create a synthetic claim or mark an
+   incomplete collection processed.
 3. Verify one critical fixture reaches the safe capture path within target and
    one unconfirmed rumor does not.
 4. If a watch was added after source ingestion, inspect the bounded watch
@@ -136,7 +168,14 @@ limit 20;
 - Advisory identity, affected package/range, severity, and primary source are
   preserved.
 - One confirmed event maps to one urgent alert/delivery identity.
+- Each corrected-to-critical return has a later episode number and a fresh
+  delivery identity; owner history retains earlier corrected episodes.
 - Quiet-hour bypass is owner-enabled and applies only to confirmed criticals.
+
+Raw evidence pruning holds a source row lock through object deletion so a
+concurrent capture cannot reuse an object being deleted. The database pool
+must have `DATABASE_MAX_CONNS` at least 2 (default 20); startup fails fast
+with a smaller pool.
 
 ## Communication
 

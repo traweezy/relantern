@@ -94,6 +94,7 @@ export type CriticalAlert = Readonly<{
   alertedAt: string;
   currentVersion: string;
   ecosystem: string;
+  episodeNumber: number;
   id: string;
   observedAt: string;
   packageName: string;

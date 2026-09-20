@@ -12,6 +12,11 @@ default local stack must keep external delivery disconnected.
 
 ## Decision
 
+The episode behavior below is the cutover target. Migrations 32 through 35
+add observation and episode evidence while the original one-alert uniqueness
+constraint remains in force; a corrected-to-critical return cannot admit an
+episode-two alert during that additive stage.
+
 - Keep advisory metadata in bounded, immutable source-entry child objects.
   Verify the registered HTTPS GitHub endpoint, source trust tier, child object
   key and digest, GHSA identity, and matching public advisory URL before
@@ -37,8 +42,10 @@ default local stack must keep external delivery disconnected.
   Rust, and pub with simple numeric comparator ranges. Other ecosystems and
   unsupported version syntax remain review-only. Legacy watches with no
   proven ecosystem cannot trigger an urgent alert.
-- Persist one immutable alert per owner, GHSA, ecosystem, and package. The
-  dashboard is mandatory. Discord and email are optional owner settings
+- Persist an immutable alert episode per owner, GHSA, ecosystem, package, and
+  episode number. A later validated return to critical after a correction
+  opens a new episode with a new delivery identity. The dashboard is mandatory.
+  Discord and email are optional owner settings
   independent of digest channels. Queue selected external deliveries in the
   same transaction as alert admission, with one stable idempotency key and
   payload hash per alert/channel. Default local delivery uses the fake capture.
@@ -59,16 +66,21 @@ default local stack must keep external delivery disconnected.
   flight may complete; retain its provider receipt, and suppress a failed send
   instead of retrying.
   An omitted severity alone is insufficient correction evidence. Owner history
-  labels the correction, while Today counts only currently confirmed critical
-  alerts. A still later validated correction updates the displayed correction
-  reason and revision without changing the original alert. A correction from a
+  labels the correction and episode number, while Today counts only the latest
+  active episode for each owner and affected package. A still later validated
+  correction updates that episode's displayed correction reason and revision
+  without changing its original alert. A correction from a
   different source entry does not overturn the admitted evidence without a
   reviewed authority rule.
-- Correction suppression is terminal in this staging slice. A later return to
-  critical cannot reuse the original alert or provider idempotency key. Before
-  production rollout, add a new immutable alert episode with a fresh key and
-  handle byte-identical advisory content reappearing after a correction;
-  source-entry raw digest deduplication currently hides that transition.
+- Record every official collection fetch as a source-ordered observation,
+  including pages whose retained bytes match earlier raw evidence. Record each
+  child entry in page order before marking the collection processed. A
+  collection is processed only after every entry assessment completes; an empty
+  validated page is processed after its split is recorded. A failed assessment
+  holds later observations for that source pending, preserving critical to
+  corrected to critical transitions even when an entry reappears byte-for-byte.
+  Existing raw and delivery ledgers remain immutable evidence; a new episode
+  receives a fresh provider idempotency key.
 
 ## Reliability and security
 
@@ -88,6 +100,16 @@ without advisory IDs or owner labels.
 The private `reviewed_advisory_scan_pending` and
 `reviewed_advisory_scan_age_seconds` gauges expose incomplete pagination. A
 scan still pending after 24 hours raises `reviewed_advisory_scan_stalled`.
+The private `advisory_observation_pending` and
+`advisory_observation_oldest_age_seconds` gauges expose collection assessments
+that remain incomplete, without source, advisory, or owner labels. An oldest
+pending observation older than ten minutes raises
+`advisory_observation_stalled`. The age starts at the original fetch time,
+including byte-identical repeats.
+Split work has its own single-worker River queue because it holds an
+observation transaction while recording children with a second database
+connection. Measure a full advisory page against hosted object storage before
+raising that concurrency or the two-minute split timeout.
 The bounded recent-page fingerprint window and 10,000-page scan ceiling stop
 cursor cycles and expose `reviewed_advisory_scan_invalid` for review while the
 first page continues refreshing.
@@ -107,11 +129,26 @@ production delivery fuses remain in force.
 
 ## Rollout and rollback
 
-Apply migrations 26 through 31 before the API and worker. Deploy the API and web
-with the worker so new queue kinds have registered consumers. Verify a
-confirmed fixture, a rumor fixture, quiet-hour behavior, and the safe capture
-viewer. A rollback to a worker that predates migration 29 must disable external
-critical alert delivery until the compatible worker is restored: the older
-claim path does not recognize `suppressed`. Retain the additive ledgers and
-repair schema through a later forward migration. Do not delete evidence or
-ledger rows to replay a delivery.
+Apply migrations 26 through 35 as an additive release, then deploy compatible
+workers, API, and owner reads together. The observation ledger records every
+page and ordered child entry, but a corrected-to-critical return remains
+pending behind the legacy uniqueness guard. It must not be marked processed or
+sent as a reused delivery. Verify a confirmed fixture, a rumor fixture,
+quiet-hour behavior, safe capture, and a paused A to B to A replay at this
+stage. Only after ordered assessment and owner-read replay tests pass should a
+separate forward cutover migration remove the legacy uniqueness constraint.
+Then enable episode-two admission and verify the full A to B to A replay with
+distinct delivery identities.
+
+Retention holds a source row lock through raw-object deletion so a concurrent
+identical capture cannot lose its evidence; this requires
+`DATABASE_MAX_CONNS` to be at least 2 (the default is 20), and startup fails
+otherwise. Before cutover, a rollback to a worker that predates observations
+must disable critical assessment until a compatible worker resumes pending
+observations in order. After cutover, do not roll back to a worker that assumes
+one alert per owner and advisory package; disable critical assessment and
+external delivery until a compatible worker is restored. A rollback to a
+worker that predates migration 29 must also disable external critical alert
+delivery: the older claim path does not recognize `suppressed`. Retain the
+additive ledgers and repair schema through a later forward migration. Do not
+delete evidence or ledger rows to replay a delivery.

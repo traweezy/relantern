@@ -22,48 +22,67 @@ func (Store) Record(
 	contentPolicy string,
 	result fetcher.Result,
 ) error {
+	_, err := (Store{}).RecordWithFinalAttemptID(ctx, transaction, registryID, sourceID, contentPolicy, result)
+	return err
+}
+
+// RecordWithFinalAttemptID returns the persisted final attempt so callers can
+// tie downstream work to this fetch even when its raw bytes were seen before.
+func (Store) RecordWithFinalAttemptID(
+	ctx context.Context,
+	transaction pgx.Tx,
+	registryID string,
+	sourceID string,
+	contentPolicy string,
+	result fetcher.Result,
+) (int64, error) {
 	if transaction == nil {
-		return errors.New("fetch record transaction is required")
+		return 0, errors.New("fetch record transaction is required")
 	}
 	if registryID == "" || sourceID == "" || len(result.Attempts) == 0 {
-		return errors.New("registry id, source id, and at least one attempt are required")
+		return 0, errors.New("registry id, source id, and at least one attempt are required")
 	}
 	var endpointID string
 	var connector string
 	if err := transaction.QueryRow(ctx, `
 		select id::text, connector
 		from app.source_endpoints
-		where registry_id = $1
-		for update`, registryID).Scan(&endpointID, &connector); err != nil {
-		return fmt.Errorf("select endpoint %q: %w", registryID, err)
+		where registry_id = $1 and source_id = $2
+		for update`, registryID, sourceID).Scan(&endpointID, &connector); err != nil {
+		return 0, fmt.Errorf("select endpoint %q for source %q: %w", registryID, sourceID, err)
 	}
+	var finalAttemptID int64
 	for index, attempt := range result.Attempts {
 		isFinal := index == len(result.Attempts)-1
-		if err := recordAttempt(ctx, transaction, endpointID, result, attempt, isFinal); err != nil {
-			return err
+		attemptID, err := recordAttempt(ctx, transaction, endpointID, result, attempt, isFinal)
+		if err != nil {
+			return 0, err
+		}
+		if isFinal {
+			finalAttemptID = attemptID
 		}
 	}
 	finalAttempt := result.Attempts[len(result.Attempts)-1]
 	if err := updateEndpoint(ctx, transaction, endpointID, result.Outcome, finalAttempt); err != nil {
-		return err
+		return 0, err
 	}
 	if result.Outcome == fetcher.OutcomeStored || result.Outcome == fetcher.OutcomeMetadataOnly || result.Outcome == fetcher.OutcomeNotModified {
 		if err := upsertCheckpoint(ctx, transaction, endpointID, result); err != nil {
-			return err
+			return 0, err
 		}
 	}
 	if result.Outcome == fetcher.OutcomeStored || result.Outcome == fetcher.OutcomeMetadataOnly {
 		if finalAttempt.FinalURL == "" {
-			return errors.New("successful fetch requires a final URL")
+			return 0, errors.New("successful fetch requires a final URL")
 		}
 		if err := recordRawDocument(ctx, transaction, sourceID, registryID, connector, contentPolicy, result, finalAttempt); err != nil {
-			return err
+			return 0, err
 		}
 	}
-	return nil
+	return finalAttemptID, nil
 }
 
-func recordAttempt(ctx context.Context, transaction pgx.Tx, endpointID string, result fetcher.Result, attempt fetcher.Attempt, final bool) error {
+func recordAttempt(ctx context.Context, transaction pgx.Tx, endpointID string, result fetcher.Result, attempt fetcher.Attempt, final bool) (int64, error) {
 	outcome := fetcher.OutcomeFailed
 	errorCode := string(attempt.ErrorCode)
 	var digest []byte
@@ -85,7 +104,7 @@ func recordAttempt(ctx context.Context, transaction pgx.Tx, endpointID string, r
 				errorCode = "unknown_fetch_failure"
 			}
 		default:
-			return fmt.Errorf("unsupported fetch outcome %q", outcome)
+			return 0, fmt.Errorf("unsupported fetch outcome %q", outcome)
 		}
 	} else if errorCode == "" {
 		errorCode = "retryable_fetch_failure"
@@ -109,7 +128,8 @@ func recordAttempt(ctx context.Context, transaction pgx.Tx, endpointID string, r
 	if durationMilliseconds > math.MaxInt32 {
 		durationMilliseconds = math.MaxInt32
 	}
-	_, err := transaction.Exec(ctx, `
+	var attemptID int64
+	err := transaction.QueryRow(ctx, `
 		insert into app.source_fetches (
 			endpoint_id, attempted_at, completed_at, outcome, status_code,
 			final_url, content_type, compressed_bytes, bytes, duration_ms,
@@ -117,7 +137,7 @@ func recordAttempt(ctx context.Context, transaction pgx.Tx, endpointID string, r
 		) values (
 			$1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10,
 			nullif($11, ''), $12, nullif($13, ''), nullif($14, ''), $15, $16
-		)`,
+		) returning id`,
 		endpointID,
 		attempt.AttemptedAt,
 		attempt.CompletedAt,
@@ -134,11 +154,11 @@ func recordAttempt(ctx context.Context, transaction pgx.Tx, endpointID string, r
 		attempt.LastModified,
 		digest,
 		objectKey,
-	)
+	).Scan(&attemptID)
 	if err != nil {
-		return fmt.Errorf("record endpoint %s fetch attempt: %w", endpointID, err)
+		return 0, fmt.Errorf("record endpoint %s fetch attempt: %w", endpointID, err)
 	}
-	return nil
+	return attemptID, nil
 }
 
 func updateEndpoint(ctx context.Context, transaction pgx.Tx, endpointID string, outcome fetcher.Outcome, attempt fetcher.Attempt) error {

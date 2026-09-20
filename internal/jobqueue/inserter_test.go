@@ -1,6 +1,7 @@
 package jobqueue
 
 import (
+	"context"
 	"reflect"
 	"strings"
 	"testing"
@@ -13,6 +14,28 @@ func TestInserterUsesArgumentDefaultsWithoutQueueOverride(t *testing.T) {
 	}
 	if options := inserter.insertOptions(DeliverDigestArgs{}); options != nil {
 		t.Fatalf("insertOptions() = %+v, want nil to preserve River defaults", options)
+	}
+}
+
+func TestAdvisoryObservationInserterRejectsInvalidIdentities(t *testing.T) {
+	inserter, err := NewInserter()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := inserter.EnqueueSplitAdvisoryObservation(
+		context.Background(), nil, SplitAdvisoryObservationArgs{},
+	); err == nil || !strings.Contains(err.Error(), "must be positive") {
+		t.Fatalf("invalid split observation error = %v", err)
+	}
+	if _, _, err := inserter.EnqueueAssessAdvisoryObservation(
+		context.Background(), nil, AssessAdvisoryObservationArgs{},
+	); err == nil || !strings.Contains(err.Error(), "must be positive") {
+		t.Fatalf("invalid assess event error = %v", err)
+	}
+	if _, _, err := inserter.EnqueueAssessAdvisoryObservation(
+		context.Background(), nil, AssessAdvisoryObservationArgs{EventID: 1, RevisionID: "invalid"},
+	); err == nil || !strings.Contains(err.Error(), "revision ID is invalid") {
+		t.Fatalf("invalid assess revision error = %v", err)
 	}
 }
 
