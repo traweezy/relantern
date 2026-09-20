@@ -446,7 +446,7 @@ jobs:
         run: >-
           trivy filesystem --exit-code 1 --ignore-unfixed
           --scanners vuln,misconfig --severity HIGH,CRITICAL
-          --skip-dirs .git .
+          --skip-dirs .git --skip-dirs .local .
       - name: Audit workflow security with zizmor
         run: zizmor --persona=regular --offline .github
 

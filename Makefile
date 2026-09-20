@@ -238,7 +238,7 @@ security-scan: ## Run pinned zero-write repository security scanners
 	@test -x "$(CURDIR)/.local/bin/osv-scanner" || command -v osv-scanner >/dev/null 2>&1 || bash scripts/install-ci-tools.sh security
 	@PATH="$(CURDIR)/.local/bin:$${PATH}" osv-scanner scan source --no-call-analysis=go --recursive .
 	$(GO) run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...
-	@PATH="$(CURDIR)/.local/bin:$${PATH}" trivy filesystem --exit-code 1 --ignore-unfixed --scanners vuln,misconfig --severity HIGH,CRITICAL --skip-dirs .git .
+	@PATH="$(CURDIR)/.local/bin:$${PATH}" trivy filesystem --exit-code 1 --ignore-unfixed --scanners vuln,misconfig --severity HIGH,CRITICAL --skip-dirs .git --skip-dirs .local .
 	@PATH="$(CURDIR)/.local/bin:$${PATH}" zizmor --persona=regular --offline .github
 
 prodlike: secrets ## Build and run the exact production Docker stages
