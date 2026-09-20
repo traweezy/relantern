@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/traweezy/relantern/internal/sources"
 	"github.com/traweezy/relantern/internal/storage"
 )
 
@@ -34,7 +35,9 @@ func (doer *responseDoer) Do(request *http.Request) (*http.Response, error) {
 	}
 	response := doer.responses[0]
 	doer.responses = doer.responses[1:]
-	response.Request = request
+	if response.Request == nil {
+		response.Request = request
+	}
 	return response, nil
 }
 
@@ -75,6 +78,106 @@ func (store *memoryStore) Abort(_ context.Context, staged storage.StagedObject) 
 	store.aborts++
 	delete(store.staged, staged.TemporaryKey)
 	return nil
+}
+
+func newGlobalAdvisoryFixtureFetcher(t *testing.T, doer HTTPDoer, store *memoryStore) *Fetcher {
+	t.Helper()
+	policy, err := NewPolicy(staticResolver{"api.github.com": {netip.MustParseAddr("93.184.216.34")}}, []string{"api.github.com"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	configuration := DefaultConfig("Relantern/1.0 (+https://github.com/traweezy/relantern)")
+	configuration.Now = func() time.Time { return fixtureNow }
+	configuration.Sleep = func(context.Context, time.Duration) error { return nil }
+	configured, err := New(configuration, policy, doer, nil, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return configured
+}
+
+func globalAdvisoryFixtureEndpoint() Endpoint {
+	return Endpoint{
+		ID: "github-global-advisories", SourceID: "github-global-advisories",
+		URL: sources.GlobalReviewedAdvisoriesURL, AllowedHosts: []string{"api.github.com"},
+		ExpectedContentTypes: []string{"application/json"}, MaxBodyBytes: 1024,
+		ContentPolicy: ContentPolicyLinkAndExcerpt,
+	}
+}
+
+func TestFetcherCapturesOnlyValidatedGlobalAdvisoryNextPage(t *testing.T) {
+	next := "https://api.github.com/advisories?after=opaque%2Bcursor&direction=desc&per_page=100&sort=updated&type=reviewed"
+	store := newMemoryStore()
+	doer := &responseDoer{responses: []*http.Response{{
+		StatusCode: http.StatusOK,
+		Header: http.Header{
+			"Content-Type": {"application/json"},
+			"Link":         {"<" + next + ">; rel=next", "<" + next + ">; rel=last"},
+		},
+		Body: io.NopCloser(strings.NewReader(`[]`)),
+	}}}
+	result, err := newGlobalAdvisoryFixtureFetcher(t, doer, store).Fetch(
+		context.Background(), globalAdvisoryFixtureEndpoint(), Checkpoint{},
+	)
+	if err != nil || result.Outcome != OutcomeStored || result.NextPageURL != next || store.stages != 1 {
+		t.Fatalf("Fetch() = %+v, %v; stages = %d", result, err, store.stages)
+	}
+}
+
+func TestFetcherRejectsUnsafeGlobalAdvisoryLinkBeforeStaging(t *testing.T) {
+	badLink := "<https://api.github.com.evil.example/advisories?after=next&direction=desc&per_page=100&sort=updated&type=reviewed>; rel=next"
+	store := newMemoryStore()
+	doer := &responseDoer{responses: []*http.Response{{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": {"application/json"}, "Link": {badLink}},
+		Body:       io.NopCloser(strings.NewReader(`[]`)),
+	}}}
+	result, err := newGlobalAdvisoryFixtureFetcher(t, doer, store).Fetch(
+		context.Background(), globalAdvisoryFixtureEndpoint(), Checkpoint{},
+	)
+	var fetchError *FetchError
+	if !errors.As(err, &fetchError) || fetchError.Code != ErrorInvalidPaginationLink ||
+		result.Outcome != OutcomeFailed || store.stages != 0 || len(store.objects) != 0 ||
+		strings.Contains(err.Error(), "evil.example") {
+		t.Fatalf("Fetch() = %+v, %v; stages = %d", result, err, store.stages)
+	}
+}
+
+func TestFetcherRejectsGlobalAdvisoryRedirectBeforeStaging(t *testing.T) {
+	store := newMemoryStore()
+	redirected, err := url.Parse("https://api.github.com/repos/owner/repo/security-advisories")
+	if err != nil {
+		t.Fatal(err)
+	}
+	doer := &responseDoer{responses: []*http.Response{{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": {"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(`[]`)),
+		Request:    &http.Request{URL: redirected},
+	}}}
+	result, err := newGlobalAdvisoryFixtureFetcher(t, doer, store).Fetch(
+		context.Background(), globalAdvisoryFixtureEndpoint(), Checkpoint{},
+	)
+	var fetchError *FetchError
+	if !errors.As(err, &fetchError) || fetchError.Code != ErrorInvalidPaginationLink ||
+		result.Outcome != OutcomeFailed || store.stages != 0 {
+		t.Fatalf("Fetch() = %+v, %v; stages = %d", result, err, store.stages)
+	}
+}
+
+func TestFetcherIgnoresLinkOnOtherSources(t *testing.T) {
+	store := newMemoryStore()
+	doer := &responseDoer{responses: []*http.Response{{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": {"application/atom+xml"}, "Link": {"<https://off-origin.example/next>; rel=next"}},
+		Body:       io.NopCloser(strings.NewReader("<feed/>")),
+	}}}
+	result, err := newFixtureFetcher(t, doer, store, nil).Fetch(
+		context.Background(), fixtureEndpoint(1024, ContentPolicyLinkAndExcerpt), Checkpoint{},
+	)
+	if err != nil || result.Outcome != OutcomeStored || result.NextPageURL != "" {
+		t.Fatalf("Fetch() = %+v, %v", result, err)
+	}
 }
 
 func TestFetcherStoresBoundedGzipAndSendsCheckpoint(t *testing.T) {

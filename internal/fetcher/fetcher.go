@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/traweezy/relantern/internal/sources"
 	"github.com/traweezy/relantern/internal/storage"
 )
 
@@ -126,6 +127,7 @@ func (fetcher *Fetcher) Fetch(ctx context.Context, endpoint Endpoint, checkpoint
 		if processErr == nil {
 			result.Outcome = processed.outcome
 			result.Checkpoint = processed.checkpoint
+			result.NextPageURL = processed.nextPageURL
 			result.ObjectKey = processed.objectKey
 			result.SHA256 = processed.digest
 			result.Bytes = processed.bytes
@@ -212,12 +214,13 @@ func validBearerToken(value string) bool {
 }
 
 type processedResponse struct {
-	attempt    Attempt
-	outcome    Outcome
-	checkpoint Checkpoint
-	objectKey  string
-	digest     [sha256.Size]byte
-	bytes      int64
+	attempt     Attempt
+	outcome     Outcome
+	checkpoint  Checkpoint
+	nextPageURL string
+	objectKey   string
+	digest      [sha256.Size]byte
+	bytes       int64
 }
 
 func (fetcher *Fetcher) processResponse(ctx context.Context, endpoint Endpoint, prior Checkpoint, response *http.Response, attempt Attempt) (processed processedResponse, returnedErr error) {
@@ -233,6 +236,10 @@ func (fetcher *Fetcher) processResponse(ctx context.Context, endpoint Endpoint, 
 	}()
 	processed.checkpoint.ETag = firstNonEmpty(attempt.ETag, prior.ETag)
 	processed.checkpoint.LastModified = firstNonEmpty(attempt.LastModified, prior.LastModified)
+	if isGlobalReviewedAdvisoryEndpoint(endpoint) && attempt.FinalURL != endpoint.URL {
+		processed.attempt.ErrorCode = ErrorInvalidPaginationLink
+		return processed, newFetchError(ErrorInvalidPaginationLink, false, errors.New("reviewed global advisory response left the requested page"))
+	}
 	if response.StatusCode == http.StatusNotModified {
 		processed.outcome = OutcomeNotModified
 		return processed, nil
@@ -241,6 +248,18 @@ func (fetcher *Fetcher) processResponse(ctx context.Context, endpoint Endpoint, 
 		processed.attempt.ErrorCode = ErrorUnexpectedStatus
 		retryableStatus := response.StatusCode == http.StatusTooManyRequests || response.StatusCode >= http.StatusInternalServerError
 		return processed, newFetchError(ErrorUnexpectedStatus, retryableStatus, fmt.Errorf("source returned HTTP %d", response.StatusCode))
+	}
+	if isGlobalReviewedAdvisoryEndpoint(endpoint) {
+		if response.StatusCode != http.StatusOK {
+			processed.attempt.ErrorCode = ErrorUnexpectedStatus
+			return processed, newFetchError(ErrorUnexpectedStatus, false, errors.New("reviewed global advisory returned a non-200 success status"))
+		}
+		nextPageURL, err := sources.GlobalAdvisoryNextPage(endpoint.URL, strings.Join(response.Header.Values("Link"), ","))
+		if err != nil {
+			processed.attempt.ErrorCode = ErrorInvalidPaginationLink
+			return processed, newFetchError(ErrorInvalidPaginationLink, false, errors.New("reviewed global advisory pagination link is invalid"))
+		}
+		processed.nextPageURL = nextPageURL
 	}
 	if !allowedContentType(attempt.ContentType, endpoint.ExpectedContentTypes) {
 		processed.attempt.ErrorCode = ErrorContentType
@@ -343,7 +362,17 @@ func validateEndpoint(endpoint Endpoint) error {
 	if endpoint.ContentPolicy != ContentPolicyLinkAndExcerpt && endpoint.ContentPolicy != ContentPolicyMetadataOnly {
 		return newFetchError(ErrorInvalidURL, false, fmt.Errorf("unsupported content policy %q", endpoint.ContentPolicy))
 	}
+	if endpoint.ID == "github-global-advisories" || endpoint.SourceID == "github-global-advisories" {
+		if !isGlobalReviewedAdvisoryEndpoint(endpoint) || !sources.IsGlobalAdvisoryPageURL(endpoint.URL) ||
+			endpoint.ContentPolicy != ContentPolicyLinkAndExcerpt {
+			return newFetchError(ErrorInvalidURL, false, errors.New("reviewed global advisory endpoint must use its pinned page policy"))
+		}
+	}
 	return nil
+}
+
+func isGlobalReviewedAdvisoryEndpoint(endpoint Endpoint) bool {
+	return endpoint.ID == "github-global-advisories" && endpoint.SourceID == "github-global-advisories"
 }
 
 func allowedContentType(actual string, expected []string) bool {

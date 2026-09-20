@@ -24,17 +24,18 @@ const (
 type ErrorCode string
 
 const (
-	ErrorInvalidURL          ErrorCode = "invalid_url"
-	ErrorDestinationDenied   ErrorCode = "destination_denied"
-	ErrorDNS                 ErrorCode = "dns_failed"
-	ErrorTransport           ErrorCode = "transport_failed"
-	ErrorUnexpectedStatus    ErrorCode = "unexpected_status"
-	ErrorContentType         ErrorCode = "content_type_denied"
-	ErrorUnsupportedEncoding ErrorCode = "unsupported_content_encoding"
-	ErrorCompressedTooLarge  ErrorCode = "compressed_body_too_large"
-	ErrorBodyTooLarge        ErrorCode = "decompressed_body_too_large"
-	ErrorCompressionRatio    ErrorCode = "compression_ratio_exceeded"
-	ErrorObjectStorage       ErrorCode = "object_storage_failed"
+	ErrorInvalidURL            ErrorCode = "invalid_url"
+	ErrorDestinationDenied     ErrorCode = "destination_denied"
+	ErrorDNS                   ErrorCode = "dns_failed"
+	ErrorTransport             ErrorCode = "transport_failed"
+	ErrorUnexpectedStatus      ErrorCode = "unexpected_status"
+	ErrorContentType           ErrorCode = "content_type_denied"
+	ErrorUnsupportedEncoding   ErrorCode = "unsupported_content_encoding"
+	ErrorCompressedTooLarge    ErrorCode = "compressed_body_too_large"
+	ErrorBodyTooLarge          ErrorCode = "decompressed_body_too_large"
+	ErrorCompressionRatio      ErrorCode = "compression_ratio_exceeded"
+	ErrorObjectStorage         ErrorCode = "object_storage_failed"
+	ErrorInvalidPaginationLink ErrorCode = "invalid_pagination_link"
 )
 
 type Endpoint struct {
@@ -70,12 +71,13 @@ type Attempt struct {
 }
 
 type Result struct {
-	Outcome    Outcome
-	Attempts   []Attempt
-	Checkpoint Checkpoint
-	ObjectKey  string
-	SHA256     [sha256.Size]byte
-	Bytes      int64
+	Outcome     Outcome
+	Attempts    []Attempt
+	Checkpoint  Checkpoint
+	NextPageURL string
+	ObjectKey   string
+	SHA256      [sha256.Size]byte
+	Bytes       int64
 }
 
 type FetchError struct {
