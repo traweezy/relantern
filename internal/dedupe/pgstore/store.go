@@ -575,7 +575,7 @@ func attachRevision(
 				published_at = $9,
 				status = 'updated',
 				simhash = $10,
-				lifecycle_state = case when $11 then 'clustered' else lifecycle_state end,
+				lifecycle_state = case when $11 then 'clustered' else 'needs_review' end,
 				updated_at = $12
 			where id = $1::uuid`,
 			decision.CandidateItemID,
