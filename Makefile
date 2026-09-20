@@ -24,7 +24,7 @@ bootstrap: doctor secrets ## Build, generate, migrate, and seed the safe local s
 	$(COMPOSE_BASE) up -d --wait postgres minio fake-source fake-openai fake-delivery
 	$(COMPOSE_BASE) run --rm minio-init
 	$(COMPOSE_BASE) run --rm --build migrate up
-	$(COMPOSE_BASE) run --rm seed
+	$(COMPOSE_BASE) run --rm --build seed
 
 dev: secrets ## Start the safe hot-reload stack
 	$(COMPOSE_DEV) up --build --detach --watch
@@ -56,7 +56,7 @@ test-integration: secrets ## Run database, object-storage, and worker integratio
 	$(COMPOSE_BASE) up -d --wait postgres minio fake-openai fake-delivery
 	$(COMPOSE_BASE) run --rm minio-init
 	$(COMPOSE_BASE) run --rm --build migrate up
-	$(COMPOSE_BASE) run --rm seed
+	$(COMPOSE_BASE) run --rm --build seed
 	$(COMPOSE_BASE) run --rm --build worker once
 	bash scripts/test-integration-in-compose.sh
 
@@ -109,7 +109,7 @@ migration: ## Create a timestamped empty migration (name=required)
 	@touch "migrations/$$(date -u +%Y%m%d%H%M%S)_$(name).sql"
 
 seed: secrets ## Apply the idempotent local owner and schedule seed
-	$(COMPOSE_BASE) run --rm seed
+	$(COMPOSE_BASE) run --rm --build seed
 
 sources-verify: ## Strictly validate the reviewed registry and connector fixtures
 	$(GO) run ./cmd/sourcectl verify --registry sources/registry.yaml --fixtures sources/fixtures.yaml

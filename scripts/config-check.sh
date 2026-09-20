@@ -3,7 +3,7 @@ set -euo pipefail
 
 docker compose -f compose.yaml config --quiet
 docker compose -f compose.yaml -f compose.dev.yaml config --quiet
-pnpm railway:check
+bash scripts/pnpm-tool.sh railway:check
 bash -n scripts/railway-plan.sh scripts/railway-readiness.sh \
   scripts/release-manifest.sh scripts/release-build.sh
 

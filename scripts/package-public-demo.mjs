@@ -21,6 +21,35 @@ const allowedHTML = new Set([
 ]);
 const hashes = new Set();
 const files = [];
+const commitPattern = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
+
+const sourceProvenance = () => {
+  try {
+    const sourceCommit = execFileSync("git", ["rev-parse", "--verify", "HEAD"], {
+      cwd: repository,
+      encoding: "utf8",
+    }).trim();
+    if (!commitPattern.test(sourceCommit)) throw new Error("Git returned an invalid source commit");
+    return {
+      sourceCommit,
+      sourceHasLocalChanges:
+        execFileSync("git", ["status", "--porcelain", "--untracked-files=all"], {
+          cwd: repository,
+          encoding: "utf8",
+        }).length > 0,
+    };
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
+    const sourceCommit = process.env.RELANTERN_SOURCE_COMMIT ?? "";
+    const dirty = process.env.RELANTERN_SOURCE_DIRTY ?? "";
+    if (!commitPattern.test(sourceCommit) || (dirty !== "true" && dirty !== "false")) {
+      throw new Error("Pinned Node container requires validated host Git provenance");
+    }
+    return { sourceCommit, sourceHasLocalChanges: dirty === "true" };
+  }
+};
+
+const provenance = sourceProvenance();
 
 const inspectDirectory = async (directory, prefix = "") => {
   for (const entry of await readdir(directory, { withFileTypes: true })) {
@@ -81,13 +110,7 @@ await writeFile(
     {
       project: "relantern",
       kind: "synthetic-static-demo",
-      sourceCommit: execFileSync("git", ["rev-parse", "HEAD"], {
-        cwd: repository,
-        encoding: "utf8",
-      }).trim(),
-      sourceHasLocalChanges:
-        execFileSync("git", ["status", "--porcelain"], { cwd: repository, encoding: "utf8" })
-          .length > 0,
+      ...provenance,
       files: files.sort((a, b) => a.path.localeCompare(b.path)),
     },
     null,
