@@ -159,6 +159,50 @@ func TestStorePersistsIdempotentClaimsEvidenceUsageAndReviewPolicy(t *testing.T)
 	}
 }
 
+func TestStoreRejectsClaimsWhenEvidenceWasPrunedAfterPreparation(t *testing.T) {
+	pool := openIntegrationDatabase(t)
+	store, err := pgstore.New(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2042, time.April, 16, 12, 0, 0, 0, time.UTC)
+	for _, kind := range []string{"raw", "normalized"} {
+		t.Run(kind, func(t *testing.T) {
+			fixture := insertExtractionFixture(t, pool, now, "T0")
+			prepared, err := store.Prepare(context.Background(), extraction.ProcessRequest{
+				ItemID: fixture.ItemID, RevisionID: fixture.RevisionID,
+			}, now.Add(time.Minute))
+			if err != nil {
+				t.Fatal(err)
+			}
+			statement := `update app.content_revisions
+				set normalized_text_object_key = null, normalized_text_pruned_at = $2
+				where id = $1::uuid`
+			if kind == "raw" {
+				statement = `update app.raw_documents
+					set object_key = null, raw_pruned_at = $2
+					where id = (select raw_document_id from app.content_revisions where id = $1::uuid)`
+			}
+			if _, err := pool.Exec(context.Background(), statement, fixture.RevisionID, now.Add(2*time.Minute)); err != nil {
+				t.Fatal(err)
+			}
+			_, err = store.Complete(context.Background(), prepared, extraction.Completion{
+				CompletedState: "completed",
+				Output: extraction.Output{Claims: []extraction.Claim{{
+					ClaimType: "version", ClaimText: "Go 1.27 is released.", NormalizedValue: "1.27",
+				}}},
+			}, now.Add(3*time.Minute))
+			if err == nil {
+				t.Fatal("Complete() accepted pruned claim evidence")
+			}
+			var claims int
+			if err := pool.QueryRow(context.Background(), `select count(*) from app.claims where revision_id = $1::uuid`, fixture.RevisionID).Scan(&claims); err != nil || claims != 0 {
+				t.Fatalf("claims after rejected completion = %d, %v", claims, err)
+			}
+		})
+	}
+}
+
 func TestStorePersistsRetryableAndIntegrityFailures(t *testing.T) {
 	pool := openIntegrationDatabase(t)
 	now := time.Date(2044, time.June, 10, 12, 0, 0, 0, time.UTC)

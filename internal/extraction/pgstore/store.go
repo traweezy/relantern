@@ -420,6 +420,19 @@ func (store *Store) Complete(
 		}
 		return extraction.ProcessResult{RunID: prepared.RunID, Obsolete: true}, nil
 	}
+	var evidenceAvailable bool
+	err = transaction.QueryRow(ctx, `
+		select revision.normalized_text_object_key is not null and raw.object_key is not null
+		from app.content_revisions revision
+		join app.raw_documents raw on raw.id = revision.raw_document_id
+		where revision.id = $1::uuid
+		for share of revision, raw`, prepared.RevisionID).Scan(&evidenceAvailable)
+	if err != nil {
+		return extraction.ProcessResult{}, fmt.Errorf("lock extraction evidence: %w", err)
+	}
+	if !evidenceAvailable {
+		return extraction.ProcessResult{}, errors.New("structured extraction evidence was pruned before claim completion")
+	}
 	validatedOutput, err := json.Marshal(completion.Output)
 	if err != nil {
 		return extraction.ProcessResult{}, fmt.Errorf("encode validated structured extraction: %w", err)

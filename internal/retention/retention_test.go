@@ -25,7 +25,10 @@ func (fixture *repositoryFixture) RawCandidates(context.Context, time.Time, int)
 	fixture.raw = nil
 	return candidates, nil
 }
-func (fixture *repositoryFixture) MarkRawPruned(context.Context, retention.ObjectCandidate, time.Time) (bool, error) {
+func (fixture *repositoryFixture) PruneRaw(ctx context.Context, candidate retention.ObjectCandidate, _ time.Time, _ time.Time, objects retention.ObjectStore) (bool, error) {
+	if err := objects.Delete(ctx, candidate.Key); err != nil {
+		return false, err
+	}
 	return true, nil
 }
 func (fixture *repositoryFixture) NormalizedCandidates(context.Context, time.Time, int) ([]retention.ObjectCandidate, error) {
@@ -33,7 +36,10 @@ func (fixture *repositoryFixture) NormalizedCandidates(context.Context, time.Tim
 	fixture.normalized = nil
 	return candidates, nil
 }
-func (fixture *repositoryFixture) MarkNormalizedPruned(context.Context, retention.ObjectCandidate, time.Time) (bool, error) {
+func (fixture *repositoryFixture) PruneNormalized(ctx context.Context, candidate retention.ObjectCandidate, _ time.Time, _ time.Time, objects retention.ObjectStore) (bool, error) {
+	if err := objects.Delete(ctx, candidate.Key); err != nil {
+		return false, err
+	}
 	return true, nil
 }
 func (*repositoryFixture) PruneOperational(context.Context, retention.Policy, time.Time) (retention.Counts, error) {

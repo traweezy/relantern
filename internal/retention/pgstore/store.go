@@ -93,6 +93,7 @@ func (store *Store) RawCandidates(ctx context.Context, cutoff time.Time, limit i
 		from app.raw_documents document
 		where document.object_key is not null
 			and document.first_seen_at < $1
+			and document.ingestion_error_code is null
 			and not exists (
 				select 1
 				from app.content_revisions revision
@@ -104,7 +105,14 @@ func (store *Store) RawCandidates(ctx context.Context, cutoff time.Time, limit i
 				from app.content_revisions revision
 				join app.item_sources source on source.revision_id = revision.id
 				join app.items item on item.id = source.item_id
-				where revision.raw_document_id = document.id and item.lifecycle_state = 'published'
+				where revision.raw_document_id = document.id and (
+					item.lifecycle_state = 'published'
+					or exists (
+						select 1 from app.cluster_members member
+						join app.research_briefs brief on brief.cluster_id = member.cluster_id
+						where member.item_id = item.id
+					)
+				)
 			)
 		order by document.first_seen_at, document.id
 		limit $2`, cutoff, limit)
@@ -114,19 +122,83 @@ func (store *Store) RawCandidates(ctx context.Context, cutoff time.Time, limit i
 	return collectCandidates(rows, "raw")
 }
 
-func (store *Store) MarkRawPruned(
+func (store *Store) PruneRaw(
 	ctx context.Context,
 	candidate retention.ObjectCandidate,
+	cutoff time.Time,
 	now time.Time,
+	objects retention.ObjectStore,
 ) (bool, error) {
 	command, err := store.pool.Exec(ctx, `
-		update app.raw_documents
-		set object_key = null, raw_pruned_at = $3
-		where id = $1::uuid and object_key = $2 and raw_pruned_at is null`, candidate.ID, candidate.Key, now)
+		update app.raw_documents document
+		set object_key = null, raw_pruned_at = $4
+		where document.id = $1::uuid and document.object_key = $2
+			and document.raw_pruned_at is null and document.first_seen_at < $3
+			and document.ingestion_error_code is null
+			and not exists (
+				select 1 from app.content_revisions revision
+				join app.claims claim on claim.revision_id = revision.id
+				where revision.raw_document_id = document.id
+			)
+			and not exists (
+				select 1 from app.content_revisions revision
+				join app.item_sources source on source.revision_id = revision.id
+				join app.items item on item.id = source.item_id
+				where revision.raw_document_id = document.id and (
+					item.lifecycle_state = 'published'
+					or exists (
+						select 1 from app.cluster_members member
+						join app.research_briefs brief on brief.cluster_id = member.cluster_id
+						where member.item_id = item.id
+					)
+				)
+			)`, candidate.ID, candidate.Key, cutoff, now)
 	if err != nil {
-		return false, fmt.Errorf("mark raw object pruned: %w", err)
+		return false, fmt.Errorf("mark eligible raw object pruned: %w", err)
 	}
-	return command.RowsAffected() == 1, nil
+	if command.RowsAffected() == 0 {
+		return false, nil
+	}
+	var protected, reused bool
+	err = store.pool.QueryRow(ctx, `
+		select
+			exists (
+				select 1 from app.content_revisions revision
+				where revision.raw_document_id = $1::uuid and (
+					exists (select 1 from app.claims claim where claim.revision_id = revision.id)
+					or exists (
+						select 1 from app.item_sources source
+						join app.items item on item.id = source.item_id
+						where source.revision_id = revision.id and (
+							item.lifecycle_state = 'published'
+							or exists (
+								select 1 from app.cluster_members member
+								join app.research_briefs brief on brief.cluster_id = member.cluster_id
+								where member.item_id = item.id
+							)
+						)
+					)
+				)
+			),
+			exists (select 1 from app.raw_documents where object_key = $2)`,
+		candidate.ID, candidate.Key).Scan(&protected, &reused)
+	if err != nil {
+		return false, errors.Join(fmt.Errorf("recheck raw object protection: %w", err), store.restoreRaw(ctx, candidate, now))
+	}
+	if reused {
+		// A newer row now owns the same key. The old reference was pruned, but
+		// deleting the shared object would erase the newer row's evidence.
+		return false, nil
+	}
+	if protected {
+		return false, store.restoreRaw(ctx, candidate, now)
+	}
+	if err := objects.Delete(ctx, candidate.Key); err != nil {
+		// Delete may have reached object storage before its response failed.
+		// Keep the database reference pruned rather than point at a missing object.
+		return false, fmt.Errorf("delete pruned raw object %q; inspect for an orphan: %w", candidate.Key, err)
+	}
+	return true, nil
 }
 
 func (store *Store) NormalizedCandidates(
@@ -135,17 +207,31 @@ func (store *Store) NormalizedCandidates(
 	limit int,
 ) ([]retention.ObjectCandidate, error) {
 	rows, err := store.pool.Query(ctx, `
-		select revision.id::text, revision.normalized_text_object_key
+		select min(revision.id::text), revision.normalized_text_object_key
 		from app.content_revisions revision
 		where revision.normalized_text_object_key is not null
-			and revision.observed_at < $1
-			and not exists (select 1 from app.claims claim where claim.revision_id = revision.id)
-			and not exists (
+		group by revision.normalized_text_object_key
+		having bool_and(revision.observed_at < $1)
+			and bool_and(not exists (
+				select 1 from app.raw_documents raw
+				where raw.id = revision.raw_document_id and raw.ingestion_error_code is not null
+			))
+			and bool_and(not exists (
+				select 1 from app.claims claim where claim.revision_id = revision.id
+			))
+			and bool_and(not exists (
 				select 1 from app.item_sources source
 				join app.items item on item.id = source.item_id
-				where source.revision_id = revision.id and item.lifecycle_state = 'published'
-			)
-		order by revision.observed_at, revision.id
+				where source.revision_id = revision.id and (
+					item.lifecycle_state = 'published'
+					or exists (
+						select 1 from app.cluster_members member
+						join app.research_briefs brief on brief.cluster_id = member.cluster_id
+						where member.item_id = item.id
+					)
+				)
+			))
+		order by min(revision.observed_at), revision.normalized_text_object_key
 		limit $2`, cutoff, limit)
 	if err != nil {
 		return nil, fmt.Errorf("select normalized retention candidates: %w", err)
@@ -153,20 +239,165 @@ func (store *Store) NormalizedCandidates(
 	return collectCandidates(rows, "normalized")
 }
 
-func (store *Store) MarkNormalizedPruned(
+func (store *Store) PruneNormalized(
 	ctx context.Context,
 	candidate retention.ObjectCandidate,
+	cutoff time.Time,
 	now time.Time,
-) (bool, error) {
-	command, err := store.pool.Exec(ctx, `
-		update app.content_revisions
-		set normalized_text_object_key = null, normalized_text_pruned_at = $3
-		where id = $1::uuid and normalized_text_object_key = $2
-			and normalized_text_pruned_at is null`, candidate.ID, candidate.Key, now)
+	objects retention.ObjectStore,
+) (pruned bool, resultError error) {
+	connection, err := store.pool.Acquire(ctx)
 	if err != nil {
-		return false, fmt.Errorf("mark normalized object pruned: %w", err)
+		return false, fmt.Errorf("acquire normalized retention connection: %w", err)
 	}
-	return command.RowsAffected() == 1, nil
+	if _, err := connection.Exec(ctx, `
+		select pg_advisory_lock(hashtextextended('relantern:normalized:' || $1, 0))`, candidate.Key); err != nil {
+		closeContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = connection.Conn().Close(closeContext)
+		connection.Release()
+		return false, fmt.Errorf("lock normalized object key: %w", err)
+	}
+	defer func() {
+		unlockContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		var unlocked bool
+		unlockError := connection.QueryRow(unlockContext, `
+			select pg_advisory_unlock(hashtextextended('relantern:normalized:' || $1, 0))`, candidate.Key).Scan(&unlocked)
+		if unlockError != nil || !unlocked {
+			closeContext, closeCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer closeCancel()
+			resultError = errors.Join(resultError, fmt.Errorf("release normalized object key lock: %v, unlocked=%t", unlockError, unlocked), connection.Conn().Close(closeContext))
+		}
+		connection.Release()
+	}()
+	return store.pruneNormalizedLocked(ctx, connection, candidate, cutoff, now, objects)
+}
+
+func (store *Store) pruneNormalizedLocked(
+	ctx context.Context,
+	connection *pgxpool.Conn,
+	candidate retention.ObjectCandidate,
+	cutoff time.Time,
+	now time.Time,
+	objects retention.ObjectStore,
+) (bool, error) {
+	rows, err := connection.Query(ctx, `
+		update app.content_revisions revision
+		set normalized_text_object_key = null, normalized_text_pruned_at = $3
+		where revision.normalized_text_object_key = $2
+			and exists (select 1 from app.content_revisions representative
+				where representative.id = $1::uuid and representative.normalized_text_object_key = $2)
+			and not exists (
+				select 1 from app.content_revisions other
+				join app.raw_documents raw on raw.id = other.raw_document_id
+				where other.normalized_text_object_key = $2 and (
+					other.observed_at >= $4 or other.normalized_text_pruned_at is not null
+					or raw.ingestion_error_code is not null
+					or exists (select 1 from app.claims claim where claim.revision_id = other.id)
+					or exists (
+						select 1 from app.item_sources source
+						join app.items item on item.id = source.item_id
+						where source.revision_id = other.id and (
+							item.lifecycle_state = 'published'
+							or exists (
+								select 1 from app.cluster_members member
+								join app.research_briefs brief on brief.cluster_id = member.cluster_id
+								where member.item_id = item.id
+							)
+						)
+					)
+				)
+			)
+		returning revision.id::text`, candidate.ID, candidate.Key, now, cutoff)
+	if err != nil {
+		return false, fmt.Errorf("mark eligible normalized object pruned: %w", err)
+	}
+	ids := make([]string, 0, 1)
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return false, fmt.Errorf("scan pruned normalized revision: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return false, fmt.Errorf("iterate pruned normalized revisions: %w", err)
+	}
+	rows.Close()
+	if len(ids) == 0 {
+		return false, nil
+	}
+	var protected, reused bool
+	err = connection.QueryRow(ctx, `
+		select
+			exists (
+				select 1 from app.content_revisions revision
+				where revision.id = any($1::uuid[]) and (
+					exists (select 1 from app.claims claim where claim.revision_id = revision.id)
+					or exists (
+						select 1 from app.item_sources source
+						join app.items item on item.id = source.item_id
+						where source.revision_id = revision.id and (
+							item.lifecycle_state = 'published'
+							or exists (
+								select 1 from app.cluster_members member
+								join app.research_briefs brief on brief.cluster_id = member.cluster_id
+								where member.item_id = item.id
+							)
+						)
+					)
+				)
+			),
+			exists (select 1 from app.content_revisions where normalized_text_object_key = $2)`,
+		ids, candidate.Key).Scan(&protected, &reused)
+	if err != nil {
+		return false, errors.Join(fmt.Errorf("recheck normalized object protection: %w", err), store.restoreNormalized(ctx, connection, candidate, now, ids))
+	}
+	if protected || reused {
+		return false, store.restoreNormalized(ctx, connection, candidate, now, ids)
+	}
+	if err := objects.Delete(ctx, candidate.Key); err != nil {
+		// A transport error cannot distinguish a failed delete from a lost
+		// success response, so references stay pruned in both cases.
+		return false, fmt.Errorf("delete pruned normalized object %q; inspect for an orphan: %w", candidate.Key, err)
+	}
+	return true, nil
+}
+
+func (store *Store) restoreRaw(ctx context.Context, candidate retention.ObjectCandidate, now time.Time) error {
+	restoreCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer cancel()
+	command, err := store.pool.Exec(restoreCtx, `
+		update app.raw_documents
+		set object_key = $2, raw_pruned_at = null
+		where id = $1::uuid and object_key is null and raw_pruned_at = $3`, candidate.ID, candidate.Key, now)
+	if err != nil {
+		return fmt.Errorf("restore raw object reference: %w", err)
+	}
+	if command.RowsAffected() != 1 {
+		return errors.New("raw object reference changed before restoration")
+	}
+	return nil
+}
+
+func (store *Store) restoreNormalized(ctx context.Context, connection *pgxpool.Conn, candidate retention.ObjectCandidate, now time.Time, ids []string) error {
+	restoreCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer cancel()
+	command, err := connection.Exec(restoreCtx, `
+		update app.content_revisions
+		set normalized_text_object_key = $2, normalized_text_pruned_at = null
+		where id = any($1::uuid[]) and normalized_text_object_key is null
+			and normalized_text_pruned_at = $3`, ids, candidate.Key, now)
+	if err != nil {
+		return fmt.Errorf("restore normalized object references: %w", err)
+	}
+	if command.RowsAffected() != int64(len(ids)) {
+		return errors.New("normalized object references changed before restoration")
+	}
+	return nil
 }
 
 func (store *Store) PruneOperational(
