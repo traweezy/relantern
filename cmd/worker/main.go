@@ -220,6 +220,13 @@ func run(arguments []string, logger *slog.Logger) error {
 	if err != nil {
 		return fmt.Errorf("create source ingestion store: %w", err)
 	}
+	sourceCapabilities := ingestion.HandoffCapabilities{
+		ExtractEnabled:  extractor != nil,
+		ResearchEnabled: openAIResearchConfig.Enabled,
+	}
+	if reembedder != nil {
+		sourceCapabilities.EmbeddingModelID = embeddingSearchConfig.ModelID
+	}
 	sourceLimiter, err := fetcher.NewHostLimiter(12, 2, time.Second)
 	if err != nil {
 		return fmt.Errorf("create source host limiter: %w", err)
@@ -234,6 +241,7 @@ func run(arguments []string, logger *slog.Logger) error {
 	sourcePoller, err := ingestion.NewPoller(
 		sourceStore, sourceNetwork, common.Clock, logger,
 		os.Getenv("ALLOW_LIVE_EXTERNAL_APIS") == "true",
+		sourceCapabilities,
 	)
 	if err != nil {
 		return fmt.Errorf("create source poller: %w", err)
@@ -254,7 +262,7 @@ func run(arguments []string, logger *slog.Logger) error {
 	if err != nil {
 		return fmt.Errorf("create source dedupe store: %w", err)
 	}
-	sourceParser, err := ingestion.NewParseWorker(sourceStore, rawStore, sourceParsingProcessor, sourceDedupeStore, logger)
+	sourceParser, err := ingestion.NewParseWorker(sourceStore, rawStore, sourceParsingProcessor, sourceDedupeStore, logger, sourceCapabilities)
 	if err != nil {
 		return fmt.Errorf("create source parse worker: %w", err)
 	}
@@ -304,6 +312,7 @@ func run(arguments []string, logger *slog.Logger) error {
 			inserter,
 			limiter,
 			embeddingSearchConfig.ModelID,
+			extractor != nil,
 			common.Environment == config.EnvironmentLocal || common.Environment == config.EnvironmentTest,
 		)
 		if err != nil {

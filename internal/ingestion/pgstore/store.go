@@ -9,11 +9,14 @@ import (
 	"errors"
 	"fmt"
 	"hash/fnv"
+	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/traweezy/relantern/internal/clock"
+	"github.com/traweezy/relantern/internal/dedupe"
 	"github.com/traweezy/relantern/internal/fetcher"
 	fetchstore "github.com/traweezy/relantern/internal/fetcher/pgstore"
 	"github.com/traweezy/relantern/internal/ingestion"
@@ -23,11 +26,13 @@ import (
 )
 
 type Store struct {
-	pool    *pgxpool.Pool
-	jobs    *jobqueue.Inserter
-	fetches fetchstore.Store
-	objects entryObjectStore
-	clock   clock.Clock
+	pool           *pgxpool.Pool
+	jobs           *jobqueue.Inserter
+	fetches        fetchstore.Store
+	objects        entryObjectStore
+	clock          clock.Clock
+	researchMu     sync.Mutex
+	researchCursor string
 }
 
 type entryObjectStore interface {
@@ -241,6 +246,117 @@ func (store *Store) ClearIngestionFailure(ctx context.Context, document ingestio
 	}
 	if result.RowsAffected() != 1 {
 		return errors.New("source entry raw document was not found")
+	}
+	return nil
+}
+
+// CompleteParsedRevision commits the parser replay acknowledgement together
+// with downstream jobs. A failed enqueue leaves the raw marker available for
+// reconciliation, even though normalization and deduplication already commit
+// their own idempotent records.
+func (store *Store) CompleteParsedRevision(
+	ctx context.Context,
+	document ingestion.RawDocument,
+	registryID string,
+	decision dedupe.ProcessResult,
+	revisionID string,
+	capabilities ingestion.HandoffCapabilities,
+) error {
+	if store.clock == nil {
+		return errors.New("source revision handoff requires a clock")
+	}
+	for _, identifier := range []string{document.ID, decision.ItemID, decision.ClusterID, revisionID} {
+		if _, err := uuid.Parse(identifier); err != nil {
+			return errors.New("source revision handoff requires UUID identities")
+		}
+	}
+	if document.SourceID == "" || registryID == "" {
+		return errors.New("source revision handoff requires source and registry identities")
+	}
+	tx, err := store.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	if err != nil {
+		return fmt.Errorf("begin source revision handoff: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	var currentRevisionID string
+	var lifecycleState string
+	var sourceRole string
+	var sourceTier string
+	err = tx.QueryRow(ctx, `
+		select item.current_revision_id::text, item.lifecycle_state,
+			item_source.source_role, item_source.source_tier
+		from app.raw_documents raw
+		join app.content_revisions revision on revision.raw_document_id = raw.id
+		join app.dedupe_decisions dedupe on dedupe.revision_id = revision.id
+		join app.items item on item.id = dedupe.item_id
+		join app.item_sources item_source on item_source.revision_id = revision.id
+			and item_source.item_id = item.id
+		where raw.id = $1::uuid and raw.source_id = $2
+			and raw.source_registry_id = $3 and revision.id = $4::uuid
+			and dedupe.item_id = $5::uuid and dedupe.cluster_id = $6::uuid
+		for update of raw, item`,
+		document.ID, document.SourceID, registryID, revisionID,
+		decision.ItemID, decision.ClusterID,
+	).Scan(&currentRevisionID, &lifecycleState, &sourceRole, &sourceTier)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return errors.New("source revision handoff does not match proven raw and dedupe identities")
+	}
+	if err != nil {
+		return fmt.Errorf("lock source revision handoff: %w", err)
+	}
+	if currentRevisionID == revisionID && sourceRole == "primary" {
+		if capabilities.EmbeddingModelID != "" {
+			var indexReady bool
+			if err := tx.QueryRow(ctx, `
+				select exists (
+					select 1 from app.search_documents search
+					join app.embeddings embedding on embedding.id = search.embedding_id
+					where search.item_id = $1::uuid and search.revision_id = $2::uuid
+						and embedding.entity_type = 'item' and embedding.entity_id = $1::uuid
+						and embedding.model_id = $3
+				)`, decision.ItemID, revisionID, capabilities.EmbeddingModelID).Scan(&indexReady); err != nil {
+				return fmt.Errorf("inspect source revision index state: %w", err)
+			}
+			if !indexReady {
+				if _, _, err := store.jobs.EnqueueReembedEntity(ctx, tx, jobqueue.ReembedEntityArgs{
+					EntityType: "item", EntityID: decision.ItemID,
+					RevisionID: revisionID, ModelID: capabilities.EmbeddingModelID,
+				}); err != nil {
+					return err
+				}
+			}
+		}
+		if capabilities.ExtractEnabled && lifecycleState == "clustered" &&
+			(sourceTier == "T0" || sourceTier == "T1") {
+			if _, _, err := store.jobs.EnqueueExtractItem(ctx, tx, jobqueue.ExtractItemArgs{
+				ItemID: decision.ItemID, RevisionID: revisionID,
+			}); err != nil {
+				return err
+			}
+			if _, err := tx.Exec(ctx, `
+				update app.items set lifecycle_state = 'awaiting_ai', updated_at = $3
+				where id = $1::uuid and current_revision_id = $2::uuid
+					and lifecycle_state = 'clustered'`,
+				decision.ItemID, revisionID, store.clock.Now().UTC()); err != nil {
+				return fmt.Errorf("mark source item awaiting extraction: %w", err)
+			}
+		}
+	}
+	result, err := tx.Exec(ctx, `
+		update app.raw_documents
+		set ingestion_error_code = null, ingestion_failed_at = null,
+			source_connector = coalesce(source_connector, $3),
+			source_content_type = coalesce(source_content_type, $4)
+		where id = $1::uuid and source_registry_id = $2`,
+		document.ID, registryID, string(document.Connector), document.ContentType)
+	if err != nil {
+		return fmt.Errorf("acknowledge parsed source revision: %w", err)
+	}
+	if result.RowsAffected() != 1 {
+		return errors.New("parsed source revision lost its raw provenance")
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit source revision handoff: %w", err)
 	}
 	return nil
 }

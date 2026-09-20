@@ -15,6 +15,7 @@ if [[ "${1:-}" == inside ]]; then
     ./internal/embedding/pgstore ./internal/extraction/pgstore \
     ./internal/fetcher/pgstore ./internal/ingestion/pgstore \
     ./internal/intelligence/pgstore ./internal/jobqueue \
+    ./internal/manualcapture \
     ./internal/openaiwebhook ./internal/operability \
     ./internal/parsing/pgstore ./internal/radar/pgstore \
     ./internal/readingstate/pgstore ./internal/reembedding \
