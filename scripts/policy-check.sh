@@ -4,6 +4,14 @@ set -euo pipefail
 test -f pnpm-lock.yaml || { printf 'pnpm-lock.yaml is required.\n' >&2; exit 1; }
 test -f go.sum || { printf 'go.sum is required.\n' >&2; exit 1; }
 
+if rg -n '(^|[[:space:];|&])(npm|npx|yarn|yarnpkg|bun|bunx)([[:space:]]|$)' \
+  deploy/docker deploy/demo scripts \
+  --glob '*.Dockerfile' --glob 'Dockerfile' --glob '*.sh' --glob '*.mjs' \
+  --glob '!policy-check.sh'; then
+  printf 'Production inputs must use the pinned pnpm installer, not another package manager.\n' >&2
+  exit 1
+fi
+
 if rg -n '(@mui/|material-ui|eslint|prettier)' --glob '**/package.json' .; then
   printf 'Forbidden UI or formatting dependency detected.\n' >&2
   exit 1

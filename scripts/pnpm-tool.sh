@@ -17,4 +17,4 @@ exec docker run --rm \
   --volume "$(pwd):/workspace" \
   --workdir /workspace \
   node:26.8.1-bookworm-slim@sha256:367679cf9792759492a486e4aa4b421764d71a9546a6dae8aab81a99eb797b3e \
-  npx --yes pnpm@11.24.0 "$@"
+  sh -c 'node scripts/install-pnpm.mjs /tmp/relantern-pnpm && export PATH="/tmp/relantern-pnpm:$PATH" && exec pnpm "$@"' sh "$@"
