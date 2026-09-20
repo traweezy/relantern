@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/traweezy/relantern/internal/jobqueue"
+	"github.com/traweezy/relantern/internal/sources"
 )
 
 const advisoryCatchUpPageSize = 16
@@ -15,6 +16,8 @@ const advisoryCatchUpPageSize = 16
 type advisoryRevision struct {
 	rawDocumentID string
 	revisionID    string
+	endpointURL   string
+	parentURL     string
 }
 
 // CatchUp pages through current official advisory revisions. It queues the
@@ -49,7 +52,7 @@ func (store *Store) CatchUp(ctx context.Context, args jobqueue.ReassessCurrentAd
 	}
 
 	rows, err := tx.Query(ctx, `
-		select distinct revision.id, child.id
+		select distinct revision.id, child.id, endpoint.url, parent.canonical_url
 		from app.content_revisions revision
 		join app.raw_documents child on child.id = revision.raw_document_id
 		join app.raw_documents parent on parent.id = child.parent_raw_document_id
@@ -64,7 +67,18 @@ func (store *Store) CatchUp(ctx context.Context, args jobqueue.ReassessCurrentAd
 			and parent.source_connector = 'github_advisories'
 			and child.source_connector = 'source_entry'
 			and endpoint.source_id = child.source_id and endpoint.connector = 'github_advisories'
-			and parent.canonical_url = endpoint.url
+			and (parent.canonical_url = endpoint.url or (
+				endpoint.url = '`+sources.GlobalReviewedAdvisoriesURL+`' and exists (
+					select 1 from app.source_fetches source_fetch
+					where source_fetch.endpoint_id = endpoint.id
+						and source_fetch.outcome = 'stored'
+						and source_fetch.final_url = parent.canonical_url
+						and source_fetch.object_key = parent.object_key
+						and source_fetch.raw_sha256 = parent.raw_sha256
+						and source_fetch.attempted_at = parent.first_seen_at
+						and source_fetch.completed_at = parent.first_fetched_at
+				)
+			))
 			and child.content_policy = 'link-and-excerpt'
 			and child.object_key is not null and child.raw_pruned_at is null
 			and child.ingestion_error_code is null and parent.ingestion_error_code is null
@@ -86,7 +100,8 @@ func (store *Store) CatchUp(ctx context.Context, args jobqueue.ReassessCurrentAd
 	page := make([]advisoryRevision, 0, advisoryCatchUpPageSize)
 	for rows.Next() {
 		var candidate advisoryRevision
-		if err := rows.Scan(&candidate.revisionID, &candidate.rawDocumentID); err != nil {
+		if err := rows.Scan(&candidate.revisionID, &candidate.rawDocumentID,
+			&candidate.endpointURL, &candidate.parentURL); err != nil {
 			rows.Close()
 			return fmt.Errorf("scan advisory catch-up candidate: %w", err)
 		}
@@ -99,6 +114,9 @@ func (store *Store) CatchUp(ctx context.Context, args jobqueue.ReassessCurrentAd
 	rows.Close()
 
 	for _, candidate := range page {
+		if !officialAdvisoryParent(candidate.endpointURL, candidate.parentURL) {
+			continue
+		}
 		if _, _, err := store.jobs.EnqueueBackfillCriticalAdvisory(ctx, tx,
 			jobqueue.AssessCriticalAdvisoryArgs{
 				RawDocumentID: candidate.rawDocumentID, RevisionID: candidate.revisionID,

@@ -284,6 +284,34 @@ func TestGitHubAdvisoryEntriesPreserveBoundedStructuredEvidence(t *testing.T) {
 	}
 }
 
+func TestGlobalAdvisoryChildIdentityIsStableAcrossCursorPages(t *testing.T) {
+	root := sources.GlobalReviewedAdvisoriesURL
+	pageTwo := root + "&after=cursor-2"
+	advisory := testAdvisory()
+	advisory["html_url"] = "https://github.com/advisories/GHSA-abcd-1234-efgh"
+	advisory["type"] = "reviewed"
+	advisory["github_reviewed_at"] = "2026-09-20T09:01:00Z"
+	body, err := json.Marshal([]any{advisory})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := SplitEntries(context.Background(), sources.ConnectorGitHubAdvisories, root, body)
+	if err != nil || len(first) != 1 {
+		t.Fatalf("root advisory entries = %+v, %v", first, err)
+	}
+	second, err := SplitEntries(context.Background(), sources.ConnectorGitHubAdvisories, pageTwo, body)
+	if err != nil || len(second) != 1 {
+		t.Fatalf("continuation advisory entries = %+v, %v", second, err)
+	}
+	if first[0].ExternalID != second[0].ExternalID || first[0].URL != second[0].URL ||
+		!bytes.Equal(first[0].Payload, second[0].Payload) {
+		t.Fatalf("advisory moved pages but changed child identity: root=%+v page=%+v", first[0], second[0])
+	}
+	if err := ValidateEntry(pageTwo, second[0]); err != nil {
+		t.Fatalf("validate continuation child: %v", err)
+	}
+}
+
 func TestGitHubAdvisoryEntriesRejectMalformedOrOversizeMetadata(t *testing.T) {
 	for _, test := range []struct {
 		name   string
