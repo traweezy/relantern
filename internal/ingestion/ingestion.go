@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/traweezy/relantern/internal/clock"
@@ -42,14 +43,24 @@ type RawDocument struct {
 	SourceEntryID    string
 }
 
+// HandoffCapabilities names only downstream workers available in this process.
+// An empty embedding model or a false AI flag keeps that work durable for a
+// later reconciliation instead of queuing a job with no registered worker.
+type HandoffCapabilities struct {
+	EmbeddingModelID string
+	ExtractEnabled   bool
+	ResearchEnabled  bool
+}
+
 type Repository interface {
 	ScheduleDue(context.Context, time.Time, int) (int, error)
+	ReconcilePending(context.Context, HandoffCapabilities, int) (int, error)
 	LoadEndpoint(context.Context, string) (*Endpoint, error)
 	RecordFetch(context.Context, Endpoint, fetcher.Result, error) error
 	LoadRawDocument(context.Context, string, string) (RawDocument, error)
 	RecordEntries(context.Context, RawDocument, string, []parsing.Entry) (int, error)
 	RecordIngestionFailure(context.Context, RawDocument, string, parsing.ErrorCode) error
-	ClearIngestionFailure(context.Context, RawDocument, string) error
+	CompleteParsedRevision(context.Context, RawDocument, string, dedupe.ProcessResult, string, HandoffCapabilities) error
 }
 
 type Fetcher interface {
@@ -65,25 +76,42 @@ type Deduper interface {
 }
 
 type Poller struct {
-	repository Repository
-	fetcher    Fetcher
-	clock      clock.Clock
-	logger     *slog.Logger
-	enabled    bool
+	repository   Repository
+	fetcher      Fetcher
+	clock        clock.Clock
+	logger       *slog.Logger
+	enabled      bool
+	capabilities HandoffCapabilities
 }
 
-func NewPoller(repository Repository, configuredFetcher Fetcher, configuredClock clock.Clock, logger *slog.Logger, enabled bool) (*Poller, error) {
+func NewPoller(repository Repository, configuredFetcher Fetcher, configuredClock clock.Clock, logger *slog.Logger, enabled bool, capabilities HandoffCapabilities) (*Poller, error) {
 	if repository == nil || configuredFetcher == nil || configuredClock == nil || logger == nil {
 		return nil, errors.New("source poller requires repository, fetcher, clock, and logger")
 	}
-	return &Poller{repository: repository, fetcher: configuredFetcher, clock: configuredClock, logger: logger, enabled: enabled}, nil
+	if err := capabilities.validate(); err != nil {
+		return nil, err
+	}
+	return &Poller{repository: repository, fetcher: configuredFetcher, clock: configuredClock, logger: logger, enabled: enabled, capabilities: capabilities}, nil
 }
 
 func (poller *Poller) Reconcile(ctx context.Context) (int, error) {
-	if !poller.enabled {
-		return 0, nil
+	var due int
+	var scheduleErr error
+	if poller.enabled {
+		due, scheduleErr = poller.repository.ScheduleDue(ctx, poller.clock.Now().UTC(), 100)
+		if scheduleErr == nil {
+			poller.logger.InfoContext(ctx, "due source polling reconciled", "jobs_enqueued", due)
+		} else {
+			scheduleErr = fmt.Errorf("schedule due source polling: %w", scheduleErr)
+		}
 	}
-	return poller.repository.ScheduleDue(ctx, poller.clock.Now().UTC(), 100)
+	pending, pendingErr := poller.repository.ReconcilePending(ctx, poller.capabilities, 100)
+	if pendingErr == nil {
+		poller.logger.InfoContext(ctx, "pending source intelligence reconciled", "jobs_enqueued", pending)
+	} else {
+		pendingErr = fmt.Errorf("reconcile pending source intelligence: %w", pendingErr)
+	}
+	return due + pending, errors.Join(scheduleErr, pendingErr)
 }
 
 func (poller *Poller) Poll(ctx context.Context, registryID string) error {
@@ -130,18 +158,29 @@ type RawReader interface {
 }
 
 type ParseWorker struct {
-	repository Repository
-	objects    RawReader
-	parser     Parser
-	deduper    Deduper
-	logger     *slog.Logger
+	repository   Repository
+	objects      RawReader
+	parser       Parser
+	deduper      Deduper
+	logger       *slog.Logger
+	capabilities HandoffCapabilities
 }
 
-func NewParseWorker(repository Repository, objects RawReader, parser Parser, deduper Deduper, logger *slog.Logger) (*ParseWorker, error) {
+func NewParseWorker(repository Repository, objects RawReader, parser Parser, deduper Deduper, logger *slog.Logger, capabilities HandoffCapabilities) (*ParseWorker, error) {
 	if repository == nil || objects == nil || parser == nil || deduper == nil || logger == nil {
 		return nil, errors.New("source parser requires repository, object reader, parser, deduper, and logger")
 	}
-	return &ParseWorker{repository: repository, objects: objects, parser: parser, deduper: deduper, logger: logger}, nil
+	if err := capabilities.validate(); err != nil {
+		return nil, err
+	}
+	return &ParseWorker{repository: repository, objects: objects, parser: parser, deduper: deduper, logger: logger, capabilities: capabilities}, nil
+}
+
+func (capabilities HandoffCapabilities) validate() error {
+	if capabilities.EmbeddingModelID != strings.TrimSpace(capabilities.EmbeddingModelID) || len(capabilities.EmbeddingModelID) > 255 {
+		return errors.New("handoff embedding model ID must be trimmed and at most 255 bytes")
+	}
+	return nil
 }
 
 func (worker *ParseWorker) Parse(ctx context.Context, registryID string, rawDocumentID string) error {
@@ -214,8 +253,17 @@ func (worker *ParseWorker) Parse(ctx context.Context, registryID string, rawDocu
 	if err != nil {
 		return fmt.Errorf("deduplicate source document %s: %w", rawDocumentID, err)
 	}
-	if err := worker.repository.ClearIngestionFailure(ctx, document, registryID); err != nil {
-		return fmt.Errorf("clear source entry failure after dedupe: %w", err)
+	if err := worker.repository.CompleteParsedRevision(
+		ctx, document, registryID, decision, parsed.Recorded.RevisionID, worker.capabilities,
+	); err != nil {
+		handoffErr := fmt.Errorf("complete source revision handoff: %w", err)
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || ctx.Err() != nil {
+			return handoffErr
+		}
+		if recordErr := worker.repository.RecordIngestionFailure(ctx, document, registryID, parsing.ErrorCode("source_handoff_failed")); recordErr != nil {
+			return errors.Join(handoffErr, fmt.Errorf("persist source revision handoff failure: %w", recordErr))
+		}
+		return handoffErr
 	}
 	worker.logger.InfoContext(ctx, "source document parsed",
 		"registry_id", registryID,

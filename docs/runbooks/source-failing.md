@@ -48,6 +48,13 @@ committed registry and fixture contract, not publisher availability.
    either fuse being off keeps built-in sources dormant.
 5. Let durable checkpoints continue from their last committed cursor; do not
    delete checkpoints, raw documents, or revisions.
+6. Check the worker's separate `pending source intelligence reconciled` and
+   `due source polling reconciled` job counts. The former runs with a bounded
+   100-job batch whenever an embedding, fast-extraction, or research worker is
+   enabled, including when `ALLOW_LIVE_EXTERNAL_APIS=false`. It can restore
+   downstream work from stored current revisions without fetching a source.
+   New polls and replay of raw documents marked with `source_handoff_failed`
+   still require the live-source fuse and an active, unpaused source.
 
 ## Data-integrity checks
 
@@ -60,6 +67,24 @@ committed registry and fixture contract, not publisher availability.
 - Confirm the `reconcile_sources`, `poll_source_endpoint`, and
   `parse_raw_document` River jobs drain in order. A stored fetch and its parse
   job are committed in the same database transaction.
+- Confirm a successful leaf parse either queues eligible current-primary
+  `reembed_entity`/`extract_item` jobs or leaves the stored revision for later
+  capability-aware reconciliation. Raw parse-marker clearance and handoff
+  enqueue commit together; a failed handoff leaves `source_handoff_failed` for
+  replay. An older or nonprimary revision must not enqueue current-story work.
+- If a new primary revision has T2/T3 trust, confirm the item moves to
+  `needs_review` and no `extract_item` job is queued for that revision. Restoring
+  T0/T1 eligibility requires a reviewed source correction or later eligible
+  revision, not an operator-forced extraction job.
+- Check extraction and research only after the corresponding workers are
+  enabled. Research requires verified T0/T1 claims on the current story and
+  admission to an enabled owner's bounded, high-value digest selection before
+  its cutoff. Already queued work may start through the ten-minute completion
+  grace. A changed verified claim set from a supporting source can start new
+  synthesis even if the primary revision did not change; a replay with
+  identical claim inputs must not create another effective run.
+  Cancelled or discarded jobs require audited operator review and retry under
+  the queue recovery runbook; reconciliation does not retry them.
 - Confirm audit events record pause, validation, review, and resume actors and
   reasons.
 

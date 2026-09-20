@@ -159,6 +159,62 @@ func TestStorePersistsIdempotentDedupeAndClusters(t *testing.T) {
 	assertDedupeGraph(t, pool, revisions, created, secondRevision)
 }
 
+func TestStoreDemotesLifecycleWhenPrimaryRevisionLosesTrustedTier(t *testing.T) {
+	pool := openIntegrationDatabase(t)
+	now := time.Date(2035, time.September, 1, 12, 0, 0, 0, time.UTC)
+	store, err := pgstore.New(pool, clock.NewFixed(now.Add(time.Hour)), dedupe.DefaultConfig())
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	sources := insertIntegrationSources(t, pool, now)
+	canonicalURL := fmt.Sprintf("https://go.dev/blog/tier-downgrade-%d", time.Now().UnixNano())
+	first := insertRevision(t, pool, revisionFixture{
+		SourceID: sources[0], CanonicalURL: canonicalURL,
+		RawText: "original trusted release", NormalizedText: "Go release documentation covers runtime scheduling and compatibility for production services.",
+		Title: "Go release documentation", Author: "Go team", ObservedAt: now,
+	})
+	updated := insertRevision(t, pool, revisionFixture{
+		SourceID: sources[0], CanonicalURL: canonicalURL,
+		RawText: "updated downgraded release", NormalizedText: "Go release documentation covers runtime scheduling, compatibility, and migration for production services.",
+		Title: "Go release documentation", Author: "Go team", ObservedAt: now.Add(time.Minute),
+	})
+	cleanupIntegration(t, pool, []insertedRevision{first, updated})
+	created := processRevision(t, store, first, dedupe.ProcessRequest{
+		RevisionID: first.ID, NormalizedText: first.NormalizedText,
+	})
+	if _, err := pool.Exec(context.Background(), `update app.items
+		set lifecycle_state = 'published' where id = $1::uuid`, created.ItemID); err != nil {
+		t.Fatalf("mark prior item published: %v", err)
+	}
+	if _, err := pool.Exec(context.Background(), `update app.sources
+		set trust_tier = 'T2' where id = $1`, sources[0]); err != nil {
+		t.Fatalf("downgrade source trust tier: %v", err)
+	}
+	decision := processRevision(t, store, updated, dedupe.ProcessRequest{
+		RevisionID: updated.ID, NormalizedText: updated.NormalizedText,
+	})
+	if decision.Outcome != dedupe.OutcomeRevision || decision.ItemID != created.ItemID {
+		t.Fatalf("downgraded revision = %+v, original = %+v", decision, created)
+	}
+	var revisionID, lifecycleState, formerRole, currentRole, currentTier string
+	if err := pool.QueryRow(context.Background(), `
+		select item.current_revision_id::text, item.lifecycle_state,
+			former.source_role, current_source.source_role, current_source.source_tier
+		from app.items item
+		join app.item_sources former on former.revision_id = $2::uuid
+		join app.item_sources current_source on current_source.revision_id = $3::uuid
+		where item.id = $1::uuid`, created.ItemID, first.ID, updated.ID).Scan(
+		&revisionID, &lifecycleState, &formerRole, &currentRole, &currentTier,
+	); err != nil {
+		t.Fatalf("inspect downgraded primary provenance: %v", err)
+	}
+	if revisionID != updated.ID || lifecycleState != "needs_review" ||
+		formerRole != "supporting" || currentRole != "primary" || currentTier != "T2" {
+		t.Fatalf("downgraded primary revision=%q lifecycle=%q roles=%q/%q tier=%q",
+			revisionID, lifecycleState, formerRole, currentRole, currentTier)
+	}
+}
+
 func TestStoreSerializesConcurrentRevisionProcessing(t *testing.T) {
 	pool := openIntegrationDatabase(t)
 	now := time.Date(2036, time.January, 1, 12, 0, 0, 0, time.UTC)

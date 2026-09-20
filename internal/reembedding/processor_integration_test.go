@@ -140,6 +140,108 @@ func TestProcessorReembedsAndIndexesCurrentRevisionIdempotently(t *testing.T) {
 	}
 }
 
+func TestProcessorPinsReusedEmbeddingToUnchangedNewRevision(t *testing.T) {
+	pool := openReembeddingDatabase(t)
+	ctx := context.Background()
+	record := insertReembeddingRecord(t, pool)
+	cleanupReembeddingRecord(t, pool, record)
+	embeddingStore, err := embeddingstore.New(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	searchStore, err := searchstore.New(pool, embedding.DefaultDimensions, search.DefaultRRFK)
+	if err != nil {
+		t.Fatal(err)
+	}
+	vector := make(embedding.Vector, embedding.DefaultDimensions)
+	vector[0] = 1
+	processor := newFixtureProcessor(t, pool, fixtureReader{payload: []byte(record.content)},
+		fixtureEmbedder{vector: vector}, embeddingStore, searchStore)
+	first, err := processor.Process(ctx, reembedding.Request{
+		EntityType: "item", EntityID: record.itemID, RevisionID: record.revisionID,
+		ModelID: embedding.DefaultModelID,
+	})
+	if err != nil || !first.Inserted {
+		t.Fatalf("first Process() = %+v, %v", first, err)
+	}
+	digest := sha256.Sum256([]byte(record.content))
+	rawDigest := sha256.Sum256([]byte("revised-raw-" + uuid.NewString()))
+	var nextRawID string
+	if err := pool.QueryRow(ctx, `insert into app.raw_documents (
+		source_id, canonical_url, object_key, raw_sha256, first_seen_at,
+		first_fetched_at, source_published_at, content_policy
+	) values ($1, $2, $3, $4, $5, $5, $5, 'link-and-excerpt')
+	returning id::text`, record.sourceID,
+		"https://"+record.sourceID+".example.test/story",
+		fmt.Sprintf("raw/%s/2046/01/02/%x.txt", record.sourceID, rawDigest),
+		rawDigest[:], time.Date(2046, time.January, 2, 12, 1, 0, 0, time.UTC),
+	).Scan(&nextRawID); err != nil {
+		t.Fatal(err)
+	}
+	var nextRevisionID string
+	if err := pool.QueryRow(ctx, `
+		insert into app.content_revisions (
+			raw_document_id, previous_revision_id, normalized_sha256,
+			normalized_text_object_key, parser_name, parser_version, title,
+			author, language, source_published_at, normalized_bytes,
+			outline, offset_map, warnings, change_kind, change_reason,
+			material_change, observed_at
+		) values ($1::uuid, $2::uuid, $3, $4, 'reembedding-fixture', '2',
+			'PostgreSQL recovery readiness', 'Relantern', 'en', $5, $6,
+		'[]'::jsonb, '[]'::jsonb, '[]'::jsonb, 'material',
+		'same normalized content from a later raw observation', true, $5)
+		returning id::text`, nextRawID, record.revisionID, digest[:],
+		fmt.Sprintf("normalized/%s/%x.txt", record.sourceID, digest),
+		time.Date(2046, time.January, 2, 12, 1, 0, 0, time.UTC),
+		len(record.content)).Scan(&nextRevisionID); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(ctx, `delete from app.search_documents where item_id = $1::uuid`, record.itemID)
+		_, _ = pool.Exec(ctx, `update app.items set current_revision_id = $2::uuid where id = $1::uuid`, record.itemID, record.revisionID)
+		_, _ = pool.Exec(ctx, `delete from app.item_sources where revision_id = $1::uuid`, nextRevisionID)
+		_, _ = pool.Exec(ctx, `delete from app.content_revisions where id = $1::uuid`, nextRevisionID)
+		_, _ = pool.Exec(ctx, `delete from app.raw_documents where id = $1::uuid`, nextRawID)
+	})
+	if _, err := pool.Exec(ctx, `update app.item_sources set source_role = 'supporting', sort_order = 1
+		where item_id = $1::uuid and revision_id = $2::uuid`, record.itemID, record.revisionID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `insert into app.item_sources (
+		revision_id, item_id, canonical_url, source_role, source_tier, sort_order
+	) values ($1::uuid, $2::uuid, $3, 'primary', 'T0', 0)`, nextRevisionID,
+		record.itemID, "https://"+record.sourceID+".example.test/revised"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `update app.items set current_revision_id = $2::uuid
+		where id = $1::uuid`, record.itemID, nextRevisionID); err != nil {
+		t.Fatal(err)
+	}
+	second, err := processor.Process(ctx, reembedding.Request{
+		EntityType: "item", EntityID: record.itemID, RevisionID: nextRevisionID,
+		ModelID: embedding.DefaultModelID,
+	})
+	if err != nil || second.Inserted || second.Obsolete || second.EmbeddingID != first.EmbeddingID {
+		t.Fatalf("unchanged new revision Process() = %+v, %v", second, err)
+	}
+	var embeddingRevisionID, documentRevisionID, documentEmbeddingID, sourceTier string
+	if err := pool.QueryRow(ctx, `
+		select embedding.revision_id::text, document.revision_id::text,
+			document.embedding_id::text, document.source_tier
+		from app.search_documents document
+		join app.embeddings embedding on embedding.id = document.embedding_id
+		where document.item_id = $1::uuid`, record.itemID).Scan(
+		&embeddingRevisionID, &documentRevisionID, &documentEmbeddingID, &sourceTier,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if embeddingRevisionID != record.revisionID || documentRevisionID != nextRevisionID ||
+		documentEmbeddingID != first.EmbeddingID || sourceTier != "T0" {
+		t.Fatalf("reused vector pin = %s/%s/%s/%s", embeddingRevisionID,
+			documentRevisionID, documentEmbeddingID, sourceTier)
+	}
+}
+
 func TestProcessorRejectsNormalizedContentDigestMismatch(t *testing.T) {
 	pool := openReembeddingDatabase(t)
 	record := insertReembeddingRecord(t, pool)

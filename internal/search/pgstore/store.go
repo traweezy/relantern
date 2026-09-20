@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/traweezy/relantern/internal/embedding"
@@ -24,6 +25,8 @@ type Store struct {
 type IndexRequest struct {
 	ItemID            string
 	RevisionID        string
+	EmbeddingID       string
+	EmbeddingModelID  string
 	Summary           string
 	EntityNames       []string
 	NormalizedContent string
@@ -66,12 +69,23 @@ func New(pool *pgxpool.Pool, dimensions int, rrfK int) (*Store, error) {
 }
 
 func (store *Store) IndexDocument(ctx context.Context, request IndexRequest) error {
-	if strings.TrimSpace(request.ItemID) == "" || strings.TrimSpace(request.RevisionID) == "" {
-		return errors.New("search index item and revision IDs are required")
+	for _, identifier := range []string{request.ItemID, request.RevisionID, request.EmbeddingID} {
+		if _, err := uuid.Parse(identifier); err != nil {
+			return errors.New("search index requires item, revision, and embedding UUIDs")
+		}
+	}
+	if request.EmbeddingModelID == "" || strings.TrimSpace(request.EmbeddingModelID) != request.EmbeddingModelID ||
+		len(request.EmbeddingModelID) > 255 {
+		return errors.New("search index requires a bounded embedding model ID")
 	}
 	if strings.TrimSpace(request.NormalizedContent) == "" || len(request.NormalizedContent) > 1_000_000 {
 		return errors.New("search normalized content must contain between 1 and 1000000 characters")
 	}
+	embeddingInput, err := embedding.BoundedInput(request.NormalizedContent)
+	if err != nil {
+		return fmt.Errorf("validate search embedding input: %w", err)
+	}
+	digest := embedding.ContentDigest(embeddingInput)
 	if len(request.Summary) > 10_000 {
 		return errors.New("search summary may not exceed 10000 characters")
 	}
@@ -85,6 +99,7 @@ func (store *Store) IndexDocument(ctx context.Context, request IndexRequest) err
 		insert into app.search_documents (
 			item_id,
 			revision_id,
+			embedding_id,
 			title,
 			summary,
 			entity_text,
@@ -98,6 +113,7 @@ func (store *Store) IndexDocument(ctx context.Context, request IndexRequest) err
 		select
 			item.id,
 			item.current_revision_id,
+			embedding.id,
 			item.title,
 			$3,
 			$4,
@@ -108,15 +124,20 @@ func (store *Store) IndexDocument(ctx context.Context, request IndexRequest) err
 			item.published_at,
 			item.first_seen_at
 		from app.items item
+		join app.embeddings embedding on embedding.id = $6::uuid
+			and embedding.entity_type = 'item' and embedding.entity_id = item.id
+			and embedding.model_id = $7 and embedding.content_sha256 = $8
 		join lateral (
 			select source_tier
 			from app.item_sources
-			where item_id = item.id and source_role = 'primary'
+			where item_id = item.id and revision_id = item.current_revision_id
+				and source_role = 'primary'
 			limit 1
 		) primary_source on true
 		where item.id = $1::uuid and item.current_revision_id = $2::uuid
 		on conflict (item_id) do update set
 			revision_id = excluded.revision_id,
+			embedding_id = excluded.embedding_id,
 			title = excluded.title,
 			summary = excluded.summary,
 			entity_text = excluded.entity_text,
@@ -132,12 +153,15 @@ func (store *Store) IndexDocument(ctx context.Context, request IndexRequest) err
 		strings.TrimSpace(request.Summary),
 		entityText,
 		strings.TrimSpace(request.NormalizedContent),
+		request.EmbeddingID,
+		request.EmbeddingModelID,
+		digest[:],
 	)
 	if err != nil {
 		return fmt.Errorf("index search document: %w", err)
 	}
 	if result.RowsAffected() != 1 {
-		return errors.New("search document requires the item's current revision and primary source")
+		return errors.New("search document requires the current revision, primary source, and matching embedding")
 	}
 	return nil
 }
@@ -268,6 +292,8 @@ keyword_scored as (
 		) as keyword_score,
 		document.first_seen_at
 	from app.search_documents document
+	join app.items item on item.id = document.item_id
+		and item.current_revision_id = document.revision_id
 	cross join keyword_query
 	where
 		($6 = '' or document.lifecycle_state = $6)
@@ -295,24 +321,18 @@ semantic_scored as (
 		embedding.entity_id as item_id,
 		(embedding.embedding::vector(1536) <=> $4::vector(1536)) as distance,
 		document.first_seen_at
-	from app.embeddings embedding
-	join app.search_documents document on document.item_id = embedding.entity_id
+	from app.search_documents document
+	join app.items item on item.id = document.item_id
+		and item.current_revision_id = document.revision_id
+	join app.embeddings embedding on embedding.id = document.embedding_id
+		and embedding.entity_type = 'item' and embedding.entity_id = document.item_id
 	where
-		embedding.entity_type = 'item'
-		and embedding.model_id = $2
+		embedding.model_id = $2
 		and embedding.dimensions = $3
 		and ($6 = '' or document.lifecycle_state = $6)
 		and ($7 = '' or document.source_tier = $7)
 		and ($8::timestamptz is null or document.first_seen_at >= $8)
 		and ($9::timestamptz is null or document.first_seen_at < $9)
-		and not exists (
-			select 1
-			from app.embeddings newer
-			where newer.entity_type = embedding.entity_type
-				and newer.entity_id = embedding.entity_id
-				and newer.model_id = embedding.model_id
-				and (newer.created_at, newer.id) > (embedding.created_at, embedding.id)
-		)
 	order by embedding.embedding::vector(1536) <=> $4::vector(1536), embedding.entity_id
 	limit $10
 ),

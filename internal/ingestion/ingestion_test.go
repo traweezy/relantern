@@ -18,23 +18,44 @@ import (
 )
 
 type memoryRepository struct {
-	endpoint     *Endpoint
-	recorded     []fetcher.Result
-	recordError  error
-	document     RawDocument
-	entries      []parsing.Entry
-	entriesError error
-	pending      bool
-	splitCode    parsing.ErrorCode
-	failureRawID string
-	dueCount     int
+	endpoint             *Endpoint
+	recorded             []fetcher.Result
+	recordError          error
+	completeError        error
+	failureError         error
+	completeDecision     dedupe.ProcessResult
+	completeRevision     string
+	completeCapabilities HandoffCapabilities
+	document             RawDocument
+	entries              []parsing.Entry
+	entriesError         error
+	pending              bool
+	splitCode            parsing.ErrorCode
+	failureRawID         string
+	dueCount             int
+	pendingCount         int
+	scheduleError        error
+	pendingError         error
+	pendingCalls         int
+	scheduleCalls        int
+	reconcileOrder       []string
 }
 
 func (repository *memoryRepository) ScheduleDue(_ context.Context, _ time.Time, limit int) (int, error) {
+	repository.scheduleCalls++
+	repository.reconcileOrder = append(repository.reconcileOrder, "schedule")
 	if limit != 100 {
 		return 0, errors.New("unexpected source scheduling batch")
 	}
-	return repository.dueCount, nil
+	return repository.dueCount, repository.scheduleError
+}
+func (repository *memoryRepository) ReconcilePending(_ context.Context, _ HandoffCapabilities, limit int) (int, error) {
+	repository.pendingCalls++
+	repository.reconcileOrder = append(repository.reconcileOrder, "pending")
+	if limit != 100 {
+		return 0, errors.New("unexpected source intelligence reconciliation batch")
+	}
+	return repository.pendingCount, repository.pendingError
 }
 func (repository *memoryRepository) LoadEndpoint(context.Context, string) (*Endpoint, error) {
 	return repository.endpoint, nil
@@ -55,11 +76,25 @@ func (repository *memoryRepository) RecordEntries(_ context.Context, _ RawDocume
 	return len(entries), nil
 }
 func (repository *memoryRepository) RecordIngestionFailure(_ context.Context, document RawDocument, _ string, code parsing.ErrorCode) error {
+	if repository.failureError != nil {
+		return repository.failureError
+	}
 	repository.splitCode = code
 	repository.failureRawID = document.ID
+	repository.pending = true
 	return nil
 }
-func (repository *memoryRepository) ClearIngestionFailure(context.Context, RawDocument, string) error {
+func (repository *memoryRepository) CompleteParsedRevision(
+	_ context.Context, _ RawDocument, _ string, decision dedupe.ProcessResult,
+	revisionID string, capabilities HandoffCapabilities,
+) error {
+	if repository.completeError != nil {
+		return repository.completeError
+	}
+	repository.completeDecision = decision
+	repository.completeRevision = revisionID
+	repository.completeCapabilities = capabilities
+	repository.pending = false
 	return nil
 }
 
@@ -78,7 +113,7 @@ func TestPollSkipsPausedSourceAndRecordsProviderFailure(t *testing.T) {
 	now := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
 	repository := &memoryRepository{dueCount: 2}
 	provider := &fixtureFetcher{}
-	poller, err := NewPoller(repository, provider, clock.NewFixed(now), slog.New(slog.NewTextHandler(io.Discard, nil)), true)
+	poller, err := NewPoller(repository, provider, clock.NewFixed(now), slog.New(slog.NewTextHandler(io.Discard, nil)), true, HandoffCapabilities{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,21 +145,50 @@ func TestPollSkipsPausedSourceAndRecordsProviderFailure(t *testing.T) {
 	}
 }
 
-func TestDisabledPollerDoesNotReadDatabaseOrNetwork(t *testing.T) {
-	repository := &memoryRepository{dueCount: 3, endpoint: &Endpoint{RegistryID: "active"}}
+func TestDisabledPollerReconcilesPendingWithoutFetchingSources(t *testing.T) {
+	repository := &memoryRepository{dueCount: 3, pendingCount: 2, endpoint: &Endpoint{RegistryID: "active"}}
 	provider := &fixtureFetcher{}
-	poller, err := NewPoller(repository, provider, clock.NewFixed(time.Now()), slog.New(slog.NewTextHandler(io.Discard, nil)), false)
+	poller, err := NewPoller(repository, provider, clock.NewFixed(time.Now()), slog.New(slog.NewTextHandler(io.Discard, nil)), false, HandoffCapabilities{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if count, err := poller.Reconcile(context.Background()); err != nil || count != 0 {
+	if count, err := poller.Reconcile(context.Background()); err != nil || count != 2 {
 		t.Fatalf("disabled Reconcile() = %d, %v", count, err)
 	}
 	if err := poller.Poll(context.Background(), "active"); err != nil {
 		t.Fatal(err)
 	}
-	if provider.calls != 0 {
+	if provider.calls != 0 || repository.scheduleCalls != 0 || repository.pendingCalls != 1 {
 		t.Fatal("disabled poller made a provider request")
+	}
+}
+
+func TestPollerReconcileSchedulesSourcesEvenWhenIntelligenceRecoveryFails(t *testing.T) {
+	pendingErr := errors.New("research backlog unavailable")
+	repository := &memoryRepository{dueCount: 2, pendingError: pendingErr}
+	poller, err := NewPoller(repository, &fixtureFetcher{}, clock.NewFixed(time.Now()), slog.New(slog.NewTextHandler(io.Discard, nil)), true, HandoffCapabilities{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	count, err := poller.Reconcile(context.Background())
+	if count != 2 || !errors.Is(err, pendingErr) {
+		t.Fatalf("Reconcile() = %d, %v; want due sources and pending error", count, err)
+	}
+	if got := strings.Join(repository.reconcileOrder, ","); got != "schedule,pending" {
+		t.Fatalf("reconcile order = %q; want source scheduling first", got)
+	}
+}
+
+func TestPollerReconcileAttemptsIntelligenceRecoveryWhenSchedulingFails(t *testing.T) {
+	scheduleErr := errors.New("source schedule unavailable")
+	repository := &memoryRepository{pendingCount: 3, scheduleError: scheduleErr}
+	poller, err := NewPoller(repository, &fixtureFetcher{}, clock.NewFixed(time.Now()), slog.New(slog.NewTextHandler(io.Discard, nil)), true, HandoffCapabilities{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	count, err := poller.Reconcile(context.Background())
+	if count != 3 || !errors.Is(err, scheduleErr) || repository.pendingCalls != 1 {
+		t.Fatalf("Reconcile() = %d, %v; want pending recovery and schedule error", count, err)
 	}
 }
 
@@ -169,7 +233,7 @@ func TestParseLoadsCommittedRawObject(t *testing.T) {
 	reader := &fixtureReader{payload: feed}
 	parser := &fixtureParser{}
 	deduper := &fixtureDeduper{}
-	worker, err := NewParseWorker(repository, reader, parser, deduper, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	worker, err := NewParseWorker(repository, reader, parser, deduper, slog.New(slog.NewTextHandler(io.Discard, nil)), HandoffCapabilities{EmbeddingModelID: "text-embedding-3-small", ExtractEnabled: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -198,7 +262,8 @@ func TestParseLoadsCommittedRawObject(t *testing.T) {
 	if err := worker.Parse(context.Background(), "registry", "child"); err != nil {
 		t.Fatal(err)
 	}
-	if deduper.request.RevisionID != "revision" || len(repository.entries) != 1 {
+	if deduper.request.RevisionID != "revision" || len(repository.entries) != 1 ||
+		repository.completeRevision != "revision" || !repository.completeCapabilities.ExtractEnabled {
 		t.Fatalf("child did not enter dedupe: %+v", deduper.request)
 	}
 }
@@ -212,7 +277,7 @@ func TestSplitFailureIsRecordedBeforeParentRevision(t *testing.T) {
 		MaxResponseBytes: 1024, RawSHA256: sha256.Sum256([]byte(payload)),
 	}}
 	parser := &fixtureParser{}
-	worker, err := NewParseWorker(repository, &fixtureReader{payload: payload}, parser, &fixtureDeduper{}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	worker, err := NewParseWorker(repository, &fixtureReader{payload: payload}, parser, &fixtureDeduper{}, slog.New(slog.NewTextHandler(io.Discard, nil)), HandoffCapabilities{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -234,7 +299,7 @@ func TestValidEmptyCollectionClearsPendingReplayWithoutCreatingARevision(t *test
 	}, pending: true}
 	parser := &fixtureParser{}
 	deduper := &fixtureDeduper{}
-	worker, err := NewParseWorker(repository, &fixtureReader{payload: payload}, parser, deduper, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	worker, err := NewParseWorker(repository, &fixtureReader{payload: payload}, parser, deduper, slog.New(slog.NewTextHandler(io.Discard, nil)), HandoffCapabilities{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -256,7 +321,7 @@ func TestPermanentEntryParseFailureMarksChildForReplay(t *testing.T) {
 		RawSHA256: sha256.Sum256([]byte(payload)), ParentRawID: "parent", SourceEntryID: "one"}
 	repository := &memoryRepository{document: child}
 	parser := &fixtureParser{err: &parsing.ParseError{Code: parsing.ErrorInvalidDocument, Err: errors.New("unreadable child")}}
-	worker, err := NewParseWorker(repository, &fixtureReader{payload: payload}, parser, &fixtureDeduper{}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	worker, err := NewParseWorker(repository, &fixtureReader{payload: payload}, parser, &fixtureDeduper{}, slog.New(slog.NewTextHandler(io.Discard, nil)), HandoffCapabilities{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -276,7 +341,7 @@ func TestEntryRecordingFailureRetainsReplayUntilSuccessfulRetry(t *testing.T) {
 		ContentPolicy: "link-and-excerpt", ObjectKey: "feed.xml", MaxResponseBytes: 1024,
 		RawSHA256: sha256.Sum256([]byte(feed)),
 	}, entriesError: errors.New("object storage unavailable"), pending: true}
-	worker, err := NewParseWorker(repository, &fixtureReader{payload: feed}, &fixtureParser{}, &fixtureDeduper{}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	worker, err := NewParseWorker(repository, &fixtureReader{payload: feed}, &fixtureParser{}, &fixtureDeduper{}, slog.New(slog.NewTextHandler(io.Discard, nil)), HandoffCapabilities{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -292,5 +357,57 @@ func TestEntryRecordingFailureRetainsReplayUntilSuccessfulRetry(t *testing.T) {
 	}
 	if repository.pending || len(repository.entries) != 1 || repository.entries[0].ExternalID != "rss:one" {
 		t.Fatalf("replayed entry was not recorded: pending=%t entries=%+v", repository.pending, repository.entries)
+	}
+}
+
+func TestLeafHandoffFailureRetainsReplayUntilSuccessfulRetry(t *testing.T) {
+	payload := `{"id":"rss:one","url":"https://example.com/one","title":"First","contentText":"Body"}`
+	repository := &memoryRepository{document: RawDocument{
+		ID: "child", SourceID: "source", Connector: sources.ConnectorSourceEntry,
+		URL: "https://example.com/one", ContentType: "application/json", ObjectKey: "child.json",
+		ContentPolicy: "link-and-excerpt", MaxResponseBytes: 1024,
+		RawSHA256: sha256.Sum256([]byte(payload)), ParentRawID: "parent", SourceEntryID: "one",
+	}, completeError: errors.New("queue unavailable")}
+	worker, err := NewParseWorker(repository, &fixtureReader{payload: payload},
+		&fixtureParser{}, &fixtureDeduper{},
+		slog.New(slog.NewTextHandler(io.Discard, nil)), HandoffCapabilities{ExtractEnabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := worker.Parse(context.Background(), "registry", "child"); err == nil {
+		t.Fatal("downstream handoff failure was accepted")
+	}
+	if !repository.pending || repository.completeRevision != "" ||
+		repository.splitCode != "source_handoff_failed" || repository.failureRawID != "child" {
+		t.Fatal("failed handoff did not create the raw replay marker")
+	}
+	repository.completeError = nil
+	if err := worker.Parse(context.Background(), "registry", "child"); err != nil {
+		t.Fatal(err)
+	}
+	if repository.pending || repository.completeRevision != "revision" {
+		t.Fatal("replayed handoff did not complete")
+	}
+}
+
+func TestLeafHandoffFailurePreservesBothErrorsWhenMarkerWriteFails(t *testing.T) {
+	payload := `{"id":"rss:one","url":"https://example.com/one","title":"First","contentText":"Body"}`
+	handoffErr := errors.New("queue unavailable")
+	markerErr := errors.New("database unavailable")
+	repository := &memoryRepository{document: RawDocument{
+		ID: "child", SourceID: "source", Connector: sources.ConnectorSourceEntry,
+		URL: "https://example.com/one", ContentType: "application/json", ObjectKey: "child.json",
+		MaxResponseBytes: 1024, RawSHA256: sha256.Sum256([]byte(payload)),
+		ParentRawID: "parent", SourceEntryID: "one",
+	}, completeError: handoffErr, failureError: markerErr}
+	worker, err := NewParseWorker(repository, &fixtureReader{payload: payload},
+		&fixtureParser{}, &fixtureDeduper{},
+		slog.New(slog.NewTextHandler(io.Discard, nil)), HandoffCapabilities{ExtractEnabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	parseErr := worker.Parse(context.Background(), "registry", "child")
+	if !errors.Is(parseErr, handoffErr) || !errors.Is(parseErr, markerErr) {
+		t.Fatalf("handoff failure lost the enqueue or marker error: %v", parseErr)
 	}
 }

@@ -61,6 +61,13 @@ invalid content, parser drift, or code defect before retrying.
 - For an eligible cancelled/discarded capture after its root cause is fixed,
   use the audited `retry-job` command from the queue recovery runbook. Verify
   the canonical URL and downstream idempotency before retrying.
+- Manual capture requires an available embedding worker. Its completion queues
+  a revision-bound re-embedding job, but queues `extract_item` only when the
+  fast-extraction worker is enabled. If extraction was disabled, an eligible
+  current T0/T1 primary revision can be queued by bounded capability-aware
+  reconciliation after that worker is enabled. A T2 owner capture stays in
+  review rather than entering that automatic extraction backlog. Enabling
+  extraction does not enable source polling.
 - For a terminal policy/content failure, leave it failed. A changed owner URL
   is a new capture with a new idempotency key.
 - For an expired, committed, or rejected OPML preview, create a fresh preview

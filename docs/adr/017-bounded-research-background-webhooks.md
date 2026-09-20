@@ -34,6 +34,20 @@ set creates new work rather than reusing a completed brief. Completion locks
 and rechecks the current cluster, primary item, revision, and claim digest; a
 changed target becomes `obsolete` without publishing output.
 
+Before queueing research, the worker checks enabled daily-digest schedules,
+their next 07:45 cutoff and frozen-window start, owner exclusions and minimum
+score. It ranks current T0/T1 stories with verified claims using the
+deterministic digest scorer, considers only security, breaking-change,
+deprecation, release, migration, and Coming Soon signals, and admits at most
+the schedule's item limit. Stories with a completed brief for the exact current
+facts digest release their slot to the next eligible story. Each schedule scans
+at most 500 recent candidates, ordered by signal priority before recency;
+older stories can be deferred on unusually busy days. Both extraction handoff
+and backlog reconciliation use this gate. The research worker rechecks it
+before provider work. After cutoff, only an exact River job created before
+cutoff can start during the 07:45–07:55 completion window. Budget reservation
+still runs before the provider call.
+
 ### Cost and retry boundary
 
 Before a provider call, PostgreSQL serializes the monthly cost ledger and UTC

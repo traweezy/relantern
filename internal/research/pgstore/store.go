@@ -3,12 +3,14 @@ package pgstore
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/traweezy/relantern/internal/extraction"
@@ -26,6 +28,37 @@ func New(pool *pgxpool.Pool) (*Store, error) {
 	return &Store{pool: pool}, nil
 }
 
+// CurrentInputSHA256 returns the exact validated-facts identity used by
+// Prepare. Callers enqueue it with the primary revision so a later supporting
+// claim can trigger fresh research without replaying an unchanged snapshot.
+func CurrentInputSHA256(ctx context.Context, tx pgx.Tx, clusterID string) (string, string, error) {
+	return currentInputSHA256(ctx, tx, clusterID, true)
+}
+
+func currentInputSHA256(ctx context.Context, tx pgx.Tx, clusterID string, lock bool) (string, string, error) {
+	var revisionID, title string
+	query := `
+		select item.current_revision_id::text, cluster.title
+		from app.story_clusters cluster
+		join app.items item on item.id = cluster.primary_item_id
+		where cluster.id = $1::uuid`
+	if lock {
+		query += ` for share of cluster, item`
+	}
+	if err := tx.QueryRow(ctx, query, clusterID).Scan(&revisionID, &title); err != nil {
+		return "", "", fmt.Errorf("select current research snapshot: %w", err)
+	}
+	claims, err := selectClaims(ctx, tx, clusterID)
+	if err != nil {
+		return "", "", err
+	}
+	_, hash, err := research.EncodeValidatedFacts(title, clusterID, claims)
+	if err != nil {
+		return "", "", fmt.Errorf("encode current research snapshot: %w", err)
+	}
+	return revisionID, hex.EncodeToString(hash), nil
+}
+
 func (store *Store) Prepare(
 	ctx context.Context,
 	request research.ProcessRequest,
@@ -33,6 +66,13 @@ func (store *Store) Prepare(
 ) (research.PreparedRun, error) {
 	if strings.TrimSpace(request.ClusterID) == "" || startedAt.IsZero() {
 		return research.PreparedRun{}, fmt.Errorf("%w: cluster and start time are required", research.ErrInvalidTarget)
+	}
+	expectedRevisionID, err := uuid.Parse(request.RevisionID)
+	if err != nil {
+		return research.PreparedRun{}, fmt.Errorf("%w: revision ID must be a UUID", research.ErrInvalidTarget)
+	}
+	if err := research.ValidateInputSHA256(request.InputSHA256); err != nil {
+		return research.PreparedRun{}, err
 	}
 	transaction, err := store.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
@@ -46,12 +86,15 @@ func (store *Store) Prepare(
 		from app.story_clusters cluster
 		join app.items item on item.id = cluster.primary_item_id
 		where cluster.id = $1::uuid
-		for update of cluster`, request.ClusterID).Scan(&prepared.ItemID, &prepared.RevisionID, &prepared.Title)
+		for update of cluster, item`, request.ClusterID).Scan(&prepared.ItemID, &prepared.RevisionID, &prepared.Title)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return research.PreparedRun{}, fmt.Errorf("%w: story cluster does not exist", research.ErrInvalidTarget)
 	}
 	if err != nil {
 		return research.PreparedRun{}, fmt.Errorf("select research cluster: %w", err)
+	}
+	if prepared.RevisionID != expectedRevisionID.String() {
+		return research.PreparedRun{ClusterID: request.ClusterID, RevisionID: request.RevisionID, State: "obsolete", Obsolete: true}, nil
 	}
 	prepared.Claims, err = selectClaims(ctx, transaction, request.ClusterID)
 	if err != nil {
@@ -60,6 +103,19 @@ func (store *Store) Prepare(
 	_, prepared.InputHash, err = research.EncodeValidatedFacts(prepared.Title, prepared.ClusterID, prepared.Claims)
 	if err != nil {
 		return research.PreparedRun{}, fmt.Errorf("prepare validated research facts: %w", err)
+	}
+	if request.InputSHA256 != "" && request.InputSHA256 != hex.EncodeToString(prepared.InputHash) {
+		return research.PreparedRun{ClusterID: request.ClusterID, RevisionID: request.RevisionID, State: "obsolete", Obsolete: true}, nil
+	}
+	admitted, err := ResearchAdmissions(ctx, transaction, startedAt.UTC(), &QueuedResearch{
+		ClusterID: request.ClusterID, RevisionID: prepared.RevisionID,
+		InputSHA256: hex.EncodeToString(prepared.InputHash),
+	})
+	if err != nil {
+		return research.PreparedRun{}, fmt.Errorf("select research spend admission: %w", err)
+	}
+	if _, eligible := admitted[request.ClusterID]; !eligible {
+		return research.PreparedRun{ClusterID: request.ClusterID, RevisionID: request.RevisionID, State: "obsolete", Obsolete: true}, nil
 	}
 	if err := selectEnabledRegistry(ctx, transaction, &prepared); err != nil {
 		return research.PreparedRun{}, err
@@ -518,6 +574,18 @@ func (store *Store) Complete(
 		return research.ProcessResult{}, fmt.Errorf("begin research completion: %w", err)
 	}
 	defer func() { _ = transaction.Rollback(ctx) }()
+	// Prepare takes the cluster lock before the run lock. Preserve that order
+	// when a retry prepares a run while a background poll completes it.
+	var currentItemID string
+	var currentRevisionID string
+	if err := transaction.QueryRow(ctx, `
+		select cluster.primary_item_id::text, item.current_revision_id::text
+		from app.story_clusters cluster
+		join app.items item on item.id = cluster.primary_item_id
+		where cluster.id = $1::uuid
+		for update of cluster`, prepared.ClusterID).Scan(&currentItemID, &currentRevisionID); err != nil {
+		return research.ProcessResult{}, fmt.Errorf("lock current research target: %w", err)
+	}
 	var state string
 	if err := transaction.QueryRow(ctx, `select state from app.ai_runs where id = $1::uuid for update`, prepared.RunID).Scan(&state); err != nil {
 		return research.ProcessResult{}, fmt.Errorf("lock research completion: %w", err)
@@ -534,16 +602,6 @@ func (store *Store) Complete(
 			return research.ProcessResult{}, err
 		}
 		return research.ProcessResult{RunID: prepared.RunID, ProviderID: completion.ProviderID, AssertionCount: count, AlreadyCompleted: true, NeedsReview: state == "needs_review"}, nil
-	}
-	var currentItemID string
-	var currentRevisionID string
-	if err := transaction.QueryRow(ctx, `
-		select cluster.primary_item_id::text, item.current_revision_id::text
-		from app.story_clusters cluster
-		join app.items item on item.id = cluster.primary_item_id
-		where cluster.id = $1::uuid
-		for update of cluster`, prepared.ClusterID).Scan(&currentItemID, &currentRevisionID); err != nil {
-		return research.ProcessResult{}, fmt.Errorf("lock current research target: %w", err)
 	}
 	currentClaims, err := selectClaims(ctx, transaction, prepared.ClusterID)
 	if err != nil {

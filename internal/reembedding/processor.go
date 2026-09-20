@@ -161,6 +161,8 @@ func (processor *Processor) Process(ctx context.Context, request Request) (Resul
 	if err := processor.search.IndexDocument(ctx, pgstore.IndexRequest{
 		ItemID:            request.EntityID,
 		RevisionID:        request.RevisionID,
+		EmbeddingID:       embeddingID,
+		EmbeddingModelID:  request.ModelID,
 		NormalizedContent: string(payload),
 	}); err != nil {
 		return Result{}, fmt.Errorf("index search document: %w", err)
@@ -169,20 +171,5 @@ func (processor *Processor) Process(ctx context.Context, request Request) (Resul
 }
 
 func boundedEmbeddingInput(input string) (string, error) {
-	trimmed := strings.TrimSpace(input)
-	if err := embedding.ValidateInput(trimmed); err == nil {
-		return trimmed, nil
-	}
-	if trimmed == "" || !utf8.ValidString(trimmed) {
-		return "", errors.New("normalized revision does not contain valid embedding input")
-	}
-	payload := []byte(trimmed)
-	if len(payload) <= embedding.MaximumInputBytes {
-		return "", errors.New("normalized revision embedding input is invalid")
-	}
-	payload = payload[:embedding.MaximumInputBytes]
-	for !utf8.Valid(payload) {
-		payload = payload[:len(payload)-1]
-	}
-	return string(payload), nil
+	return embedding.BoundedInput(input)
 }

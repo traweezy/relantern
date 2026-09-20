@@ -3,6 +3,7 @@ package research
 import (
 	"bytes"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +13,19 @@ import (
 	"strings"
 	"unicode/utf8"
 )
+
+// ValidateInputSHA256 bounds the facts identity carried by durable research
+// jobs. Empty values remain valid for jobs created before snapshot identities.
+func ValidateInputSHA256(value string) error {
+	if value == "" {
+		return nil
+	}
+	decoded, err := hex.DecodeString(value)
+	if err != nil || len(decoded) != sha256.Size || hex.EncodeToString(decoded) != value {
+		return fmt.Errorf("%w: input SHA-256 must be 64 lowercase hexadecimal characters", ErrInvalidTarget)
+	}
+	return nil
+}
 
 func EncodeValidatedFacts(title string, clusterID string, claims []ClaimFact) (string, []byte, error) {
 	if strings.TrimSpace(title) == "" || strings.TrimSpace(clusterID) == "" {

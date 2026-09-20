@@ -20,7 +20,7 @@ if [[ "${resolved_project}" != "relantern" ]]; then
   printf 'Refusing backup: expected Compose project relantern, resolved %s.\n' "${resolved_project}" >&2
   exit 1
 fi
-if ! "${compose[@]}" ps --status running --services | rg -qx postgres; then
+if [[ "$("${compose[@]}" ps --status running --services postgres)" != postgres ]]; then
   printf 'The Relantern PostgreSQL service must be running.\n' >&2
   exit 1
 fi
@@ -30,6 +30,8 @@ mkdir -p -- "$(dirname -- "${backup_path}")"
 temporary_path="${backup_path}.partial"
 trap 'test ! -f "${temporary_path}" || mv -- "${temporary_path}" "${temporary_path}.incomplete"' EXIT
 
+# The password is read by the shell inside the PostgreSQL container.
+# shellcheck disable=SC2016
 "${compose[@]}" exec -T postgres sh -ec \
   'export PGPASSWORD="$(cat /run/secrets/database_password)"; exec pg_dump --format=custom --compress=9 --no-owner --no-privileges --dbname=relantern --username=relantern' \
   >"${temporary_path}"

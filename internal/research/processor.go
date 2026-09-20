@@ -53,6 +53,12 @@ func (processor *Processor) Process(ctx context.Context, request ProcessRequest)
 	if _, err := uuid.Parse(request.ClusterID); err != nil {
 		return ProcessResult{}, fmt.Errorf("%w: cluster ID must be a UUID", ErrInvalidTarget)
 	}
+	if _, err := uuid.Parse(request.RevisionID); err != nil {
+		return ProcessResult{}, fmt.Errorf("%w: revision ID must be a UUID", ErrInvalidTarget)
+	}
+	if err := ValidateInputSHA256(request.InputSHA256); err != nil {
+		return ProcessResult{}, err
+	}
 	prepared, err := processor.repository.Prepare(ctx, request, processor.clock.Now().UTC())
 	if err != nil {
 		return ProcessResult{}, err
@@ -144,7 +150,7 @@ func (processor *Processor) Poll(ctx context.Context, request PollRequest) (Proc
 		}, nil
 	}
 	if prepared.State == "failed_retryable" {
-		return processor.Process(ctx, ProcessRequest{ClusterID: prepared.ClusterID})
+		return processor.Process(ctx, ProcessRequest{ClusterID: prepared.ClusterID, RevisionID: prepared.RevisionID})
 	}
 	if err := validateRegistry(prepared, processor.config); err != nil {
 		return ProcessResult{}, processor.fail(ctx, prepared, "configuration_drift", err)

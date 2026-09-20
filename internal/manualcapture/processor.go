@@ -65,6 +65,7 @@ type Processor struct {
 	jobs               *jobqueue.Inserter
 	limiter            fetcher.RequestLimiter
 	modelID            string
+	extractEnabled     bool
 	allowLocalFixtures bool
 }
 
@@ -90,6 +91,7 @@ func New(
 	jobs *jobqueue.Inserter,
 	limiter fetcher.RequestLimiter,
 	modelID string,
+	extractEnabled bool,
 	allowLocalFixtures bool,
 ) (*Processor, error) {
 	if pool == nil || configuredClock == nil || objects == nil || embedder == nil || deduper == nil || parser == nil || jobs == nil || limiter == nil {
@@ -101,7 +103,7 @@ func New(
 	return &Processor{
 		pool: pool, clock: configuredClock, objects: objects, embedder: embedder,
 		deduper: deduper, parser: parser, jobs: jobs, limiter: limiter,
-		modelID: modelID, allowLocalFixtures: allowLocalFixtures,
+		modelID: modelID, extractEnabled: extractEnabled, allowLocalFixtures: allowLocalFixtures,
 	}, nil
 }
 
@@ -345,10 +347,12 @@ func (processor *Processor) complete(
 	}); err != nil {
 		return err
 	}
-	if _, _, err := processor.jobs.EnqueueExtractItem(ctx, tx, jobqueue.ExtractItemArgs{
-		ItemID: itemID, RevisionID: revisionID,
-	}); err != nil {
-		return err
+	if processor.extractEnabled {
+		if _, _, err := processor.jobs.EnqueueExtractItem(ctx, tx, jobqueue.ExtractItemArgs{
+			ItemID: itemID, RevisionID: revisionID,
+		}); err != nil {
+			return err
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit manual-capture completion: %w", err)

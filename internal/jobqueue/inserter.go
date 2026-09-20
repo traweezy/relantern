@@ -164,6 +164,9 @@ func (inserter *Inserter) EnqueueReembedEntity(
 	tx pgx.Tx,
 	arguments ReembedEntityArgs,
 ) (int64, bool, error) {
+	if arguments.ProjectionVersion == 0 {
+		arguments.ProjectionVersion = ReembedProjectionVersion
+	}
 	result, err := inserter.client.InsertTx(ctx, tx, arguments, inserter.insertOptions(arguments))
 	if err != nil {
 		return 0, false, fmt.Errorf("enqueue re-embedding for %s: %w", arguments.EntityID, err)
