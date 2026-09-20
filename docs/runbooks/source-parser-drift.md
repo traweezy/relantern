@@ -44,7 +44,9 @@ API fuse must still be enabled for source reconciliation. Cross-origin entry
 links stay in the child raw payload as untrusted metadata, with canonical
 evidence URLs on the reviewed feed origin. The reviewed GitHub API alias is
 limited to exact release and repository advisory item URLs on `github.com`
-under the same repository as the `api.github.com` collection.
+under the same repository as the `api.github.com` collection. The reviewed
+global advisory collection has its own exact pinned API query; its public item
+links must end in the matching GHSA ID under `github.com/advisories/`.
 
 A stored collection also starts with a durable `pending_entries` marker in the
 same transaction as its checkpoint and parse job. A storage or database error

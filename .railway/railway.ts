@@ -150,6 +150,7 @@ export default defineRailway((context, project) => {
       DISCORD_ENABLED: production ? "false" : "true",
       DISCORD_WEBHOOK_URL: preserve(),
       EMBEDDING_DIMENSIONS: "1536",
+      GITHUB_READ_TOKEN: preserve(),
       HTTP_PORT: "8081",
       OBJECT_STORAGE_ACCESS_KEY: ref(rawEvidence, "ACCESS_KEY_ID"),
       OBJECT_STORAGE_BUCKET: ref(rawEvidence, "BUCKET"),

@@ -81,6 +81,10 @@ func run(arguments []string, logger *slog.Logger) error {
 	if err != nil {
 		return fmt.Errorf("load worker configuration: %w", err)
 	}
+	sourcePollingConfig, err := config.LoadSourcePolling()
+	if err != nil {
+		return fmt.Errorf("load source polling configuration: %w", err)
+	}
 	deliveryConfig, err := config.LoadDelivery(common.Environment)
 	if err != nil {
 		return fmt.Errorf("load delivery configuration: %w", err)
@@ -234,13 +238,14 @@ func run(arguments []string, logger *slog.Logger) error {
 	sourceNetwork, err := ingestion.NewNetworkFetcher(
 		rawStore, sourceLimiter, common.Clock,
 		common.Environment == config.EnvironmentLocal || common.Environment == config.EnvironmentTest,
+		sourcePollingConfig.GitHubReadToken,
 	)
 	if err != nil {
 		return fmt.Errorf("create source network fetcher: %w", err)
 	}
 	sourcePoller, err := ingestion.NewPoller(
 		sourceStore, sourceNetwork, common.Clock, logger,
-		os.Getenv("ALLOW_LIVE_EXTERNAL_APIS") == "true",
+		sourcePollingConfig.Enabled,
 		sourceCapabilities,
 	)
 	if err != nil {

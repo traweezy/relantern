@@ -100,6 +100,12 @@ func (registry Registry) Endpoints() []Endpoint {
 	for _, repository := range registry.Repositories {
 		for _, event := range repository.EnabledEvents {
 			connector, suffix := connectorForEvent(event)
+			pollInterval := repository.PollInterval.Duration
+			contentLicense := repository.ContentLicense
+			if event == RepositoryEventSecurityAdvisories {
+				pollInterval = repository.AdvisoryPollInterval.Duration
+				contentLicense = "link-and-excerpt"
+			}
 			endpoints = append(endpoints, Endpoint{
 				ID:                   repository.ID + "-" + strings.ReplaceAll(string(event), "_", "-"),
 				SourceID:             repository.ID,
@@ -108,10 +114,10 @@ func (registry Registry) Endpoints() []Endpoint {
 				Connector:            connector,
 				URL:                  strings.TrimSuffix(repository.URL, "/") + suffix,
 				Topics:               slices.Clone(repository.Topics),
-				PollInterval:         repository.PollInterval.Duration,
+				PollInterval:         pollInterval,
 				Priority:             repository.Priority,
 				RobotsPolicy:         "api",
-				ContentLicense:       repository.ContentLicense,
+				ContentLicense:       contentLicense,
 				Enabled:              repository.Enabled,
 				Owner:                repository.Owner,
 				Origin:               repository.Origin,
@@ -239,8 +245,19 @@ func validateSource(source Source, context string, suites map[string]Connector, 
 	if !slices.Contains(approvedConnectors, source.Connector) {
 		validationErrors = append(validationErrors, fmt.Errorf("%s: unsupported connector %q", context, source.Connector))
 	}
-	if source.Connector == ConnectorGitHubReleases || source.Connector == ConnectorGitHubAdvisories {
+	if source.Connector == ConnectorGitHubReleases {
 		validationErrors = append(validationErrors, fmt.Errorf("%s: GitHub connectors require a repository watch", context))
+	}
+	if source.Connector == ConnectorGitHubAdvisories {
+		if source.URL != GlobalReviewedAdvisoriesURL {
+			validationErrors = append(validationErrors, fmt.Errorf("%s: GitHub advisories require the exact reviewed global endpoint", context))
+		}
+		if source.PollInterval.Duration != 5*time.Minute {
+			validationErrors = append(validationErrors, fmt.Errorf("%s: reviewed global advisories must poll every 5m", context))
+		}
+		if source.ContentLicense != "link-and-excerpt" {
+			validationErrors = append(validationErrors, fmt.Errorf("%s: reviewed global advisories require retained parsing evidence", context))
+		}
 	}
 	if source.RobotsPolicy != "feed" && source.RobotsPolicy != "page" && source.RobotsPolicy != "api" {
 		validationErrors = append(validationErrors, fmt.Errorf("%s: invalid robots policy %q", context, source.RobotsPolicy))
@@ -287,6 +304,9 @@ func validateRepository(repository Repository, context string, suites map[string
 	if repository.MaxResponseBytes > maximumJSONBytes {
 		validationErrors = append(validationErrors, fmt.Errorf("%s: max_response_bytes exceeds GitHub API limit %d", context, maximumJSONBytes))
 	}
+	if repository.ContentLicense != "metadata-only" {
+		validationErrors = append(validationErrors, fmt.Errorf("%s: repository release baseline must be metadata-only", context))
+	}
 	if len(repository.EnabledEvents) == 0 {
 		validationErrors = append(validationErrors, fmt.Errorf("%s: enabled_events is required", context))
 	}
@@ -307,6 +327,13 @@ func validateRepository(repository Repository, context string, suites map[string
 		} else if suites[suiteID] != connector {
 			validationErrors = append(validationErrors, fmt.Errorf("%s: fixture suite %q does not match event %q", context, suiteID, event))
 		}
+	}
+	if _, enabled := seenEvents[RepositoryEventSecurityAdvisories]; enabled {
+		if interval := repository.AdvisoryPollInterval.Duration; interval < 5*time.Minute || interval > 7*24*time.Hour {
+			validationErrors = append(validationErrors, fmt.Errorf("%s: advisory_poll_interval must be from 5m through 168h", context))
+		}
+	} else if repository.AdvisoryPollInterval.Duration != 0 {
+		validationErrors = append(validationErrors, fmt.Errorf("%s: advisory_poll_interval requires security_advisories", context))
 	}
 	if repository.Priority == PriorityCritical {
 		if _, exists := seenEvents[RepositoryEventReleases]; !exists {

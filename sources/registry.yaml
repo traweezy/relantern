@@ -255,6 +255,24 @@ sources:
     max_response_bytes: 10485760
     fixture_suite: json-feed-v1
 
+  - id: github-global-advisories
+    name: GitHub Advisory Database reviewed advisories
+    trust_tier: T1
+    connector: github_advisories
+    url: https://api.github.com/advisories?direction=desc&per_page=100&sort=updated&type=reviewed
+    topics: [security, supply-chain]
+    poll_interval: 5m
+    priority: critical
+    robots_policy: api
+    content_license: link-and-excerpt
+    enabled: true
+    owner: system
+    origin: system
+    reviewed_at: 2026-09-20
+    expected_content_types: [application/vnd.github+json, application/json]
+    max_response_bytes: 10485760
+    fixture_suite: github-global-advisories-v1
+
 repositories:
   - &repo_watch
     id: github-golang-go
@@ -266,6 +284,7 @@ repositories:
     repository_name: go
     topics: [go, toolchain, runtime]
     poll_interval: 15m
+    advisory_poll_interval: 5m
     priority: critical
     content_license: metadata-only
     enabled: true

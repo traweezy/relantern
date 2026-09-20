@@ -1,6 +1,8 @@
 package config_test
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -46,6 +48,56 @@ func TestLoadSourcesUsesExplicitPaths(t *testing.T) {
 	}
 	if settings.FixturesPath != "/tmp/fixtures.yaml" {
 		t.Fatalf("FixturesPath = %q", settings.FixturesPath)
+	}
+}
+
+func TestLoadSourcePollingKeepsDefaultDisconnected(t *testing.T) {
+	t.Setenv("ALLOW_LIVE_EXTERNAL_APIS", "false")
+	t.Setenv("GITHUB_READ_TOKEN_FILE", "/missing/unused-github-read-token")
+	settings, err := config.LoadSourcePolling()
+	if err != nil || settings.Enabled || settings.GitHubReadToken != "" {
+		t.Fatalf("LoadSourcePolling() enabled=%t tokenPresent=%t err=%v", settings.Enabled, settings.GitHubReadToken != "", err)
+	}
+}
+
+func TestLoadSourcePollingRequiresSafeWorkerSecret(t *testing.T) {
+	t.Setenv("ALLOW_LIVE_EXTERNAL_APIS", "true")
+	t.Setenv("GITHUB_READ_TOKEN", "")
+	t.Setenv("GITHUB_READ_TOKEN_FILE", "")
+	if _, err := config.LoadSourcePolling(); err == nil {
+		t.Fatal("LoadSourcePolling() accepted live polling without a token")
+	}
+	for _, value := range []string{"token with space", "token\nheader", strings.Repeat("x", 4097)} {
+		t.Setenv("GITHUB_READ_TOKEN", value)
+		if _, err := config.LoadSourcePolling(); err == nil || strings.Contains(err.Error(), value) {
+			t.Fatal("LoadSourcePolling() accepted or exposed an invalid token")
+		}
+	}
+	t.Setenv("GITHUB_READ_TOKEN", "fixture-read-token")
+	settings, err := config.LoadSourcePolling()
+	if err != nil || !settings.Enabled || settings.GitHubReadToken != "fixture-read-token" {
+		t.Fatalf("LoadSourcePolling() enabled=%t tokenPresent=%t err=%v", settings.Enabled, settings.GitHubReadToken != "", err)
+	}
+}
+
+func TestLoadSourcePollingRejectsInvalidFuse(t *testing.T) {
+	t.Setenv("ALLOW_LIVE_EXTERNAL_APIS", "sometimes")
+	if _, err := config.LoadSourcePolling(); err == nil {
+		t.Fatal("LoadSourcePolling() accepted an invalid live source fuse")
+	}
+}
+
+func TestLoadSourcePollingReadsSecretFile(t *testing.T) {
+	t.Setenv("ALLOW_LIVE_EXTERNAL_APIS", "true")
+	t.Setenv("GITHUB_READ_TOKEN", "")
+	path := filepath.Join(t.TempDir(), "github-read-token")
+	if err := os.WriteFile(path, []byte("fixture-read-token\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GITHUB_READ_TOKEN_FILE", path)
+	settings, err := config.LoadSourcePolling()
+	if err != nil || settings.GitHubReadToken != "fixture-read-token" {
+		t.Fatalf("LoadSourcePolling() tokenPresent=%t err=%v", settings.GitHubReadToken != "", err)
 	}
 }
 
