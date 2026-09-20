@@ -48,6 +48,9 @@ const WorkspaceShellComponent = ({ children, owner }: WorkspaceShellProps) => (
           <span aria-hidden="true" className="security-dot" />
           Owner verified
         </span>
+        <div className="mobile-account">
+          <SignOutButton />
+        </div>
       </header>
       <main className="workspace-main intelligence-main" id="workspace-main">
         {children}

@@ -3,7 +3,8 @@
 import { performanceBudgets } from "@relantern/design-tokens";
 import type { LiveEvent, LiveSnapshot, StorySignal } from "@relantern/domain";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { parseLiveSnapshot } from "./contract";
+import { EmptyState } from "./empty-state";
+import { LiveTransportError, liveTransport } from "./live-transport";
 import { StoryCard } from "./story-card";
 
 type LiveStreamProps = Readonly<{
@@ -39,40 +40,116 @@ const LiveStreamComponent = ({ initialSnapshot, timezone }: LiveStreamProps) => 
   const [filter, setFilter] = useState<SignalFilter>("all");
   const [paused, setPaused] = useState(false);
   const [pendingCount, setPendingCount] = useState(0);
-  const [status, setStatus] = useState<"connecting" | "live" | "reconnecting">("connecting");
+  const [status, setStatus] = useState<"connecting" | "live" | "reconnecting" | "sign-in-required">(
+    "connecting",
+  );
   const pausedRef = useRef(paused);
   const pendingEventsRef = useRef<readonly LiveEvent[]>([]);
+  const cursorRef = useRef(initialSnapshot.cursor);
+  const queuedEventsRef = useRef<readonly LiveEvent[]>([]);
+  const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     pausedRef.current = paused;
   }, [paused]);
 
   useEffect(() => {
-    const source = new EventSource("/api/intelligence/live");
-    const handleOpen = () => setStatus("live");
-    const handleError = () => setStatus("reconnecting");
-    const handleSnapshot = (event: MessageEvent<string>) => {
-      let snapshot: LiveSnapshot;
-      try {
-        snapshot = parseLiveSnapshot(JSON.parse(event.data));
-      } catch {
+    let active = true;
+    let controller: AbortController | null = null;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let failures = 0;
+
+    const flushEvents = () => {
+      flushTimerRef.current = null;
+      const queued = queuedEventsRef.current;
+      queuedEventsRef.current = [];
+      if (queued.length === 0) {
         return;
       }
       if (pausedRef.current) {
-        pendingEventsRef.current = mergeEvents(pendingEventsRef.current, snapshot.events);
+        pendingEventsRef.current = mergeEvents(pendingEventsRef.current, queued);
         setPendingCount(pendingEventsRef.current.length);
+      } else {
+        setEvents((current) => mergeEvents(current, queued));
+      }
+    };
+    const queueEvent = (event: LiveEvent) => {
+      cursorRef.current = event.id;
+      queuedEventsRef.current = [...queuedEventsRef.current, event];
+      flushTimerRef.current ??= setTimeout(flushEvents, 100);
+    };
+    const scheduleRetry = (delay: number) => {
+      if (active && !document.hidden) {
+        retryTimer = setTimeout(() => void connect(), delay);
+      }
+    };
+    const connect = async () => {
+      if (!active || document.hidden) {
         return;
       }
-      setEvents((current) => mergeEvents(current, snapshot.events));
+      const connectionController = new AbortController();
+      controller = connectionController;
+      setStatus(failures === 0 ? "connecting" : "reconnecting");
+      try {
+        const outcome = await liveTransport.read(
+          cursorRef.current,
+          connectionController.signal,
+          queueEvent,
+          () => setStatus("live"),
+        );
+        if (!active || document.hidden) {
+          return;
+        }
+        failures = 0;
+        if (outcome === "reset") {
+          const snapshot = await liveTransport.snapshot(connectionController.signal);
+          cursorRef.current = snapshot.cursor;
+          queuedEventsRef.current = [];
+          pendingEventsRef.current = [];
+          setPendingCount(0);
+          setEvents(snapshot.events);
+        }
+        setStatus("reconnecting");
+        scheduleRetry(250);
+      } catch (error: unknown) {
+        if (!active || document.hidden || connectionController.signal.aborted) {
+          return;
+        }
+        if (error instanceof LiveTransportError && (error.status === 401 || error.status === 403)) {
+          setStatus("sign-in-required");
+          return;
+        }
+        failures += 1;
+        setStatus("reconnecting");
+        const ceiling = Math.min(30_000, 1_000 * 2 ** Math.min(failures - 1, 5));
+        scheduleRetry(Math.round(ceiling * (0.75 + Math.random() * 0.5)));
+      }
     };
-    source.addEventListener("open", handleOpen);
-    source.addEventListener("error", handleError);
-    source.addEventListener("snapshot", handleSnapshot as EventListener);
+    const handleVisibility = () => {
+      if (document.hidden) {
+        controller?.abort();
+        if (retryTimer !== null) {
+          clearTimeout(retryTimer);
+          retryTimer = null;
+        }
+        setStatus("reconnecting");
+      } else {
+        failures = 0;
+        void connect();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+    void connect();
     return () => {
-      source.removeEventListener("open", handleOpen);
-      source.removeEventListener("error", handleError);
-      source.removeEventListener("snapshot", handleSnapshot as EventListener);
-      source.close();
+      active = false;
+      document.removeEventListener("visibilitychange", handleVisibility);
+      controller?.abort();
+      if (retryTimer !== null) {
+        clearTimeout(retryTimer);
+      }
+      if (flushTimerRef.current !== null) {
+        clearTimeout(flushTimerRef.current);
+      }
     };
   }, []);
 
@@ -84,6 +161,7 @@ const LiveStreamComponent = ({ initialSnapshot, timezone }: LiveStreamProps) => 
   const handlePause = useCallback(() => {
     setPaused((current) => {
       const next = !current;
+      pausedRef.current = next;
       if (!next && pendingEventsRef.current.length > 0) {
         setEvents((existing) => mergeEvents(existing, pendingEventsRef.current));
         pendingEventsRef.current = [];
@@ -102,7 +180,7 @@ const LiveStreamComponent = ({ initialSnapshot, timezone }: LiveStreamProps) => 
       <div className="live-toolbar">
         <div className="live-status" role="status">
           <span aria-hidden="true" className={`live-dot live-dot-${status}`} />
-          {paused ? "Paused" : status}
+          {paused ? "Paused" : status === "sign-in-required" ? "Sign in required" : status}
         </div>
         <label>
           <span>Filter stream</span>
@@ -124,23 +202,35 @@ const LiveStreamComponent = ({ initialSnapshot, timezone }: LiveStreamProps) => 
           place
         </button>
       )}
-      <div aria-live="polite" className="story-list live-story-list">
-        {visibleEvents.map((event) => (
-          <div className="live-event" key={event.id}>
-            <div className="live-event-rail">
-              <span />
-              <time dateTime={event.observedAt}>
-                {new Intl.DateTimeFormat("en-US", {
-                  hour: "numeric",
-                  minute: "2-digit",
-                  timeZone: timezone,
-                }).format(new Date(event.observedAt))}
-              </time>
+      {visibleEvents.length === 0 ? (
+        <EmptyState
+          detail="Material events will appear here after evidence checks pass. The stream remains connected while you read."
+          eyebrow="Listening"
+          title="No events in the current window"
+        />
+      ) : (
+        <div aria-live="polite" className="story-list live-story-list">
+          {visibleEvents.map((event) => (
+            <div className="live-event" key={event.id}>
+              <div className="live-event-rail">
+                <span />
+                <time dateTime={event.observedAt}>
+                  {new Intl.DateTimeFormat("en-US", {
+                    hour: "numeric",
+                    minute: "2-digit",
+                    timeZone: timezone,
+                  }).format(new Date(event.observedAt))}
+                </time>
+              </div>
+              <StoryCard
+                href={`/story/${event.story.id}`}
+                story={event.story}
+                timezone={timezone}
+              />
             </div>
-            <StoryCard href={`/story/${event.story.id}`} story={event.story} timezone={timezone} />
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
     </>
   );
 };

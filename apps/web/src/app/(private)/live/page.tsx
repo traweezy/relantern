@@ -38,12 +38,6 @@ const LivePage = async () => {
             eyebrow="Read path degraded"
             title="Live intelligence is temporarily unavailable"
           />
-        ) : snapshot.events.length === 0 ? (
-          <EmptyState
-            detail="The stream is connected. Material events will appear after evidence checks pass."
-            eyebrow="Listening"
-            title="No events in the current window"
-          />
         ) : (
           <LiveStream initialSnapshot={snapshot} timezone={owner.timezone} />
         )}

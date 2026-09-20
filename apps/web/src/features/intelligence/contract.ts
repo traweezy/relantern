@@ -192,7 +192,7 @@ export const parseTodaySnapshot = (value: unknown): TodaySnapshot => {
   };
 };
 
-const parseLiveEvent = (value: unknown, index: number): LiveEvent => {
+export const parseLiveEvent = (value: unknown, index: number): LiveEvent => {
   const event = recordValue(value, `live.events[${index}]`);
   return {
     id: stringValue(event.id, `live.events[${index}].id`, 180),
@@ -211,7 +211,12 @@ export const parseLiveSnapshot = (value: unknown): LiveSnapshot => {
   if (!Array.isArray(snapshot.events)) {
     throw new IntelligenceContractError("live.events must be an array");
   }
+  const cursor = stringValue(snapshot.cursor, "live.cursor", 19);
+  if (!/^(0|[1-9][0-9]*)$/.test(cursor)) {
+    throw new IntelligenceContractError("live.cursor must be a decimal event ID");
+  }
   return {
+    cursor,
     events: snapshot.events.map(parseLiveEvent),
     generatedAt: timestampValue(snapshot.generatedAt, "live.generatedAt"),
   };

@@ -1244,6 +1244,7 @@ export interface components {
              * @example https://example.com/LiveSnapshot.json
              */
             readonly $schema?: string;
+            cursor: string;
             events: components["schemas"]["LiveEvent"][] | null;
             /** Format: date-time */
             generatedAt: string;

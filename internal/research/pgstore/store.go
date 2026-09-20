@@ -565,6 +565,9 @@ func (store *Store) Complete(
 		}
 		return research.ProcessResult{RunID: prepared.RunID, ProviderID: completion.ProviderID, Obsolete: true}, nil
 	}
+	if err := lockResearchEvidence(ctx, transaction, prepared.ClusterID); err != nil {
+		return research.ProcessResult{}, err
+	}
 	validatedOutput, err := json.Marshal(completion.Output)
 	if err != nil {
 		return research.ProcessResult{}, fmt.Errorf("encode validated research output: %w", err)
@@ -649,6 +652,25 @@ func (store *Store) Complete(
 	if err := refreshRunTotals(ctx, transaction, prepared.RunID, completion.ProviderID, completedAt); err != nil {
 		return research.ProcessResult{}, err
 	}
+	// Serialize publication commits so the outbox identity is a safe replay cursor.
+	if _, err := transaction.Exec(ctx, `select pg_advisory_xact_lock(hashtextextended('relantern:live-publication', 0))`); err != nil {
+		return research.ProcessResult{}, fmt.Errorf("lock live publication: %w", err)
+	}
+	var eventID int64
+	if err := transaction.QueryRow(ctx, `
+		insert into app.outbox_events (event_type, aggregate_type, aggregate_id, payload, created_at)
+		select
+			case when exists (
+				select 1 from app.research_briefs previous
+				where previous.cluster_id = $1::uuid and previous.id <> $2::uuid
+			) then 'story-updated' else 'story-created' end,
+			'story', $1::uuid,
+			jsonb_build_object('story', app.live_story_payload($1::uuid), 'observedAt', $3::timestamptz),
+			$3::timestamptz
+		where app.live_story_payload($1::uuid) is not null
+		returning id`, prepared.ClusterID, briefID, completedAt).Scan(&eventID); err != nil {
+		return research.ProcessResult{}, fmt.Errorf("publish research story to live outbox: %w", err)
+	}
 	if err := transaction.Commit(ctx); err != nil {
 		return research.ProcessResult{}, fmt.Errorf("commit research completion: %w", err)
 	}
@@ -656,6 +678,50 @@ func (store *Store) Complete(
 		RunID: prepared.RunID, ProviderID: completion.ProviderID,
 		AssertionCount: len(completion.Output.Assertions),
 	}, nil
+}
+
+func lockResearchEvidence(ctx context.Context, transaction pgx.Tx, clusterID string) error {
+	rows, err := transaction.Query(ctx, `
+		select revision.id::text,
+			revision.normalized_text_object_key is not null and raw.object_key is not null
+		from app.content_revisions revision
+		join app.raw_documents raw on raw.id = revision.raw_document_id
+		where revision.id in (
+			select item.current_revision_id
+			from app.cluster_members member
+			join app.items item on item.id = member.item_id
+			where member.cluster_id = $1::uuid
+			union
+			select source.revision_id
+			from app.cluster_members member
+			join app.item_sources source on source.item_id = member.item_id
+			where member.cluster_id = $1::uuid
+		)
+		order by revision.id
+		for share of revision, raw`, clusterID)
+	if err != nil {
+		return fmt.Errorf("lock research evidence: %w", err)
+	}
+	defer rows.Close()
+	count := 0
+	for rows.Next() {
+		var revisionID string
+		var available bool
+		if err := rows.Scan(&revisionID, &available); err != nil {
+			return fmt.Errorf("scan research evidence: %w", err)
+		}
+		if !available {
+			return fmt.Errorf("research evidence revision %s was pruned before publication", revisionID)
+		}
+		count++
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate research evidence: %w", err)
+	}
+	if count == 0 {
+		return errors.New("research publication has no durable source evidence")
+	}
+	return nil
 }
 
 func (store *Store) Fail(ctx context.Context, prepared research.PreparedRun, errorCode string, failedAt time.Time) error {

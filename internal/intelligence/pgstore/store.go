@@ -147,25 +147,6 @@ func (store *Store) latestDashboardDigest(
 	return storyIDs, windowStart.UTC(), windowEnd.UTC(), occurrenceState, true, nil
 }
 
-func (store *Store) Live(ctx context.Context, generatedAt time.Time) (intelligence.LiveSnapshot, error) {
-	stories, err := store.listStories(ctx, generatedAt.Add(-7*24*time.Hour), 50)
-	if err != nil {
-		return intelligence.LiveSnapshot{}, err
-	}
-	events := make([]intelligence.LiveEvent, 0, len(stories))
-	for _, story := range stories {
-		eventType := "story-created"
-		if story.Status == "updated" {
-			eventType = "story-updated"
-		}
-		events = append(events, intelligence.LiveEvent{
-			ID:         story.ID + ":" + story.LastChangedAt.UTC().Format(time.RFC3339Nano),
-			ObservedAt: story.LastChangedAt.UTC(), Story: story, Type: eventType,
-		})
-	}
-	return intelligence.LiveSnapshot{Events: events, GeneratedAt: generatedAt.UTC()}, nil
-}
-
 func (store *Store) Story(ctx context.Context, storyID string) (intelligence.StoryDetail, error) {
 	if strings.TrimSpace(storyID) == "" {
 		return intelligence.StoryDetail{}, intelligence.ErrStoryNotFound

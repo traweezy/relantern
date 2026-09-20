@@ -267,6 +267,7 @@ const storySummaries = [goStory, reactStory, nextStory, postgresStory].map(
 
 export const demoSnapshot = deepFreeze({
   live: {
+    cursor: "0",
     events: storySummaries.map((story, index) => ({
       id: `${story.id}:demo-${index + 1}`,
       observedAt: story.lastChangedAt,

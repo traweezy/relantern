@@ -107,6 +107,7 @@ export type LiveEvent = Readonly<{
 }>;
 
 export type LiveSnapshot = Readonly<{
+  cursor: string;
   events: readonly LiveEvent[];
   generatedAt: string;
 }>;
