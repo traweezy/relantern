@@ -71,7 +71,9 @@ episode-two alert during that additive stage.
   correction updates that episode's displayed correction reason and revision
   without changing its original alert. A correction from a
   different source entry does not overturn the admitted evidence without a
-  reviewed authority rule.
+  reviewed authority rule. A later critical observation from that other entry
+  is recorded and acknowledged without reopening the corrected alert, so it
+  cannot block subsequent observations from its source.
 - Record every official collection fetch as a source-ordered observation,
   including pages whose retained bytes match earlier raw evidence. Record each
   child entry in page order before marking the collection processed. A
