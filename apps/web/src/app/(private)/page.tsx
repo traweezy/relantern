@@ -126,6 +126,55 @@ const TodayPage = async () => {
         </article>
       </section>
 
+      {snapshot.alerts.length > 0 && (
+        <section aria-labelledby="critical-alerts-title" className="critical-alerts">
+          <div className="collection-toolbar">
+            <div>
+              <p className="eyebrow">Immediate attention</p>
+              <h2 id="critical-alerts-title">Confirmed dependency alerts</h2>
+            </div>
+            <span>
+              {snapshot.stats.criticalAlerts > snapshot.alerts.length
+                ? `Showing ${snapshot.alerts.length} of ${snapshot.stats.criticalAlerts} in the last 24 hours`
+                : `${snapshot.alerts.length} in the last 24 hours`}
+            </span>
+          </div>
+          <div className="critical-alert-list">
+            {snapshot.alerts.map((alert) => (
+              <article className="critical-alert-card" key={alert.id}>
+                <div className="critical-alert-card-heading">
+                  <span className="critical-alert-severity">Critical · {alert.ecosystem}</span>
+                  <time dateTime={alert.alertedAt}>
+                    {new Intl.DateTimeFormat("en-US", {
+                      dateStyle: "medium",
+                      timeStyle: "short",
+                      timeZone: owner.timezone,
+                    }).format(new Date(alert.alertedAt))}
+                  </time>
+                </div>
+                <h3>{alert.title}</h3>
+                <p>
+                  <strong>{alert.packageName}</strong> at {alert.currentVersion} is within the
+                  affected range {alert.versionRange}.
+                </p>
+                {alert.patchedVersion !== "" && (
+                  <p>First patched version: {alert.patchedVersion}</p>
+                )}
+                <p className="critical-alert-reason">{alert.reason}</p>
+                <a
+                  href={alert.sourceUrl}
+                  rel="noopener noreferrer"
+                  target="_blank"
+                  aria-label={`Open official advisory ${alert.advisoryId} for ${alert.packageName}`}
+                >
+                  Open official advisory
+                </a>
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
+
       <section aria-labelledby="brief-title" className="brief-section">
         <div className="collection-toolbar">
           <div>

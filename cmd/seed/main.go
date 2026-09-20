@@ -218,10 +218,13 @@ func seedOwnerControlPlane(ctx context.Context, tx pgx.Tx, userID string, now ti
 				user_id, technology, package_name, current_version,
 				version_constraint, status, source, last_verified_at,
 				created_at, updated_at
-			) values (
+			) select
 				$1::uuid, $2, $3, $4, '', 'active', 'version-manifest', $5, $5, $5
+			where not exists (
+				select 1 from app.watched_technologies
+				where user_id = $1::uuid and package_name = $3
 			)
-			on conflict (user_id, package_name) do nothing`,
+			on conflict do nothing`,
 			userID, technology.name, technology.packageName, technology.version, now); err != nil {
 			return fmt.Errorf("seed watched technology %q: %w", technology.packageName, err)
 		}

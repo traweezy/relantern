@@ -12,6 +12,7 @@ import (
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 	"github.com/riverqueue/river/rivertype"
+	"github.com/traweezy/relantern/internal/alert"
 	"github.com/traweezy/relantern/internal/clock"
 	"github.com/traweezy/relantern/internal/delivery"
 	"github.com/traweezy/relantern/internal/digest"
@@ -71,6 +72,155 @@ func (worker *pollSourceEndpointWorker) Work(ctx context.Context, job *river.Job
 type parseRawDocumentWorker struct {
 	river.WorkerDefaults[jobqueue.ParseRawDocumentArgs]
 	parser *ingestion.ParseWorker
+}
+
+type criticalAlertWorkflow interface {
+	Assess(context.Context, string, string) error
+	CatchUp(context.Context, jobqueue.ReassessCurrentAdvisoriesArgs) error
+	ReconcileDeliveries(context.Context, time.Time) (alert.ReconcileResult, error)
+	BeginDelivery(context.Context, string, time.Time) (*alert.Delivery, error)
+	CompleteDelivery(context.Context, string, alert.Receipt, time.Time) error
+	FailDelivery(context.Context, string, string, bool, time.Time) error
+}
+
+type reassessCurrentAdvisoriesWorker struct {
+	river.WorkerDefaults[jobqueue.ReassessCurrentAdvisoriesArgs]
+	workflow criticalAlertWorkflow
+	logger   *slog.Logger
+}
+
+func (worker *reassessCurrentAdvisoriesWorker) Timeout(*river.Job[jobqueue.ReassessCurrentAdvisoriesArgs]) time.Duration {
+	return 2 * time.Minute
+}
+
+func (worker *reassessCurrentAdvisoriesWorker) Work(
+	ctx context.Context, job *river.Job[jobqueue.ReassessCurrentAdvisoriesArgs],
+) error {
+	err := worker.workflow.CatchUp(ctx, job.Args)
+	if err != nil {
+		worker.logger.WarnContext(ctx, "watched advisory catch-up page failed",
+			"job_id", job.ID,
+			"settings_version", job.Args.SettingsVersion, "attempt", job.Attempt)
+		return err
+	}
+	worker.logger.InfoContext(ctx, "watched advisory catch-up page completed",
+		"job_id", job.ID,
+		"settings_version", job.Args.SettingsVersion)
+	return nil
+}
+
+type criticalAlertSender interface {
+	SendAlert(context.Context, alert.Delivery) (alert.Receipt, error)
+}
+
+type assessCriticalAdvisoryWorker struct {
+	river.WorkerDefaults[jobqueue.AssessCriticalAdvisoryArgs]
+	workflow criticalAlertWorkflow
+	logger   *slog.Logger
+}
+
+func (worker *assessCriticalAdvisoryWorker) Timeout(*river.Job[jobqueue.AssessCriticalAdvisoryArgs]) time.Duration {
+	return 45 * time.Second
+}
+
+func (worker *assessCriticalAdvisoryWorker) Work(
+	ctx context.Context, job *river.Job[jobqueue.AssessCriticalAdvisoryArgs],
+) error {
+	err := worker.workflow.Assess(ctx, job.Args.RawDocumentID, job.Args.RevisionID)
+	if err != nil {
+		worker.logger.WarnContext(ctx, "critical advisory assessment failed",
+			"job_id", job.ID, "revision_id", job.Args.RevisionID, "attempt", job.Attempt)
+		return err
+	}
+	worker.logger.InfoContext(ctx, "critical advisory assessment completed",
+		"job_id", job.ID, "revision_id", job.Args.RevisionID)
+	return nil
+}
+
+type deliverCriticalAlertWorker struct {
+	river.WorkerDefaults[jobqueue.DeliverCriticalAlertArgs]
+	clock    clock.Clock
+	workflow criticalAlertWorkflow
+	sender   criticalAlertSender
+	logger   *slog.Logger
+}
+
+type reconcileCriticalAlertsWorker struct {
+	river.WorkerDefaults[jobqueue.ReconcileCriticalAlertsArgs]
+	clock    clock.Clock
+	workflow criticalAlertWorkflow
+	logger   *slog.Logger
+}
+
+func (worker *reconcileCriticalAlertsWorker) Timeout(*river.Job[jobqueue.ReconcileCriticalAlertsArgs]) time.Duration {
+	return 30 * time.Second
+}
+
+func (worker *reconcileCriticalAlertsWorker) Work(
+	ctx context.Context, job *river.Job[jobqueue.ReconcileCriticalAlertsArgs],
+) error {
+	result, err := worker.workflow.ReconcileDeliveries(ctx, worker.clock.Now().UTC())
+	if err != nil {
+		return err
+	}
+	if result.Overdue > 0 {
+		worker.logger.ErrorContext(ctx, "confirmed critical advisory delivery overdue",
+			"job_id", job.ID, "undelivered_count", result.Overdue,
+			"recoveries_enqueued", result.Requeued)
+	} else {
+		worker.logger.InfoContext(ctx, "critical alert deliveries reconciled",
+			"job_id", job.ID, "recoveries_enqueued", result.Requeued)
+	}
+	return nil
+}
+
+func (worker *deliverCriticalAlertWorker) Timeout(*river.Job[jobqueue.DeliverCriticalAlertArgs]) time.Duration {
+	return 45 * time.Second
+}
+
+func (worker *deliverCriticalAlertWorker) Work(
+	ctx context.Context, job *river.Job[jobqueue.DeliverCriticalAlertArgs],
+) error {
+	request, err := worker.workflow.BeginDelivery(ctx, job.Args.DeliveryID, worker.clock.Now().UTC())
+	if errors.Is(err, alert.ErrPayloadIntegrity) {
+		return river.JobCancel(err)
+	}
+	if err != nil || request == nil {
+		if err != nil {
+			worker.logger.WarnContext(ctx, "critical alert delivery claim failed",
+				"job_id", job.ID, "delivery_id", job.Args.DeliveryID, "attempt", job.Attempt)
+		}
+		return err
+	}
+	receipt, err := worker.sender.SendAlert(ctx, *request)
+	if err != nil {
+		worker.logger.WarnContext(ctx, "critical alert provider send failed",
+			"job_id", job.ID, "delivery_id", job.Args.DeliveryID,
+			"attempt", request.Attempt, "permanent", delivery.Permanent(err))
+		permanent := delivery.Permanent(err)
+		code := "provider_retryable"
+		if permanent {
+			code = "provider_permanent"
+		} else if job.Attempt >= job.MaxAttempts {
+			code = "provider_retry_exhausted"
+		}
+		if recordErr := worker.workflow.FailDelivery(ctx, job.Args.DeliveryID, code, permanent, worker.clock.Now().UTC()); recordErr != nil {
+			return errors.Join(err, recordErr)
+		}
+		if permanent || job.Attempt >= job.MaxAttempts {
+			return river.JobCancel(err)
+		}
+		return err
+	}
+	err = worker.workflow.CompleteDelivery(ctx, job.Args.DeliveryID, receipt, worker.clock.Now().UTC())
+	if err != nil {
+		worker.logger.WarnContext(ctx, "critical alert receipt recording failed",
+			"job_id", job.ID, "delivery_id", job.Args.DeliveryID, "attempt", request.Attempt)
+		return err
+	}
+	worker.logger.InfoContext(ctx, "critical alert delivery completed",
+		"job_id", job.ID, "delivery_id", job.Args.DeliveryID, "attempt", request.Attempt)
+	return nil
 }
 
 func (worker *parseRawDocumentWorker) Timeout(*river.Job[jobqueue.ParseRawDocumentArgs]) time.Duration {
@@ -748,6 +898,32 @@ func NewRiverClient(
 			return nil, fmt.Errorf("register source parse worker: %w", err)
 		}
 	}
+	if configuration.criticalAlerts != nil {
+		if configuration.criticalAlertSender == nil {
+			return nil, errors.New("critical alert workers require a delivery sender")
+		}
+		if err := river.AddWorkerSafely(workers, &assessCriticalAdvisoryWorker{
+			workflow: configuration.criticalAlerts, logger: logger,
+		}); err != nil {
+			return nil, fmt.Errorf("register critical advisory assessment worker: %w", err)
+		}
+		if err := river.AddWorkerSafely(workers, &reassessCurrentAdvisoriesWorker{
+			workflow: configuration.criticalAlerts, logger: logger,
+		}); err != nil {
+			return nil, fmt.Errorf("register watched advisory catch-up worker: %w", err)
+		}
+		if err := river.AddWorkerSafely(workers, &deliverCriticalAlertWorker{
+			clock: configuredClock, workflow: configuration.criticalAlerts,
+			sender: configuration.criticalAlertSender, logger: logger,
+		}); err != nil {
+			return nil, fmt.Errorf("register critical alert delivery worker: %w", err)
+		}
+		if err := river.AddWorkerSafely(workers, &reconcileCriticalAlertsWorker{
+			clock: configuredClock, workflow: configuration.criticalAlerts, logger: logger,
+		}); err != nil {
+			return nil, fmt.Errorf("register critical alert reconciliation worker: %w", err)
+		}
+	}
 	if configuration.radarProcessor != nil {
 		if err := river.AddWorkerSafely(workers, &runWeeklyRadarDiscoveryWorker{
 			clock: configuredClock, logger: logger, processor: configuration.radarProcessor,
@@ -802,6 +978,7 @@ func NewRiverClient(
 			configuration.snoozeReturner != nil,
 			configuration.retentionRunner != nil,
 			configuration.sourcePoller != nil,
+			configuration.criticalAlerts != nil,
 		)
 	}
 	queues := jobqueue.QueueConfigs()
@@ -847,12 +1024,21 @@ type riverOptions struct {
 	retentionRunner        retentionRunner
 	sourcePoller           *ingestion.Poller
 	sourceParser           *ingestion.ParseWorker
+	criticalAlerts         criticalAlertWorkflow
+	criticalAlertSender    criticalAlertSender
 }
 
 func WithSourceIngestion(poller *ingestion.Poller, parser *ingestion.ParseWorker) RiverOption {
 	return func(configuration *riverOptions) {
 		configuration.sourcePoller = poller
 		configuration.sourceParser = parser
+	}
+}
+
+func WithCriticalAlerts(workflow criticalAlertWorkflow, sender criticalAlertSender) RiverOption {
+	return func(configuration *riverOptions) {
+		configuration.criticalAlerts = workflow
+		configuration.criticalAlertSender = sender
 	}
 }
 

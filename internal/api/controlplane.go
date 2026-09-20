@@ -54,19 +54,20 @@ type SettingsOutput struct {
 }
 
 type SettingsBody struct {
-	ExpectedVersion      int64                            `json:"expectedVersion" minimum:"1"`
-	ProfileName          string                           `json:"profileName" minLength:"1" maxLength:"120"`
-	ProfileSummary       string                           `json:"profileSummary" maxLength:"2000"`
-	Topics               []controlplane.InterestTopic     `json:"topics" minItems:"1" maxItems:"50"`
-	Technologies         []controlplane.WatchedTechnology `json:"technologies" maxItems:"100"`
-	Timezone             string                           `json:"timezone" minLength:"1" maxLength:"255"`
-	QuietHoursStart      string                           `json:"quietHoursStart" minLength:"5" maxLength:"5"`
-	QuietHoursEnd        string                           `json:"quietHoursEnd" minLength:"5" maxLength:"5"`
-	CriticalAlertsBypass bool                             `json:"criticalAlertsBypass"`
-	MonthlySoftBudgetUSD string                           `json:"monthlySoftBudgetUsd" minLength:"1" maxLength:"20"`
-	MonthlyHardBudgetUSD string                           `json:"monthlyHardBudgetUsd" minLength:"1" maxLength:"20"`
-	RawRetentionDays     int                              `json:"rawRetentionDays" minimum:"7" maximum:"3650"`
-	AuditRetentionDays   int                              `json:"auditRetentionDays" minimum:"30" maximum:"3650"`
+	ExpectedVersion       int64                            `json:"expectedVersion" minimum:"1"`
+	ProfileName           string                           `json:"profileName" minLength:"1" maxLength:"120"`
+	ProfileSummary        string                           `json:"profileSummary" maxLength:"2000"`
+	Topics                []controlplane.InterestTopic     `json:"topics" minItems:"1" maxItems:"50"`
+	Technologies          []controlplane.WatchedTechnology `json:"technologies" maxItems:"100"`
+	Timezone              string                           `json:"timezone" minLength:"1" maxLength:"255"`
+	QuietHoursStart       string                           `json:"quietHoursStart" minLength:"5" maxLength:"5"`
+	QuietHoursEnd         string                           `json:"quietHoursEnd" minLength:"5" maxLength:"5"`
+	CriticalAlertsBypass  bool                             `json:"criticalAlertsBypass"`
+	CriticalAlertChannels []string                         `json:"criticalAlertChannels" minItems:"1" maxItems:"3"`
+	MonthlySoftBudgetUSD  string                           `json:"monthlySoftBudgetUsd" minLength:"1" maxLength:"20"`
+	MonthlyHardBudgetUSD  string                           `json:"monthlyHardBudgetUsd" minLength:"1" maxLength:"20"`
+	RawRetentionDays      int                              `json:"rawRetentionDays" minimum:"7" maximum:"3650"`
+	AuditRetentionDays    int                              `json:"auditRetentionDays" minimum:"30" maximum:"3650"`
 }
 
 type SettingsInput struct {
@@ -216,10 +217,11 @@ func registerControlPlane(api huma.API, configuration options, logger *slog.Logg
 			Topics: input.Body.Topics, Technologies: input.Body.Technologies,
 			Timezone: input.Body.Timezone, QuietHoursStart: input.Body.QuietHoursStart,
 			QuietHoursEnd: input.Body.QuietHoursEnd, CriticalAlertsBypass: input.Body.CriticalAlertsBypass,
-			MonthlySoftBudgetUSD: input.Body.MonthlySoftBudgetUSD,
-			MonthlyHardBudgetUSD: input.Body.MonthlyHardBudgetUSD,
-			RawRetentionDays:     input.Body.RawRetentionDays,
-			AuditRetentionDays:   input.Body.AuditRetentionDays,
+			CriticalAlertChannels: input.Body.CriticalAlertChannels,
+			MonthlySoftBudgetUSD:  input.Body.MonthlySoftBudgetUSD,
+			MonthlyHardBudgetUSD:  input.Body.MonthlyHardBudgetUSD,
+			RawRetentionDays:      input.Body.RawRetentionDays,
+			AuditRetentionDays:    input.Body.AuditRetentionDays,
 		}, configuration.clock().UTC())
 		if err != nil {
 			return nil, mapControlPlaneError(ctx, logger, "update settings", err)

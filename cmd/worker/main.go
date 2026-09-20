@@ -11,6 +11,7 @@ import (
 	"time"
 	_ "time/tzdata"
 
+	alertstore "github.com/traweezy/relantern/internal/alert/pgstore"
 	"github.com/traweezy/relantern/internal/clock"
 	"github.com/traweezy/relantern/internal/config"
 	"github.com/traweezy/relantern/internal/database"
@@ -285,6 +286,10 @@ func run(arguments []string, logger *slog.Logger) error {
 	if err != nil {
 		return fmt.Errorf("create digest delivery client: %w", err)
 	}
+	criticalAlerts, err := alertstore.New(pool, inserter, rawStore, common.Clock)
+	if err != nil {
+		return fmt.Errorf("create critical alert store: %w", err)
+	}
 	var manualCaptureProcessor *manualcapture.Processor
 	if embeddingClient != nil {
 		dedupeStore, storeError := dedupestore.New(pool, common.Clock, dedupe.Config{
@@ -400,6 +405,7 @@ func run(arguments []string, logger *slog.Logger) error {
 		worker.WithSnoozeReturner(readingStateStore),
 		worker.WithRadarProcessor(radarProcessor),
 		worker.WithDigestProcessor(digestStore, digestSender),
+		worker.WithCriticalAlerts(criticalAlerts, digestSender),
 		worker.WithRetentionRunner(retentionRunner),
 	}
 	if manualCaptureProcessor != nil {

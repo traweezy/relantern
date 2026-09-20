@@ -10,6 +10,7 @@ import {
 describe("intelligence API contract validation", () => {
   it("accepts the complete typed fixture contracts", () => {
     expect(parseTodaySnapshot(demoSnapshot.today).stories).toHaveLength(4);
+    expect(parseTodaySnapshot(demoSnapshot.today).alerts).toHaveLength(1);
     expect(parseLiveSnapshot(demoSnapshot.live).events).toHaveLength(4);
     expect(parseStoryDetail(demoSnapshot.stories["go-toolchain-security"]).assertions).toHaveLength(
       1,
@@ -26,6 +27,13 @@ describe("intelligence API contract validation", () => {
       parseStoryDetail({
         ...story,
         sources: [{ ...story.sources[0], url: "javascript:alert(1)" }],
+      }),
+    ).toThrow("must use HTTPS outside local fixtures");
+
+    expect(() =>
+      parseTodaySnapshot({
+        ...demoSnapshot.today,
+        alerts: [{ ...demoSnapshot.today.alerts[0], sourceUrl: "javascript:alert(1)" }],
       }),
     ).toThrow("must use HTTPS outside local fixtures");
   });

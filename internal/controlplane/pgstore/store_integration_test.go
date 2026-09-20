@@ -79,7 +79,11 @@ func TestOwnerControlPlaneRoundTrip(t *testing.T) {
 	if len(settings.Schedules) != 1 || settings.Schedules[0].ID != scheduleID {
 		t.Fatalf("settings schedules = %+v", settings.Schedules)
 	}
-	updatedSettings, err := service.UpdateSettings(context.Background(), controlplane.UpdateSettingsRequest{
+	if len(settings.Owner.CriticalAlertChannels) != 1 || settings.Owner.CriticalAlertChannels[0] != "dashboard" {
+		t.Fatalf("default critical alert channels = %v", settings.Owner.CriticalAlertChannels)
+	}
+	goEcosystem := controlplane.AdvisoryEcosystemGo
+	settingsRequest := controlplane.UpdateSettingsRequest{
 		UserID: userID, ExpectedVersion: settings.Owner.Version,
 		ProfileName: "Platform intelligence", ProfileSummary: "Go, PostgreSQL, and security changes.",
 		Topics: []controlplane.InterestTopic{
@@ -87,20 +91,60 @@ func TestOwnerControlPlaneRoundTrip(t *testing.T) {
 			{TopicID: "postgresql", Priority: 1, Weight: 0.9, Keywords: []string{}, Exclusions: []string{}},
 		},
 		Technologies: []controlplane.WatchedTechnology{{
-			Technology: "Go", PackageName: "go", CurrentVersion: "1.27.0",
-			VersionConstraint: ">=1.27", Status: "active", Source: "test-fixture",
+			Technology: "Go", PackageName: "go", Ecosystem: &goEcosystem,
+			CurrentVersion: "1.27.0", VersionConstraint: ">=1.27", Status: "active", Source: "test-fixture",
+		}, {
+			Technology: "PostgreSQL", PackageName: "postgresql", CurrentVersion: "18",
+			Status: "active", Source: "test-fixture",
 		}},
 		Timezone: "America/New_York", QuietHoursStart: "22:00", QuietHoursEnd: "07:00",
 		CriticalAlertsBypass: true, MonthlySoftBudgetUSD: "20.00", MonthlyHardBudgetUSD: "40.00",
-		RawRetentionDays: 120, AuditRetentionDays: 400,
-	}, now)
+		CriticalAlertChannels: []string{"dashboard", "discord"},
+		RawRetentionDays:      120, AuditRetentionDays: 400,
+	}
+	updatedSettings, err := service.UpdateSettings(context.Background(), settingsRequest, now)
 	if err != nil {
 		t.Fatalf("UpdateSettings() error = %v", err)
 	}
 	if updatedSettings.Owner.Version != settings.Owner.Version+1 ||
-		len(updatedSettings.Profile.Topics) != 2 || len(updatedSettings.Technologies) != 1 {
+		len(updatedSettings.Profile.Topics) != 2 || len(updatedSettings.Technologies) != 2 {
 		t.Fatalf("updated settings = %+v", updatedSettings)
 	}
+	if updatedSettings.Technologies[0].Ecosystem == nil ||
+		*updatedSettings.Technologies[0].Ecosystem != controlplane.AdvisoryEcosystemGo ||
+		updatedSettings.Technologies[1].Ecosystem != nil {
+		t.Fatalf("watched ecosystems = %+v", updatedSettings.Technologies)
+	}
+	if len(updatedSettings.Owner.CriticalAlertChannels) != 2 ||
+		updatedSettings.Owner.CriticalAlertChannels[0] != "dashboard" ||
+		updatedSettings.Owner.CriticalAlertChannels[1] != "discord" {
+		t.Fatalf("updated critical alert channels = %v", updatedSettings.Owner.CriticalAlertChannels)
+	}
+	assertCatchUpJobs := func(want int) {
+		t.Helper()
+		var count int
+		if err := pool.QueryRow(context.Background(), `
+			select count(*) from river.river_job
+			where queue = 'test_controlplane' and kind = 'reassess_current_advisories'
+				and args->>'userId' = $1`, userID).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		if count != want {
+			t.Fatalf("advisory catch-up jobs = %d, want %d", count, want)
+		}
+	}
+	assertCatchUpJobs(1)
+	settingsRequest.ExpectedVersion = updatedSettings.Owner.Version
+	if _, err := service.UpdateSettings(context.Background(), settingsRequest, now.Add(time.Second)); err != nil {
+		t.Fatalf("unchanged UpdateSettings() error = %v", err)
+	}
+	assertCatchUpJobs(1)
+	settingsRequest.ExpectedVersion++
+	settingsRequest.Technologies[0].CurrentVersion = "1.27.1"
+	if _, err := service.UpdateSettings(context.Background(), settingsRequest, now.Add(2*time.Second)); err != nil {
+		t.Fatalf("changed watch UpdateSettings() error = %v", err)
+	}
+	assertCatchUpJobs(2)
 
 	schedule := updatedSettings.Schedules[0]
 	schedule, err = service.UpdateSchedule(context.Background(), controlplane.UpdateScheduleRequest{
@@ -277,6 +321,8 @@ func seedControlPlaneFixture(
 func cleanupControlPlaneFixture(t *testing.T, pool *pgxpool.Pool, userID string) {
 	t.Helper()
 	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `delete from river.river_job
+			where kind = 'reassess_current_advisories' and args->>'userId' = $1`, userID)
 		_, _ = pool.Exec(context.Background(), `delete from river.river_job where args->>'occurrenceId' in (
 			select occurrence.id::text from app.schedule_occurrences occurrence
 			join app.schedule_definitions schedule on schedule.id = occurrence.schedule_id

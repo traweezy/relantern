@@ -73,6 +73,60 @@ func (objects *entryObjects) Delete(_ context.Context, key string) error {
 	return nil
 }
 
+func TestRepositoryAdvisoryEndpointUsesEventContentPolicy(t *testing.T) {
+	if os.Getenv("DATABASE_URL") == "" && os.Getenv("DATABASE_PASSWORD_FILE") == "" {
+		t.Skip("database configuration is required for source endpoint integration")
+	}
+	configuration, err := config.LoadDatabase()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	pool, err := database.Open(ctx, configuration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+
+	sourceID := "test-advisory-policy-" + uuid.NewString()
+	defer func() { _, _ = pool.Exec(ctx, `delete from app.sources where id = $1`, sourceID) }()
+	_, err = pool.Exec(ctx, `insert into app.sources (id, name, trust_tier, owner, origin,
+		validation_state, homepage_url, content_policy, enabled, topics, reviewed_at)
+		values ($1, 'Test advisory policy', 'T1', 'system', 'owner', 'active',
+		'https://github.com/example/project', 'metadata-only', true, array['go'], now())`, sourceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, endpoint := range []struct {
+		registryID string
+		connector  string
+		url        string
+		config     string
+		wantPolicy string
+	}{
+		{sourceID + "-releases", "github_releases", "https://api.github.com/repos/example/project/releases", `{"event":"releases","contentPolicy":"metadata-only"}`, "metadata-only"},
+		{sourceID + "-advisories", "github_advisories", "https://api.github.com/repos/example/project/security-advisories", `{"event":"security_advisories","contentPolicy":"link-and-excerpt"}`, "link-and-excerpt"},
+		{sourceID + "-unreviewed", "github_advisories", "https://api.github.com/repos/example/project/security-advisories?state=published", `{"event":"security_advisories"}`, "metadata-only"},
+	} {
+		_, err = pool.Exec(ctx, `insert into app.source_endpoints (registry_id, source_id,
+			connector, url, poll_interval, priority, robots_policy, expected_content_types,
+			max_response_bytes, fixture_suite, config)
+			values ($1, $2, $3, $4, interval '5 minutes', 'critical', 'api',
+			array['application/json'], 1048576, 'github-advisories-v1', $5::jsonb)`,
+			endpoint.registryID, sourceID, endpoint.connector, endpoint.url, endpoint.config)
+		if err != nil {
+			t.Fatal(err)
+		}
+		loaded, err := (&Store{pool: pool}).LoadEndpoint(ctx, endpoint.registryID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if loaded == nil || loaded.ContentPolicy != endpoint.wantPolicy {
+			t.Fatalf("LoadEndpoint(%s) = %+v, want policy %q", endpoint.registryID, loaded, endpoint.wantPolicy)
+		}
+	}
+}
+
 func TestSourcePollingLedgerAndPause(t *testing.T) {
 	if os.Getenv("DATABASE_URL") == "" && os.Getenv("DATABASE_PASSWORD_FILE") == "" {
 		t.Skip("database configuration is required for source polling integration")

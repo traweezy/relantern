@@ -74,6 +74,12 @@ func (store *Store) Today(ctx context.Context, userID string, generatedAt time.T
 		CoverageEndAt: coverageEnd, CoverageStartAt: coverageStart,
 		DeliveryState: deliveryState, GeneratedAt: generatedAt.UTC(), Stories: stories,
 	}
+	alerts, alertCount, err := store.recentCriticalAlerts(ctx, userID, generatedAt.UTC())
+	if err != nil {
+		return intelligence.TodaySnapshot{}, err
+	}
+	snapshot.Alerts = alerts
+	snapshot.Stats.CriticalAlerts = alertCount
 	var nextRunAt pgtype.Timestamptz
 	var activeSources int
 	var enabledSources int
@@ -109,14 +115,47 @@ func (store *Store) Today(ctx context.Context, userID string, generatedAt time.T
 		snapshot.Stats.SourceCoverage = activeSources * 100 / enabledSources
 	}
 	for _, story := range stories {
-		if story.Signal == "security" {
-			snapshot.Stats.CriticalAlerts++
-		}
 		if story.Signal == "release" {
 			snapshot.Stats.Releases++
 		}
 	}
 	return snapshot, nil
+}
+
+func (store *Store) recentCriticalAlerts(ctx context.Context, userID string, now time.Time) ([]intelligence.CriticalAlert, int, error) {
+	rows, err := store.pool.Query(ctx, `
+		select id::text, advisory_id, title, ecosystem, package_name,
+			current_version, vulnerable_range, patched_version, source_url,
+			observed_at, created_at, count(*) over()
+		from app.critical_alerts
+		where user_id = $1::uuid and created_at >= $2 and created_at <= $3
+		order by created_at desc, id desc
+		limit 20`, userID, now.Add(-24*time.Hour), now)
+	if err != nil {
+		return nil, 0, fmt.Errorf("select recent critical alerts: %w", err)
+	}
+	defer rows.Close()
+	alerts := make([]intelligence.CriticalAlert, 0)
+	alertCount := 0
+	for rows.Next() {
+		var selected intelligence.CriticalAlert
+		if err := rows.Scan(
+			&selected.ID, &selected.AdvisoryID, &selected.Title,
+			&selected.Ecosystem, &selected.PackageName, &selected.CurrentVersion,
+			&selected.VersionRange, &selected.PatchedVersion, &selected.SourceURL,
+			&selected.ObservedAt, &selected.AlertedAt, &alertCount,
+		); err != nil {
+			return nil, 0, fmt.Errorf("scan critical alert: %w", err)
+		}
+		selected.ObservedAt = selected.ObservedAt.UTC()
+		selected.AlertedAt = selected.AlertedAt.UTC()
+		selected.Reason = "Confirmed critical advisory affects a watched dependency."
+		alerts = append(alerts, selected)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("iterate critical alerts: %w", err)
+	}
+	return alerts, alertCount, nil
 }
 
 func (store *Store) latestDashboardDigest(

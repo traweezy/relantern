@@ -2,6 +2,7 @@ package fakeprovider
 
 import (
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -113,7 +114,8 @@ func registerDelivery(mux *http.ServeMux) {
 		var payload Capture
 		decoder := json.NewDecoder(http.MaxBytesReader(response, request.Body, 64<<10))
 		decoder.DisallowUnknownFields()
-		if err := decoder.Decode(&payload); err != nil || !validCapture(payload) {
+		if err := decoder.Decode(&payload); err != nil || !validCapture(payload) ||
+			(payload.Kind == "critical_alert" && request.Header.Get("Idempotency-Key") != payload.IdempotencyKey) {
 			httpx.WriteProblem(response, request, http.StatusBadRequest, "Invalid capture", "The capture body must be valid JSON.")
 			return
 		}
@@ -122,14 +124,20 @@ func registerDelivery(mux *http.ServeMux) {
 			"Idempotency-Key": request.Header.Get("Idempotency-Key"),
 		}
 		payload.ReceivedAt = time.Now().UTC()
+		captureID := payload.DigestID
+		captureKey := payload.IdempotencyKey
+		if payload.Kind == "critical_alert" {
+			captureID = payload.AlertID
+			captureKey = payload.Kind + ":" + captureKey
+		}
 		store.mu.Lock()
-		if _, exists := store.keys[payload.IdempotencyKey]; !exists {
-			store.keys[payload.IdempotencyKey] = len(store.captures)
+		if _, exists := store.keys[captureKey]; !exists {
+			store.keys[captureKey] = len(store.captures)
 			store.captures = append(store.captures, payload)
 		}
 		store.mu.Unlock()
 		httpx.WriteJSON(response, http.StatusAccepted, map[string]string{
-			"id": "capture:" + payload.DigestID, "status": "captured",
+			"id": "capture:" + captureID, "status": "captured",
 		})
 	})
 	mux.HandleFunc("GET /captures", func(response http.ResponseWriter, _ *http.Request) {
@@ -143,25 +151,42 @@ func registerDelivery(mux *http.ServeMux) {
 		captures := append([]Capture{}, store.captures...)
 		store.mu.RUnlock()
 		response.Header().Set("Content-Type", "text/html; charset=utf-8")
+		response.Header().Set("Content-Security-Policy", deliveryViewerCSP)
 		if err := deliveryViewer.Execute(response, captures); err != nil {
 			http.Error(response, "render capture viewer", http.StatusInternalServerError)
 		}
 	})
 }
 
-var deliveryViewer = template.Must(template.New("delivery-viewer").Parse(`<!doctype html>
+const deliveryViewerHTML = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Relantern delivery captures</title><style>
 body{font:16px system-ui,sans-serif;max-width:76rem;margin:0 auto;padding:2rem;background:#111827;color:#f9fafb}
 table{border-collapse:collapse;width:100%}caption{text-align:left;font-size:1.5rem;font-weight:700;margin-bottom:1rem}
 th,td{text-align:left;vertical-align:top;padding:.75rem;border-bottom:1px solid #374151}th{color:#d1d5db}
 code{overflow-wrap:anywhere;color:#a7f3d0}.empty{padding:2rem;border:1px dashed #4b5563;border-radius:.75rem}
-</style></head><body><main>{{if .}}<table><caption>Captured digest deliveries</caption><thead><tr>
-<th>Received</th><th>Channel</th><th>Digest</th><th>Attempt</th><th>Payload SHA-256</th></tr></thead><tbody>
-{{range .}}<tr><td>{{.ReceivedAt}}</td><td>{{.Channel}}</td><td><code>{{.DigestID}}</code></td><td>{{.Attempt}}</td><td><code>{{.PayloadSHA256}}</code></td></tr>{{end}}
-</tbody></table>{{else}}<section class="empty"><h1>No delivery captures</h1><p>The local delivery sink is ready.</p></section>{{end}}</main></body></html>`))
+</style></head><body><main>{{if .}}<table><caption>Captured deliveries</caption><thead><tr>
+<th>Received</th><th>Kind</th><th>Channel</th><th>Digest or alert</th><th>Attempt</th><th>Payload SHA-256</th></tr></thead><tbody>
+{{range .}}<tr><td>{{.ReceivedAt}}</td><td>{{if eq .Kind "critical_alert"}}Critical alert{{else}}Digest{{end}}</td><td>{{.Channel}}</td><td><code>{{if .AlertID}}{{.AlertID}}{{else}}{{.DigestID}}{{end}}</code></td><td>{{.Attempt}}</td><td><code>{{if .PayloadSHA256}}{{.PayloadSHA256}}{{else}}—{{end}}</code></td></tr>{{end}}
+</tbody></table>{{else}}<section class="empty"><h1>No delivery captures</h1><p>The local delivery sink is ready.</p></section>{{end}}</main></body></html>`
+
+var deliveryViewer = template.Must(template.New("delivery-viewer").Parse(deliveryViewerHTML))
+var deliveryViewerCSP = viewerStyleCSP(deliveryViewerHTML)
+
+func viewerStyleCSP(page string) string {
+	_, afterOpen, _ := strings.Cut(page, "<style>")
+	style, _, _ := strings.Cut(afterOpen, "</style>")
+	digest := sha256.Sum256([]byte(style))
+	return "default-src 'none'; style-src 'sha256-" + base64.StdEncoding.EncodeToString(digest[:]) + "'; frame-ancestors 'none'; base-uri 'none'"
+}
 
 func validCapture(payload Capture) bool {
+	if payload.Kind == "critical_alert" {
+		return validAlertCapture(payload)
+	}
+	if payload.Kind != "" {
+		return false
+	}
 	if payload.Attempt < 1 || (payload.Channel != "discord" && payload.Channel != "email") ||
 		strings.TrimSpace(payload.DigestID) == "" || strings.TrimSpace(payload.IdempotencyKey) == "" ||
 		strings.TrimSpace(payload.LocalDate) == "" || len(payload.PayloadSHA256) != 64 || payload.ScheduledFor.IsZero() {
@@ -175,6 +200,26 @@ func validCapture(payload Capture) bool {
 	}
 	var decoded map[string]any
 	return len(payload.Payload) > 1 && len(payload.Payload) <= 64<<10 && json.Unmarshal(payload.Payload, &decoded) == nil && decoded != nil
+}
+
+func validAlertCapture(payload Capture) bool {
+	if payload.Attempt < 1 || (payload.Channel != "discord" && payload.Channel != "email") ||
+		strings.TrimSpace(payload.AlertID) == "" || strings.TrimSpace(payload.IdempotencyKey) == "" ||
+		len(payload.Payload) < 2 || len(payload.Payload) > 64<<10 {
+		return false
+	}
+	var details struct {
+		Title          string `json:"title"`
+		SourceURL      string `json:"sourceUrl"`
+		PackageName    string `json:"packageName"`
+		Ecosystem      string `json:"ecosystem"`
+		CurrentVersion string `json:"currentVersion"`
+		VersionRange   string `json:"versionRange"`
+	}
+	return json.Unmarshal(payload.Payload, &details) == nil &&
+		strings.TrimSpace(details.Title) != "" && strings.HasPrefix(details.SourceURL, "https://") &&
+		strings.TrimSpace(details.PackageName) != "" && strings.TrimSpace(details.Ecosystem) != "" &&
+		strings.TrimSpace(details.CurrentVersion) != "" && strings.TrimSpace(details.VersionRange) != ""
 }
 
 func registerOpenAI(mux *http.ServeMux) {
@@ -635,10 +680,12 @@ func registerSource(mux *http.ServeMux) {
 
 type Capture struct {
 	Attempt        int               `json:"attempt"`
+	AlertID        string            `json:"alertId,omitempty"`
 	Channel        string            `json:"channel"`
 	DigestID       string            `json:"digestId"`
 	Headers        map[string]string `json:"headers,omitempty"`
 	IdempotencyKey string            `json:"idempotencyKey"`
+	Kind           string            `json:"kind,omitempty"`
 	LocalDate      string            `json:"localDate"`
 	Payload        json.RawMessage   `json:"payload"`
 	PayloadSHA256  string            `json:"payloadSha256"`

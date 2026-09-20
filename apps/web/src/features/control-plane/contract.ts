@@ -11,6 +11,7 @@ import type {
   SourcePreference,
   SourcesSnapshot,
 } from "@relantern/domain";
+import { advisoryEcosystems } from "@relantern/domain";
 import { z } from "zod";
 
 const sourceTierSchema = z.enum(["T0", "T1", "T2", "T3"]);
@@ -85,6 +86,7 @@ const interestTopicSchema = z.object({
 
 const watchedTechnologySchema = z.object({
   currentVersion: z.string().max(100),
+  ecosystem: z.enum(advisoryEcosystems).nullable(),
   id: z.uuid(),
   lastVerifiedAt: optionalTimeSchema,
   packageName: z.string().min(1).max(255),
@@ -125,6 +127,13 @@ const settingsSnapshotSchema: z.ZodType<SettingsSnapshot> = z.object({
   generatedAt: z.iso.datetime({ offset: true }),
   owner: z.object({
     auditRetentionDays: z.number().int().min(30).max(3650),
+    criticalAlertChannels: z
+      .array(z.enum(["dashboard", "discord", "email"]))
+      .min(1)
+      .max(3)
+      .refine(
+        (channels) => channels.includes("dashboard") && new Set(channels).size === channels.length,
+      ),
     criticalAlertsBypass: z.boolean(),
     monthlyHardBudgetUsd: z.string().min(1),
     monthlySoftBudgetUsd: z.string().min(1),
