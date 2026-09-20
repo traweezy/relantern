@@ -349,6 +349,97 @@ func TestOrderedAdvisoryObservationReactivationAcrossCutover(t *testing.T) {
 	}
 }
 
+func TestCrossSourceCriticalAfterCorrectionDoesNotBlockObservations(t *testing.T) {
+	pool := openAssessmentPool(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	global := seedAssessment(t, ctx, pool, true)
+	repository := seedAssessment(t, ctx, pool)
+	repository.exec(t, ctx, `update app.watched_technologies set status = 'planned'
+		where id = $1::uuid`, repository.watchID)
+	correctionChildID, correctionRevisionID, correctionKey, correctionPayload :=
+		seedCorrectionRevision(t, ctx, global, "high", "", false)
+	var correctionParentID, globalKey, repositoryKey string
+	if err := pool.QueryRow(ctx, `select parent_raw_document_id::text
+		from app.raw_documents where id = $1::uuid`, correctionChildID).
+		Scan(&correctionParentID); err != nil {
+		t.Fatal(err)
+	}
+	for _, pair := range []struct{ rawID, key *string }{
+		{&global.childID, &globalKey}, {&repository.childID, &repositoryKey},
+	} {
+		if err := pool.QueryRow(ctx, `select object_key from app.raw_documents
+			where id = $1::uuid`, *pair.rawID).Scan(pair.key); err != nil {
+			t.Fatal(err)
+		}
+	}
+	globalEvent := seedAdvisoryObservation(t, ctx, pool, global,
+		global.parentID, global.childID, global.now)
+	correctionEvent := seedAdvisoryObservation(t, ctx, pool, global,
+		correctionParentID, correctionChildID, global.now.Add(2*time.Minute))
+	repositoryEvent := seedAdvisoryObservation(t, ctx, pool, repository,
+		repository.parentID, repository.childID, repository.now.Add(4*time.Minute))
+	nextRepositoryEvent := seedAdvisoryObservation(t, ctx, pool, repository,
+		repository.parentID, repository.childID, repository.now.Add(5*time.Minute))
+	jobs, err := jobqueue.NewIsolatedTestInserter("test_alert_assessment")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cleanupCancel()
+		if _, err := pool.Exec(cleanupCtx, `delete from river.river_job
+			where queue = 'test_alert_assessment'
+				and kind = 'assess_advisory_observation'
+				and (args->>'eventId')::bigint = any($1::bigint[])`,
+			[]int64{globalEvent, correctionEvent, repositoryEvent, nextRepositoryEvent}); err != nil {
+			t.Errorf("clean up cross-source observation jobs: %v", err)
+		}
+	})
+	store, err := New(pool, jobs, &fixtureReader{byObjectKey: map[string][]byte{
+		globalKey:     bytes.Clone(global.payload),
+		correctionKey: bytes.Clone(correctionPayload),
+		repositoryKey: bytes.Clone(repository.payload),
+	}}, clock.NewFixed(global.now.Add(6*time.Minute)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range []struct {
+		id       int64
+		revision string
+	}{
+		{globalEvent, global.revisionID},
+		{correctionEvent, correctionRevisionID},
+		{repositoryEvent, repository.revisionID},
+		{nextRepositoryEvent, repository.revisionID},
+	} {
+		if err := store.AssessObservation(ctx, event.id, event.revision); err != nil {
+			t.Fatalf("assess event %d: %v", event.id, err)
+		}
+	}
+	assertAlertCount(t, ctx, pool, global.userID, 1)
+	assertAlertCount(t, ctx, pool, repository.userID, 0)
+	var correctedCount int
+	if err := pool.QueryRow(ctx, `select count(*) from app.critical_alerts
+		where user_id = $1::uuid and corrected_at is not null`,
+		global.userID).Scan(&correctedCount); err != nil {
+		t.Fatal(err)
+	}
+	if correctedCount != 1 {
+		t.Fatalf("corrected global alert count = %d, want 1", correctedCount)
+	}
+	for _, eventID := range []int64{repositoryEvent, nextRepositoryEvent} {
+		var state string
+		if err := pool.QueryRow(ctx, `select state from app.advisory_entry_observations
+			where id = $1`, eventID).Scan(&state); err != nil {
+			t.Fatal(err)
+		}
+		if state != "processed" {
+			t.Fatalf("repository event %d state = %q, want processed", eventID, state)
+		}
+	}
+}
+
 func TestAdvisoryObservationKeepsTamperedEvidencePending(t *testing.T) {
 	pool := openAssessmentPool(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

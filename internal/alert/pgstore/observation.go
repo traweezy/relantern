@@ -432,7 +432,9 @@ func nextAlertEpisode(
 		return 0, nil
 	}
 	if originalEntryID != entryRowID {
-		return 0, errors.New("critical alert reactivation needs cross-source authority review")
+		// Another official entry cannot reopen this alert without an authority
+		// rule. Acknowledge its observation so it cannot block the source FIFO.
+		return 0, nil
 	}
 	var legacyUniqueExists bool
 	if err := tx.QueryRow(ctx, `
