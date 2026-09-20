@@ -12,7 +12,12 @@
 6be6fbde17b1d495bda88bfb7a8d3997db296185:apps/web/src/app/api/webhooks/openai/route.test.ts:generic-api-key:8
 7da61633d2c8b88960ca6f8906b6bd93d5757daa:internal/fakeprovider/oauth_test.go:generic-api-key:16
 
-# Synthetic owner token and legacy raw object keys in regression fixtures.
+# Synthetic owner token and legacy raw object keys in reviewed test commits.
 e615d00e4383d22c471a5f73579949176490939b:apps/web/src/app/api/intelligence/live/route.test.ts:generic-api-key:11
 69241ec6e0dc32a57d780422a3bc3b876b734dd8:internal/fetcher/pgstore/store_integration_test.go:generic-api-key:230
 69241ec6e0dc32a57d780422a3bc3b876b734dd8:internal/fetcher/pgstore/store_integration_test.go:generic-api-key:253
+
+# The protected staging branch squashes those commits into one new commit.
+29013d7f3c7003405dc45ae2c3ed205dc516c468:apps/web/src/app/api/intelligence/live/route.test.ts:generic-api-key:11
+29013d7f3c7003405dc45ae2c3ed205dc516c468:internal/fetcher/pgstore/store_integration_test.go:generic-api-key:230
+29013d7f3c7003405dc45ae2c3ed205dc516c468:internal/fetcher/pgstore/store_integration_test.go:generic-api-key:253
