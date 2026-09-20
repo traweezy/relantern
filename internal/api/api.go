@@ -203,6 +203,7 @@ func New(logger *slog.Logger, info Info, ready ReadyCheck, configuredOptions ...
 		}}, nil
 	})
 	registerIntelligence(api, configuration, logger)
+	registerAlertHistory(api, configuration, logger)
 	registerReadingState(api, configuration, logger)
 	registerDiscovery(api, configuration, logger)
 	registerControlPlane(api, configuration, logger)

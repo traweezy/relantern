@@ -928,6 +928,16 @@ button {
   line-height: 1.5;
 }
 
+.brief-status-link {
+  display: inline-flex;
+  min-height: 2rem;
+  align-items: center;
+  margin-top: 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 650;
+  text-underline-offset: 0.2rem;
+}
+
 .critical-alerts {
   padding-top: clamp(2rem, 4vw, 3rem);
 }
@@ -1001,6 +1011,69 @@ button {
   font-size: 0.75rem;
   font-weight: 650;
   text-underline-offset: 0.2rem;
+}
+
+.alert-history {
+  padding-top: clamp(2rem, 4vw, 3rem);
+}
+
+.alert-history-list {
+  display: grid;
+  gap: 0.85rem;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 24rem), 1fr));
+}
+
+.alert-history .collection-toolbar > p {
+  color: var(--color-ink-muted);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+}
+
+.alert-delivery-status {
+  padding-top: 0.8rem;
+  margin-top: 1rem;
+  border-top: 1px solid var(--color-border);
+}
+
+.alert-delivery-status p {
+  margin: 0 0 0.5rem;
+  color: var(--color-ink);
+  font-weight: 650;
+}
+
+.alert-delivery-status ul {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.alert-delivery-status li {
+  color: var(--color-ink-muted);
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+.alert-history-pagination {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 1.5rem;
+}
+
+.alert-history-pagination a,
+.alert-history-home-link {
+  min-height: 2.75rem;
+}
+
+.alert-history-home-link {
+  margin-top: 1.25rem;
+}
+
+.alert-history-skeleton {
+  min-height: 14rem;
 }
 
 .brief-section {

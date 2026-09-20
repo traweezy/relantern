@@ -4,6 +4,23 @@
  */
 
 export interface paths {
+    "/api/v1/alerts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List confirmed owner advisory alerts with delivery status */
+        get: operations["get-alert-history"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/annotations/{annotationId}": {
         parameters: {
             query?: never;
@@ -763,6 +780,43 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        AlertDeliveryStatus: {
+            /** Format: int64 */
+            attemptCount: number;
+            channel: string;
+            /** Format: date-time */
+            deliveredAt: string | null;
+            /** Format: date-time */
+            nextAttemptAt: string | null;
+            state: string;
+        };
+        AlertHistoryItem: {
+            advisoryId: string;
+            /** Format: date-time */
+            alertedAt: string;
+            currentVersion: string;
+            deliveries: components["schemas"]["AlertDeliveryStatus"][] | null;
+            ecosystem: string;
+            id: string;
+            /** Format: date-time */
+            observedAt: string;
+            packageName: string;
+            patchedVersion: string;
+            reason: string;
+            sourceUrl: string;
+            title: string;
+            versionRange: string;
+        };
+        AlertHistoryPage: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/AlertHistoryPage.json
+             */
+            readonly $schema?: string;
+            alerts: components["schemas"]["AlertHistoryItem"][] | null;
+            nextCursor: string | null;
+        };
         Annotation: {
             /**
              * Format: uri
@@ -2100,6 +2154,43 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    "get-alert-history": {
+        parameters: {
+            query?: {
+                cursor?: string;
+                limit?: number;
+            };
+            header?: {
+                Authorization?: string;
+                "X-Relantern-User-ID"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    "Cache-Control"?: string;
+                    Link?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertHistoryPage"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     "delete-annotation": {
         parameters: {
             query?: never;

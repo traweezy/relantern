@@ -18,6 +18,7 @@ describe("public route policy", () => {
 
   it.each([
     "/",
+    "/alerts",
     "/settings",
     "/demo/private",
     "/demo/story/UPPERCASE",

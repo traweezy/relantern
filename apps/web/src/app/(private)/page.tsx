@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { DigestQuickControls } from "@/features/control-plane/digest-quick-controls";
 import { DigestHistory } from "@/features/digest/digest-history";
+import { CriticalAlertCard } from "@/features/intelligence/critical-alert-card";
 import { EmptyState } from "@/features/intelligence/empty-state";
 import { TriageCollection } from "@/features/reading-state/triage-collection";
 import { requireOwnerSession } from "@/server/auth/session";
@@ -48,6 +50,9 @@ const TodayPage = async () => {
           eyebrow="No unsafe fallback"
           title="Today is temporarily unavailable"
         />
+        <Link className="secondary-button alert-history-home-link" href="/alerts">
+          View alert history
+        </Link>
       </>
     );
   }
@@ -103,6 +108,9 @@ const TodayPage = async () => {
           <span>Critical</span>
           <strong>{snapshot.stats.criticalAlerts}</strong>
           <p>Confirmed watched-dependency alerts</p>
+          <Link className="brief-status-link" href="/alerts">
+            View alert history
+          </Link>
         </article>
         <article className="brief-status">
           <span>Releases</span>
@@ -141,35 +149,7 @@ const TodayPage = async () => {
           </div>
           <div className="critical-alert-list">
             {snapshot.alerts.map((alert) => (
-              <article className="critical-alert-card" key={alert.id}>
-                <div className="critical-alert-card-heading">
-                  <span className="critical-alert-severity">Critical · {alert.ecosystem}</span>
-                  <time dateTime={alert.alertedAt}>
-                    {new Intl.DateTimeFormat("en-US", {
-                      dateStyle: "medium",
-                      timeStyle: "short",
-                      timeZone: owner.timezone,
-                    }).format(new Date(alert.alertedAt))}
-                  </time>
-                </div>
-                <h3>{alert.title}</h3>
-                <p>
-                  <strong>{alert.packageName}</strong> at {alert.currentVersion} is within the
-                  affected range {alert.versionRange}.
-                </p>
-                {alert.patchedVersion !== "" && (
-                  <p>First patched version: {alert.patchedVersion}</p>
-                )}
-                <p className="critical-alert-reason">{alert.reason}</p>
-                <a
-                  href={alert.sourceUrl}
-                  rel="noopener noreferrer"
-                  target="_blank"
-                  aria-label={`Open official advisory ${alert.advisoryId} for ${alert.packageName}`}
-                >
-                  Open official advisory
-                </a>
-              </article>
+              <CriticalAlertCard alert={alert} key={alert.id} timezone={owner.timezone} />
             ))}
           </div>
         </section>

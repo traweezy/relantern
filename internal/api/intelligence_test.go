@@ -18,6 +18,10 @@ const storyID = "01991234-5678-7abc-8def-0123456789ab"
 
 type fixtureReader struct{}
 
+func (fixtureReader) AlertHistory(context.Context, string, string, int) (intelligence.AlertHistoryPage, error) {
+	return intelligence.AlertHistoryPage{Alerts: []intelligence.AlertHistoryItem{}}, nil
+}
+
 func (fixtureReader) Today(_ context.Context, _ string, generatedAt time.Time) (intelligence.TodaySnapshot, error) {
 	return intelligence.TodaySnapshot{
 		Alerts:        []intelligence.CriticalAlert{},

@@ -7,6 +7,7 @@ import { memo, useMemo } from "react";
 
 const desktopNavigation = [
   { href: "/", label: "Today", shortLabel: "Today" },
+  { href: "/alerts", label: "Alerts", shortLabel: "Alerts" },
   { href: "/live", label: "Live", shortLabel: "Live" },
   { href: "/inbox", label: "Inbox", shortLabel: "Inbox" },
   { href: "/later", label: "Read Later", shortLabel: "Later" },

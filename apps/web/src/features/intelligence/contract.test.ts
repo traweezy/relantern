@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { demoSnapshot } from "../demo/demo-snapshot";
 import {
   IntelligenceContractError,
+  parseAlertHistoryPage,
   parseLiveSnapshot,
   parseStoryDetail,
   parseTodaySnapshot,
@@ -56,5 +57,49 @@ describe("intelligence API contract validation", () => {
         ],
       }),
     ).toThrow(IntelligenceContractError);
+  });
+
+  it("accepts owner alert history and validates delivery status at the boundary", () => {
+    const alert = demoSnapshot.today.alerts[0];
+    const history = {
+      alerts: [
+        {
+          ...alert,
+          deliveries: [
+            {
+              channel: "discord",
+              state: "sent",
+              attemptCount: 1,
+              deliveredAt: "2026-09-20T12:00:00Z",
+              nextAttemptAt: null,
+            },
+          ],
+        },
+      ],
+      nextCursor: "YWxlcnRzXzE",
+    } as const;
+
+    expect(parseAlertHistoryPage(history).alerts[0]?.deliveries[0]?.state).toBe("sent");
+    expect(parseAlertHistoryPage(history).nextCursor).toBe("YWxlcnRzXzE");
+    expect(() =>
+      parseAlertHistoryPage({
+        ...history,
+        alerts: [{ ...history.alerts[0], sourceUrl: "javascript:alert(1)" }],
+      }),
+    ).toThrow("must use HTTPS outside local fixtures");
+    expect(() =>
+      parseAlertHistoryPage({
+        ...history,
+        alerts: [
+          {
+            ...history.alerts[0],
+            deliveries: [{ ...history.alerts[0].deliveries[0], state: "unknown" }],
+          },
+        ],
+      }),
+    ).toThrow(IntelligenceContractError);
+    expect(() => parseAlertHistoryPage({ ...history, nextCursor: "bad/cursor" })).toThrow(
+      IntelligenceContractError,
+    );
   });
 });
