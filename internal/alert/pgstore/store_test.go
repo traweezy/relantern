@@ -213,10 +213,14 @@ func recordGlobalPageFetch(t *testing.T, ctx context.Context, fixture assessment
 }
 
 type fixtureReader struct {
-	payload []byte
+	payload     []byte
+	byObjectKey map[string][]byte
 }
 
-func (reader *fixtureReader) Read(_ context.Context, _ string, _ int64) ([]byte, error) {
+func (reader *fixtureReader) Read(_ context.Context, key string, _ int64) ([]byte, error) {
+	if payload, found := reader.byObjectKey[key]; found {
+		return bytes.Clone(payload), nil
+	}
 	return bytes.Clone(reader.payload), nil
 }
 
@@ -588,6 +592,98 @@ func seedAssessment(t *testing.T, ctx context.Context, pool *pgxpool.Pool, globa
 	return fixture
 }
 
+func seedCorrectionRevision(t *testing.T, ctx context.Context, fixture assessmentFixture,
+	severity, withdrawnAt string, suppressItem bool, classificationOverride ...string,
+) (string, string, string, []byte) {
+	t.Helper()
+	at := fixture.now.Add(2 * time.Minute)
+	classification := `"state":"published",`
+	if fixture.endpointURL == sources.GlobalReviewedAdvisoriesURL {
+		classification = `"type":"reviewed","github_reviewed_at":"2026-09-20T22:01:00Z",`
+	}
+	if len(classificationOverride) > 0 {
+		classification = classificationOverride[0]
+	}
+	withdrawnField := ""
+	if withdrawnAt != "" {
+		withdrawnField = `"withdrawn_at":"` + withdrawnAt + `",`
+	}
+	advisoryJSON := `[{"ghsa_id":"GHSA-abcd-1234-efgh","summary":"Updated widget advisory",` +
+		`"html_url":"` + fixture.publicURL + `","severity":"` + severity + `",` +
+		classification + withdrawnField + `"published_at":"2026-09-20T22:00:00Z",` +
+		`"vulnerabilities":[{"package":{"ecosystem":"go","name":"example.com/widget"},` +
+		`"vulnerable_version_range":"< 1.2.3","patched_versions":"1.2.3"}]}]`
+	entries, err := parsing.SplitEntries(ctx, sources.ConnectorGitHubAdvisories,
+		fixture.endpointURL, []byte(advisoryJSON))
+	if err != nil || len(entries) != 1 || entries[0].ExternalID != fixture.externalID {
+		t.Fatalf("SplitEntries() correction = %+v, %v", entries, err)
+	}
+	entry := entries[0]
+	parentDigest := sha256.Sum256([]byte(advisoryJSON))
+	parentKey, err := storage.RawObjectKey(fixture.sourceID, at, parentDigest, "application/json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	entryDigest := sha256.Sum256(entry.Payload)
+	identityHash := sha256.Sum256([]byte(entry.ExternalID))
+	childKey, err := storage.RawObjectKey(
+		fixture.sourceID+"-entry-"+hex.EncodeToString(identityHash[:]),
+		at, entryDigest, "application/json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var parentID, childID, revisionID string
+	if err := fixture.pool.QueryRow(ctx, `
+		insert into app.raw_documents (source_id, canonical_url, object_key,
+			raw_sha256, first_seen_at, first_fetched_at, content_policy,
+			source_registry_id, source_connector, source_content_type)
+		values ($1, $2, $3, $4, $5, $5, 'link-and-excerpt', $6,
+			'github_advisories', 'application/json') returning id::text`,
+		fixture.sourceID, fixture.endpointURL, parentKey, parentDigest[:], at,
+		fixture.registryID).Scan(&parentID); err != nil {
+		t.Fatal(err)
+	}
+	fixture.exec(t, ctx, `update app.source_entries set last_seen_at = $2
+		where id = $1::uuid`, fixture.entryID, at)
+	if err := fixture.pool.QueryRow(ctx, `
+		insert into app.raw_documents (source_id, canonical_url, object_key,
+			raw_sha256, first_seen_at, first_fetched_at, content_policy,
+			parent_raw_document_id, source_entry_id, source_registry_id,
+			source_connector, source_content_type)
+		values ($1, $2, $3, $4, $5, $5, 'link-and-excerpt', $6::uuid,
+			$7::uuid, $8, 'source_entry', 'application/json') returning id::text`,
+		fixture.sourceID, entry.URL, childKey, entryDigest[:], at, parentID,
+		fixture.entryID, fixture.registryID).Scan(&childID); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.pool.QueryRow(ctx, `
+		insert into app.content_revisions (raw_document_id, previous_revision_id,
+			normalized_sha256, normalized_text_object_key, parser_name, parser_version,
+			title, language, normalized_bytes, outline, offset_map, warnings,
+			change_kind, change_reason, material_change, observed_at)
+		values ($1::uuid, $2::uuid, $3, $4, 'source_entry', '1',
+			'Updated widget advisory', 'en', 23, '[]', '[]', '[]',
+			'material', 'official correction', true, $5)
+		returning id::text`, childID, fixture.revisionID, entryDigest[:],
+		"normalized/"+fixture.sourceID+"/"+hex.EncodeToString(entryDigest[:])+".txt",
+		at.Add(time.Minute)).Scan(&revisionID); err != nil {
+		t.Fatal(err)
+	}
+	fixture.exec(t, ctx, `insert into app.item_sources (revision_id, item_id,
+		canonical_url, source_role, source_tier, sort_order)
+		select $1::uuid, $2::uuid, $3, 'primary', 'T1',
+			coalesce(max(sort_order), 0) + 1
+		from app.item_sources where item_id = $2::uuid`,
+		revisionID, fixture.itemID, entry.URL)
+	status := "updated"
+	if suppressItem {
+		status = "suppressed"
+	}
+	fixture.exec(t, ctx, `update app.items set current_revision_id = $2::uuid,
+		status = $3 where id = $1::uuid`, fixture.itemID, revisionID, status)
+	return childID, revisionID, childKey, entry.Payload
+}
+
 func (fixture assessmentFixture) exec(t *testing.T, ctx context.Context, query string, args ...any) {
 	t.Helper()
 	if _, err := fixture.pool.Exec(ctx, query, args...); err != nil {
@@ -641,6 +737,308 @@ func assertAlertCount(t *testing.T, ctx context.Context, pool *pgxpool.Pool, use
 	}
 	if count != want {
 		t.Fatalf("critical alert count = %d, want %d", count, want)
+	}
+}
+
+func TestNewerOfficialCorrectionSuppressesQueuedAlerts(t *testing.T) {
+	for _, test := range []struct {
+		name           string
+		severity       string
+		withdrawnAt    string
+		wantReason     string
+		suppressItem   bool
+		classification string
+	}{
+		{"withdrawn suppressed item", "critical", "2026-09-20T23:31:00Z", "withdrawn", true, ""},
+		{"severity downgraded", "high", "", "severity_downgraded", false, ""},
+		{"severity unconfirmed", "unknown", "", "severity_unconfirmed", false, ""},
+		{"repository closed", "critical", "", "no_longer_published", true, `"state":"closed",`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			pool := openAssessmentPool(t)
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			fixture := seedAssessment(t, ctx, pool)
+			reader := &fixtureReader{payload: bytes.Clone(fixture.payload), byObjectKey: map[string][]byte{}}
+			jobs, err := jobqueue.NewIsolatedTestInserter("test_alert_assessment")
+			if err != nil {
+				t.Fatal(err)
+			}
+			store, err := New(pool, jobs, reader, clock.NewFixed(fixture.now))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := store.Assess(ctx, fixture.childID, fixture.revisionID); err != nil {
+				t.Fatal(err)
+			}
+			var classification []string
+			if test.classification != "" {
+				classification = []string{test.classification}
+			}
+			childID, revisionID, objectKey, payload := seedCorrectionRevision(t, ctx, fixture,
+				test.severity, test.withdrawnAt, test.suppressItem, classification...)
+			reader.byObjectKey[objectKey] = payload
+			correctingStore, err := New(pool, jobs, reader, clock.NewFixed(fixture.now.Add(3*time.Minute)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := correctingStore.Assess(ctx, childID, revisionID); err != nil {
+				t.Fatal(err)
+			}
+			if err := correctingStore.Assess(ctx, childID, revisionID); err != nil {
+				t.Fatalf("repeated correction: %v", err)
+			}
+			var originalRevision, recordedRevision, reason string
+			if err := pool.QueryRow(ctx, `
+				select revision_id::text, correction_revision_id::text, correction_reason
+				from app.critical_alerts where user_id = $1::uuid`, fixture.userID).
+				Scan(&originalRevision, &recordedRevision, &reason); err != nil {
+				t.Fatal(err)
+			}
+			if originalRevision != fixture.revisionID || recordedRevision != revisionID || reason != test.wantReason {
+				t.Fatalf("correction provenance = %q, %q, %q", originalRevision, recordedRevision, reason)
+			}
+			rows, err := pool.Query(ctx, `
+				select delivery.id::text, delivery.state, delivery.next_attempt_at
+				from app.critical_alert_deliveries delivery
+				join app.critical_alerts admitted on admitted.id = delivery.alert_id
+				where admitted.user_id = $1::uuid order by delivery.channel`, fixture.userID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			type deliveryCheck struct {
+				id  string
+				due time.Time
+			}
+			deliveries := make([]deliveryCheck, 0, 2)
+			for rows.Next() {
+				var deliveryID, state string
+				var due time.Time
+				if err := rows.Scan(&deliveryID, &state, &due); err != nil {
+					rows.Close()
+					t.Fatal(err)
+				}
+				if state != "suppressed" {
+					rows.Close()
+					t.Fatalf("delivery state = %q, want suppressed", state)
+				}
+				deliveries = append(deliveries, deliveryCheck{deliveryID, due})
+			}
+			if err := rows.Err(); err != nil {
+				rows.Close()
+				t.Fatal(err)
+			}
+			rows.Close()
+			if len(deliveries) != 2 {
+				t.Fatalf("suppressed delivery count = %d, want 2", len(deliveries))
+			}
+			for _, delivery := range deliveries {
+				request, err := correctingStore.BeginDelivery(ctx, delivery.id, delivery.due)
+				if err != nil || request != nil {
+					t.Fatalf("suppressed BeginDelivery = %+v, %v", request, err)
+				}
+			}
+			assertAlertCount(t, ctx, pool, fixture.userID, 1)
+		})
+	}
+}
+
+func TestLatestOfficialCorrectionUpdatesOwnerHistory(t *testing.T) {
+	pool := openAssessmentPool(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	fixture := seedAssessment(t, ctx, pool)
+	reader := &fixtureReader{payload: bytes.Clone(fixture.payload), byObjectKey: map[string][]byte{}}
+	jobs, err := jobqueue.NewIsolatedTestInserter("test_alert_assessment")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := New(pool, jobs, reader, clock.NewFixed(fixture.now))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Assess(ctx, fixture.childID, fixture.revisionID); err != nil {
+		t.Fatal(err)
+	}
+
+	firstChild, firstRevision, firstKey, firstPayload := seedCorrectionRevision(t, ctx, fixture,
+		"high", "", false)
+	reader.byObjectKey[firstKey] = firstPayload
+	firstStore, err := New(pool, jobs, reader, clock.NewFixed(fixture.now.Add(3*time.Minute)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := firstStore.Assess(ctx, firstChild, firstRevision); err != nil {
+		t.Fatal(err)
+	}
+	replayStore, err := New(pool, jobs, reader, clock.NewFixed(fixture.now.Add(5*time.Minute)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := replayStore.Assess(ctx, firstChild, firstRevision); err != nil {
+		t.Fatal(err)
+	}
+	var firstCorrectedAt time.Time
+	if err := pool.QueryRow(ctx, `select corrected_at from app.critical_alerts
+		where user_id = $1::uuid`, fixture.userID).Scan(&firstCorrectedAt); err != nil {
+		t.Fatal(err)
+	}
+	if !firstCorrectedAt.Equal(fixture.now.Add(3 * time.Minute)) {
+		t.Fatalf("replayed correction time = %v, want first correction time", firstCorrectedAt)
+	}
+
+	later := fixture
+	later.now = fixture.now.Add(4 * time.Minute)
+	later.revisionID = firstRevision
+	latestChild, latestRevision, latestKey, latestPayload := seedCorrectionRevision(t, ctx, later,
+		"high", "2026-09-20T23:36:00Z", true)
+	reader.byObjectKey[latestKey] = latestPayload
+	latestStore, err := New(pool, jobs, reader, clock.NewFixed(fixture.now.Add(7*time.Minute)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := latestStore.Assess(ctx, latestChild, latestRevision); err != nil {
+		t.Fatal(err)
+	}
+	// A delayed retry of the older correction must not restore stale copy.
+	if err := firstStore.Assess(ctx, firstChild, firstRevision); err != nil {
+		t.Fatal(err)
+	}
+	var reason, revision string
+	var correctedAt time.Time
+	if err := pool.QueryRow(ctx, `
+		select correction_reason, correction_revision_id::text, corrected_at
+		from app.critical_alerts where user_id = $1::uuid`, fixture.userID).
+		Scan(&reason, &revision, &correctedAt); err != nil {
+		t.Fatal(err)
+	}
+	if reason != "withdrawn" || revision != latestRevision ||
+		!correctedAt.Equal(fixture.now.Add(7*time.Minute)) {
+		t.Fatalf("latest correction = %q, %q, %v", reason, revision, correctedAt)
+	}
+	assertAlertCount(t, ctx, pool, fixture.userID, 1)
+}
+
+func TestTamperedCorrectionCannotSuppressQueuedAlert(t *testing.T) {
+	pool := openAssessmentPool(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	fixture := seedAssessment(t, ctx, pool)
+	reader := &fixtureReader{payload: bytes.Clone(fixture.payload), byObjectKey: map[string][]byte{}}
+	jobs, err := jobqueue.NewIsolatedTestInserter("test_alert_assessment")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := New(pool, jobs, reader, clock.NewFixed(fixture.now))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Assess(ctx, fixture.childID, fixture.revisionID); err != nil {
+		t.Fatal(err)
+	}
+	childID, revisionID, objectKey, payload := seedCorrectionRevision(t, ctx, fixture,
+		"high", "", true)
+	reader.byObjectKey[objectKey] = append(bytes.Clone(payload), 'x')
+	if err := store.Assess(ctx, childID, revisionID); err == nil {
+		t.Fatal("tampered correction was accepted")
+	}
+	var corrected int
+	if err := pool.QueryRow(ctx, `
+		select count(*) from app.critical_alerts
+		where user_id = $1::uuid and corrected_at is not null`, fixture.userID).Scan(&corrected); err != nil {
+		t.Fatal(err)
+	}
+	if corrected != 0 {
+		t.Fatalf("tampered correction changed %d alerts", corrected)
+	}
+}
+
+func TestUnreviewedOrDraftCorrectionCannotSuppressQueuedAlert(t *testing.T) {
+	for _, test := range []struct {
+		name           string
+		global         bool
+		classification string
+	}{
+		{"unreviewed global downgrade", true,
+			`"type":"unreviewed","github_reviewed_at":"2026-09-20T22:01:00Z",`},
+		{"draft repository downgrade", false, `"state":"draft",`},
+		{"draft repository withdrawal", false, `"state":"draft",`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			pool := openAssessmentPool(t)
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			fixture := seedAssessment(t, ctx, pool, test.global)
+			reader := &fixtureReader{payload: bytes.Clone(fixture.payload), byObjectKey: map[string][]byte{}}
+			jobs, err := jobqueue.NewIsolatedTestInserter("test_alert_assessment")
+			if err != nil {
+				t.Fatal(err)
+			}
+			store, err := New(pool, jobs, reader, clock.NewFixed(fixture.now))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := store.Assess(ctx, fixture.childID, fixture.revisionID); err != nil {
+				t.Fatal(err)
+			}
+			withdrawnAt := ""
+			if test.name == "draft repository withdrawal" {
+				withdrawnAt = "2026-09-20T23:31:00Z"
+			}
+			childID, revisionID, key, payload := seedCorrectionRevision(t, ctx, fixture,
+				"high", withdrawnAt, true, test.classification)
+			reader.byObjectKey[key] = payload
+			if err := store.Assess(ctx, childID, revisionID); err != nil {
+				t.Fatal(err)
+			}
+			var corrected int
+			if err := pool.QueryRow(ctx, `
+				select count(*) from app.critical_alerts
+				where user_id = $1::uuid and corrected_at is not null`, fixture.userID).
+				Scan(&corrected); err != nil {
+				t.Fatal(err)
+			}
+			if corrected != 0 {
+				t.Fatalf("untrusted correction changed %d alerts", corrected)
+			}
+		})
+	}
+}
+
+func TestStaleCorrectionCannotSuppressQueuedAlert(t *testing.T) {
+	pool := openAssessmentPool(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	fixture := seedAssessment(t, ctx, pool)
+	reader := &fixtureReader{payload: bytes.Clone(fixture.payload), byObjectKey: map[string][]byte{}}
+	jobs, err := jobqueue.NewIsolatedTestInserter("test_alert_assessment")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := New(pool, jobs, reader, clock.NewFixed(fixture.now))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Assess(ctx, fixture.childID, fixture.revisionID); err != nil {
+		t.Fatal(err)
+	}
+	childID, revisionID, key, payload := seedCorrectionRevision(t, ctx, fixture,
+		"high", "", false)
+	reader.byObjectKey[key] = payload
+	fixture.exec(t, ctx, `update app.raw_documents set first_seen_at = $2
+		where id = $1::uuid`, childID, fixture.now.Add(-time.Minute))
+	if err := store.Assess(ctx, childID, revisionID); err != nil {
+		t.Fatal(err)
+	}
+	var corrected int
+	if err := pool.QueryRow(ctx, `
+		select count(*) from app.critical_alerts
+		where user_id = $1::uuid and corrected_at is not null`, fixture.userID).
+		Scan(&corrected); err != nil {
+		t.Fatal(err)
+	}
+	if corrected != 0 {
+		t.Fatalf("stale correction changed %d alerts", corrected)
 	}
 }
 

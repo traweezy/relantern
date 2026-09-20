@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -119,6 +120,20 @@ func TestAlertHistoryBoundsPageAndLinksToNextPage(t *testing.T) {
 	response = alertHistoryRequest(application, token, storyID, "/api/v1/alerts?cursor=")
 	if response.Code != http.StatusOK || reader.userID != storyID || reader.limit != 20 {
 		t.Fatalf("empty cursor first-page alias = %d, %q, %d", response.Code, reader.userID, reader.limit)
+	}
+}
+
+func TestAlertHistoryCorrectionSchemaAcceptsNullAndReviewedReasons(t *testing.T) {
+	t.Parallel()
+	application := newAlertHistoryApplication(&alertFixtureReader{}, strings.Repeat("s", 32))
+	alertSchema := application.API.OpenAPI().Components.Schemas.Map()["AlertHistoryItem"]
+	if alertSchema == nil || alertSchema.Properties["correctionReason"] == nil {
+		t.Fatal("alert history correction schema is missing")
+	}
+	got := alertSchema.Properties["correctionReason"].Enum
+	want := []any{"withdrawn", "no_longer_published", "severity_downgraded", "severity_unconfirmed", nil}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("correction reason enum = %#v, want %#v", got, want)
 	}
 }
 

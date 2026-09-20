@@ -58,7 +58,28 @@ func (store *Store) BeginDelivery(ctx context.Context, deliveryID string, now ti
 	if err != nil {
 		return nil, fmt.Errorf("lock critical alert delivery: %w", err)
 	}
-	if state == "sent" || state == "permanent" || now.Before(nextAttemptAt) {
+	if state == "sent" || state == "permanent" || state == "suppressed" {
+		return nil, nil
+	}
+	corrected, err := deliveryCorrected(ctx, tx, deliveryID)
+	if err != nil {
+		return nil, err
+	}
+	if corrected {
+		if state == "pending" || state == "failed" {
+			if _, err := tx.Exec(ctx, `
+				update app.critical_alert_deliveries
+				set state = 'suppressed', updated_at = $2
+				where id = $1::uuid`, deliveryID, now.UTC()); err != nil {
+				return nil, fmt.Errorf("suppress corrected critical alert before delivery: %w", err)
+			}
+			if err := tx.Commit(ctx); err != nil {
+				return nil, fmt.Errorf("commit critical alert suppression: %w", err)
+			}
+		}
+		return nil, nil
+	}
+	if now.Before(nextAttemptAt) {
 		return nil, nil
 	}
 	if state == "sending" && lastAttemptAt != nil && now.Sub(*lastAttemptAt) < 2*time.Minute {
@@ -161,11 +182,18 @@ func (store *Store) FailDelivery(ctx context.Context, deliveryID string, code st
 	if state != "sending" || now.Before(attemptedAt) {
 		return errors.New("critical alert delivery is not sending")
 	}
+	corrected, err := deliveryCorrected(ctx, tx, deliveryID)
+	if err != nil {
+		return err
+	}
 	state = "failed"
 	outcome := "retryable"
 	if permanent {
 		state = "permanent"
 		outcome = "permanent"
+	}
+	if corrected {
+		state = "suppressed"
 	}
 	nextAttemptAt := now.UTC()
 	if !permanent && code == "provider_retry_exhausted" {
@@ -186,6 +214,20 @@ func (store *Store) FailDelivery(ctx context.Context, deliveryID string, code st
 		return fmt.Errorf("mark critical alert delivery failed: %w", err)
 	}
 	return tx.Commit(ctx)
+}
+
+// Read after the delivery row lock, so a correction committed while the
+// claimant waited cannot be hidden by the locking statement's old snapshot.
+func deliveryCorrected(ctx context.Context, tx pgx.Tx, deliveryID string) (bool, error) {
+	var corrected bool
+	if err := tx.QueryRow(ctx, `
+		select alert.corrected_at is not null
+		from app.critical_alert_deliveries delivery
+		join app.critical_alerts alert on alert.id = delivery.alert_id
+		where delivery.id = $1::uuid`, deliveryID).Scan(&corrected); err != nil {
+		return false, fmt.Errorf("read critical alert correction: %w", err)
+	}
+	return corrected, nil
 }
 
 // ReconcileDeliveries restores River jobs that exhausted their retry budget or
@@ -229,7 +271,8 @@ func (store *Store) ReconcileDeliveries(ctx context.Context, now time.Time) (ale
 	stranded := make([]strandedDelivery, 0, criticalDeliveryRecoveryPageSize)
 	for rows.Next() {
 		var candidate strandedDelivery
-		if err := rows.Scan(&candidate.id, &candidate.state, &candidate.attemptCount, &candidate.lastAttemptAt); err != nil {
+		if err := rows.Scan(&candidate.id, &candidate.state, &candidate.attemptCount,
+			&candidate.lastAttemptAt); err != nil {
 			rows.Close()
 			return alert.ReconcileResult{}, fmt.Errorf("scan stranded critical delivery: %w", err)
 		}
@@ -240,6 +283,39 @@ func (store *Store) ReconcileDeliveries(ctx context.Context, now time.Time) (ale
 		return alert.ReconcileResult{}, fmt.Errorf("iterate stranded critical deliveries: %w", err)
 	}
 	rows.Close()
+	IDs := make([]uuid.UUID, 0, len(stranded))
+	for _, candidate := range stranded {
+		ID, err := uuid.Parse(candidate.id)
+		if err != nil {
+			return alert.ReconcileResult{}, fmt.Errorf("parse stranded critical delivery ID: %w", err)
+		}
+		IDs = append(IDs, ID)
+	}
+	corrected := make(map[string]bool, len(IDs))
+	if len(IDs) > 0 {
+		correctionRows, err := tx.Query(ctx, `
+			select delivery.id::text, admitted.corrected_at is not null
+			from app.critical_alert_deliveries delivery
+			join app.critical_alerts admitted on admitted.id = delivery.alert_id
+			where delivery.id = any($1::uuid[])`, IDs)
+		if err != nil {
+			return alert.ReconcileResult{}, fmt.Errorf("read stranded critical corrections: %w", err)
+		}
+		for correctionRows.Next() {
+			var ID string
+			var isCorrected bool
+			if err := correctionRows.Scan(&ID, &isCorrected); err != nil {
+				correctionRows.Close()
+				return alert.ReconcileResult{}, fmt.Errorf("scan stranded critical correction: %w", err)
+			}
+			corrected[ID] = isCorrected
+		}
+		if err := correctionRows.Err(); err != nil {
+			correctionRows.Close()
+			return alert.ReconcileResult{}, fmt.Errorf("iterate stranded critical corrections: %w", err)
+		}
+		correctionRows.Close()
+	}
 	result := alert.ReconcileResult{}
 	for _, candidate := range stranded {
 		if candidate.state == "sending" {
@@ -254,12 +330,27 @@ func (store *Store) ReconcileDeliveries(ctx context.Context, now time.Time) (ale
 				candidate.id, candidate.attemptCount, *candidate.lastAttemptAt, now); err != nil {
 				return alert.ReconcileResult{}, fmt.Errorf("record interrupted critical send: %w", err)
 			}
+			state := "failed"
+			if corrected[candidate.id] {
+				state = "suppressed"
+			}
 			if _, err := tx.Exec(ctx, `
 				update app.critical_alert_deliveries
-				set state = 'failed', next_attempt_at = $2, updated_at = $2
-				where id = $1::uuid`, candidate.id, now); err != nil {
+				set state = $3, next_attempt_at = $2, updated_at = $2
+				where id = $1::uuid`, candidate.id, now, state); err != nil {
 				return alert.ReconcileResult{}, fmt.Errorf("release stranded critical send: %w", err)
 			}
+		}
+		if corrected[candidate.id] {
+			if candidate.state != "sending" {
+				if _, err := tx.Exec(ctx, `
+					update app.critical_alert_deliveries
+					set state = 'suppressed', updated_at = $2
+					where id = $1::uuid`, candidate.id, now); err != nil {
+					return alert.ReconcileResult{}, fmt.Errorf("suppress stranded corrected delivery: %w", err)
+				}
+			}
+			continue
 		}
 		if _, inserted, err := store.jobs.EnqueueDeliverCriticalAlert(ctx, tx,
 			jobqueue.DeliverCriticalAlertArgs{DeliveryID: candidate.id}, now); err != nil {
@@ -274,7 +365,8 @@ func (store *Store) ReconcileDeliveries(ctx context.Context, now time.Time) (ale
 	if err := store.pool.QueryRow(ctx, `
 		select count(*)::bigint
 		from app.critical_alert_deliveries delivery
-		where delivery.state <> 'sent' and (
+		join app.critical_alerts admitted on admitted.id = delivery.alert_id
+		where admitted.corrected_at is null and delivery.state not in ('sent', 'suppressed') and (
 			delivery.state = 'permanent' or
 			coalesce((select min(attempted_at) from app.critical_alert_attempts attempt
 				where attempt.delivery_id = delivery.id),

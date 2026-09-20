@@ -1002,6 +1002,34 @@ button {
   color: oklch(0.87 0.075 30);
 }
 
+.critical-alert-card--corrected {
+  border-color: oklch(0.7 0.1 205 / 55%);
+  background: linear-gradient(150deg, oklch(0.22 0.035 210), oklch(0.18 0.02 250));
+}
+
+.critical-alert-card--corrected .critical-alert-severity,
+.critical-alert-card--corrected .critical-alert-reason {
+  color: oklch(0.9 0.09 205);
+}
+
+.alert-correction {
+  padding: 0.8rem 0.9rem;
+  margin: 0.9rem 0;
+  border-left: 3px solid oklch(0.75 0.12 205);
+  border-radius: 0.3rem;
+  background: oklch(0.28 0.035 210 / 70%);
+}
+
+.alert-correction strong {
+  color: oklch(0.94 0.055 205);
+  font-size: 0.78rem;
+}
+
+.critical-alert-card .alert-correction p {
+  margin: 0.35rem 0 0;
+  color: oklch(0.88 0.025 205);
+}
+
 .critical-alert-card a {
   display: inline-flex;
   min-height: 2rem;
@@ -1021,6 +1049,7 @@ button {
   display: grid;
   gap: 0.85rem;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 24rem), 1fr));
+  align-items: start;
 }
 
 .alert-history .collection-toolbar > p {

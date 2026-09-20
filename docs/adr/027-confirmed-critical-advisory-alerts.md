@@ -52,6 +52,23 @@ default local stack must keep external delivery disconnected.
   retain the alert and delivery ledger for reviewed intervention.
 - Reassess already ingested current advisories after relevant active watch
   changes using bounded keyset jobs. The assessor remains the single matcher.
+- When a newer validated child of the same official source entry explicitly
+  withdraws or closes an advisory, or changes its severity away from critical,
+  retain the original alert and record the correction revision. Suppress pending
+  and retryable external deliveries before another attempt. A send already in
+  flight may complete; retain its provider receipt, and suppress a failed send
+  instead of retrying.
+  An omitted severity alone is insufficient correction evidence. Owner history
+  labels the correction, while Today counts only currently confirmed critical
+  alerts. A still later validated correction updates the displayed correction
+  reason and revision without changing the original alert. A correction from a
+  different source entry does not overturn the admitted evidence without a
+  reviewed authority rule.
+- Correction suppression is terminal in this staging slice. A later return to
+  critical cannot reuse the original alert or provider idempotency key. Before
+  production rollout, add a new immutable alert episode with a fresh key and
+  handle byte-identical advisory content reappearing after a correction;
+  source-entry raw digest deduplication currently hides that transition.
 
 ## Reliability and security
 
@@ -63,7 +80,11 @@ The private `critical_alert_undelivered_count` metric and
 `critical_advisory_undelivered` signal expose permanently failed deliveries
 and unsent external deliveries older than ten minutes after due or first
 attempt. Quiet-hour deferrals are excluded until due. The reconciler also logs
-the overdue and recovery counts.
+the overdue and recovery counts. Corrected alerts and suppressed deliveries
+are excluded from overdue counts; their original evidence and attempts remain
+available in owner history. Private `critical_alert_corrected_count` and
+`critical_alert_delivery_suppressed_count` gauges expose correction volume
+without advisory IDs or owner labels.
 The private `reviewed_advisory_scan_pending` and
 `reviewed_advisory_scan_age_seconds` gauges expose incomplete pagination. A
 scan still pending after 24 hours raises `reviewed_advisory_scan_stalled`.
@@ -86,9 +107,11 @@ production delivery fuses remain in force.
 
 ## Rollout and rollback
 
-Apply migrations 26 through 28 before the API and worker. Deploy the API and web
+Apply migrations 26 through 31 before the API and worker. Deploy the API and web
 with the worker so new queue kinds have registered consumers. Verify a
 confirmed fixture, a rumor fixture, quiet-hour behavior, and the safe capture
-viewer. Roll back application code first while retaining the additive ledgers;
+viewer. A rollback to a worker that predates migration 29 must disable external
+critical alert delivery until the compatible worker is restored: the older
+claim path does not recognize `suppressed`. Retain the additive ledgers and
 repair schema through a later forward migration. Do not delete evidence or
 ledger rows to replay a delivery.

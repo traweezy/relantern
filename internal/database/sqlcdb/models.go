@@ -174,22 +174,25 @@ type AppContentRevision struct {
 }
 
 type AppCriticalAlert struct {
-	ID              pgtype.UUID        `json:"id"`
-	UserID          pgtype.UUID        `json:"user_id"`
-	AdvisoryID      string             `json:"advisory_id"`
-	Ecosystem       string             `json:"ecosystem"`
-	PackageName     string             `json:"package_name"`
-	CurrentVersion  string             `json:"current_version"`
-	VulnerableRange string             `json:"vulnerable_range"`
-	PatchedVersion  string             `json:"patched_version"`
-	RawDocumentID   pgtype.UUID        `json:"raw_document_id"`
-	RevisionID      pgtype.UUID        `json:"revision_id"`
-	ItemID          pgtype.UUID        `json:"item_id"`
-	SourceID        string             `json:"source_id"`
-	SourceUrl       string             `json:"source_url"`
-	Title           string             `json:"title"`
-	ObservedAt      pgtype.Timestamptz `json:"observed_at"`
-	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	ID                   pgtype.UUID        `json:"id"`
+	UserID               pgtype.UUID        `json:"user_id"`
+	AdvisoryID           string             `json:"advisory_id"`
+	Ecosystem            string             `json:"ecosystem"`
+	PackageName          string             `json:"package_name"`
+	CurrentVersion       string             `json:"current_version"`
+	VulnerableRange      string             `json:"vulnerable_range"`
+	PatchedVersion       string             `json:"patched_version"`
+	RawDocumentID        pgtype.UUID        `json:"raw_document_id"`
+	RevisionID           pgtype.UUID        `json:"revision_id"`
+	ItemID               pgtype.UUID        `json:"item_id"`
+	SourceID             string             `json:"source_id"`
+	SourceUrl            string             `json:"source_url"`
+	Title                string             `json:"title"`
+	ObservedAt           pgtype.Timestamptz `json:"observed_at"`
+	CreatedAt            pgtype.Timestamptz `json:"created_at"`
+	CorrectionReason     pgtype.Text        `json:"correction_reason"`
+	CorrectionRevisionID pgtype.UUID        `json:"correction_revision_id"`
+	CorrectedAt          pgtype.Timestamptz `json:"corrected_at"`
 }
 
 type AppCriticalAlertAttempt struct {

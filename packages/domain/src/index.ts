@@ -109,11 +109,18 @@ export type AlertDeliveryStatus = Readonly<{
   channel: "discord" | "email";
   deliveredAt: string | null;
   nextAttemptAt: string | null;
-  state: "pending" | "sending" | "sent" | "failed" | "permanent";
+  state: "pending" | "sending" | "sent" | "failed" | "permanent" | "suppressed";
 }>;
 
 export type AlertHistoryItem = CriticalAlert &
   Readonly<{
+    correctionReason:
+      | "withdrawn"
+      | "no_longer_published"
+      | "severity_downgraded"
+      | "severity_unconfirmed"
+      | null;
+    correctedAt: string | null;
     deliveries: readonly AlertDeliveryStatus[];
   }>;
 

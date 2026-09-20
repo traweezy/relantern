@@ -74,7 +74,7 @@ type CriticalAlert struct {
 
 type AlertDeliveryStatus struct {
 	Channel       string     `json:"channel"`
-	State         string     `json:"state"`
+	State         string     `json:"state" enum:"pending,sending,sent,failed,permanent,suppressed"`
 	AttemptCount  int        `json:"attemptCount"`
 	DeliveredAt   *time.Time `json:"deliveredAt"`
 	NextAttemptAt *time.Time `json:"nextAttemptAt"`
@@ -82,7 +82,9 @@ type AlertDeliveryStatus struct {
 
 type AlertHistoryItem struct {
 	CriticalAlert
-	Deliveries []AlertDeliveryStatus `json:"deliveries"`
+	CorrectionReason *string               `json:"correctionReason" enum:"withdrawn,no_longer_published,severity_downgraded,severity_unconfirmed"`
+	CorrectedAt      *time.Time            `json:"correctedAt"`
+	Deliveries       []AlertDeliveryStatus `json:"deliveries"`
 }
 
 type AlertHistoryPage struct {

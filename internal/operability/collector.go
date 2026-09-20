@@ -28,6 +28,8 @@ type Snapshot struct {
 	DigestFailures         int64     `json:"digestFailures"`
 	DelayedDigests         int64     `json:"delayedDigests"`
 	UndeliveredCritical    int64     `json:"undeliveredCriticalAlerts"`
+	CorrectedCritical      int64     `json:"correctedCriticalAlerts"`
+	SuppressedDeliveries   int64     `json:"suppressedCriticalDeliveries"`
 	AdvisoryScanPending    int64     `json:"advisoryScanPending"`
 	AdvisoryScanAge        float64   `json:"advisoryScanAgeSeconds"`
 	AdvisoryScanIssues     int64     `json:"advisoryScanIssues"`
@@ -102,12 +104,15 @@ func (collector *Collector) Collect(ctx context.Context, now time.Time) (Snapsho
 			(select count(*)::bigint from app.delivery_attempts where state = 'failed'),
 			(select count(*)::bigint from app.schedule_occurrences occurrence join app.schedule_definitions schedule on schedule.id = occurrence.schedule_id where schedule.schedule_type = 'daily_digest' and occurrence.state not in ('delivered', 'skipped', 'missed') and occurrence.scheduled_for < $1 - interval '15 minutes'),
 			(select count(*)::bigint from app.critical_alert_deliveries delivery
-			 where delivery.state <> 'sent' and (
+			 join app.critical_alerts alert on alert.id = delivery.alert_id
+			 where alert.corrected_at is null and delivery.state not in ('sent', 'suppressed') and (
 			   delivery.state = 'permanent' or
 			   coalesce((select min(attempted_at) from app.critical_alert_attempts attempt
 			     where attempt.delivery_id = delivery.id),
 			     delivery.last_attempt_at, delivery.next_attempt_at) <= $1::timestamptz - interval '10 minutes'
 			 )),
+			(select count(*)::bigint from app.critical_alerts where corrected_at is not null),
+			(select count(*)::bigint from app.critical_alert_deliveries where state = 'suppressed'),
 			coalesce((select extract(epoch from ($1 - min(created_at))) from app.outbox_events), 0),
 			(select count(*)::bigint from app.feedback)`, now).Scan(
 		&snapshot.SourcePollDue,
@@ -125,6 +130,8 @@ func (collector *Collector) Collect(ctx context.Context, now time.Time) (Snapsho
 		&snapshot.DigestFailures,
 		&snapshot.DelayedDigests,
 		&snapshot.UndeliveredCritical,
+		&snapshot.CorrectedCritical,
+		&snapshot.SuppressedDeliveries,
 		&snapshot.OutboxLag,
 		&snapshot.Feedback,
 	)
@@ -260,6 +267,8 @@ func WritePrometheus(writer io.Writer, snapshot Snapshot) error {
 		{"digest_delivery_failure_total", snapshot.DigestFailures},
 		{"digest_delayed_total", snapshot.DelayedDigests},
 		{"critical_alert_undelivered_count", snapshot.UndeliveredCritical},
+		{"critical_alert_corrected_count", snapshot.CorrectedCritical},
+		{"critical_alert_delivery_suppressed_count", snapshot.SuppressedDeliveries},
 		{"reviewed_advisory_scan_pending", snapshot.AdvisoryScanPending},
 		{"reviewed_advisory_scan_age_seconds", snapshot.AdvisoryScanAge},
 		{"reviewed_advisory_scan_issues", snapshot.AdvisoryScanIssues},

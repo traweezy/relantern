@@ -788,12 +788,17 @@ export interface components {
             deliveredAt: string | null;
             /** Format: date-time */
             nextAttemptAt: string | null;
-            state: string;
+            /** @enum {string} */
+            state: "pending" | "sending" | "sent" | "failed" | "permanent" | "suppressed";
         };
         AlertHistoryItem: {
             advisoryId: string;
             /** Format: date-time */
             alertedAt: string;
+            /** Format: date-time */
+            correctedAt: string | null;
+            /** @enum {string|null} */
+            correctionReason: "withdrawn" | "no_longer_published" | "severity_downgraded" | "severity_unconfirmed" | null;
             currentVersion: string;
             deliveries: components["schemas"]["AlertDeliveryStatus"][] | null;
             ecosystem: string;

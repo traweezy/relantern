@@ -80,6 +80,7 @@ func TestAlertHistoryPaginatesOwnerAlertsAndDeliveryStates(t *testing.T) {
 	}
 	seen := make(map[string]bool, 25)
 	var deliveredFound bool
+	var correctionFound bool
 	for _, item := range append(first.Alerts, second.Alerts...) {
 		if seen[item.ID] || item.AlertedAt.After(time.Now().Add(-24*time.Hour)) {
 			t.Fatalf("duplicated or newer-than-24h alert: %+v", item)
@@ -99,12 +100,22 @@ func TestAlertHistoryPaginatesOwnerAlertsAndDeliveryStates(t *testing.T) {
 				t.Fatalf("delivery payload exposed private fields: %s, %v", payload, err)
 			}
 			deliveredFound = true
+		} else if item.ID == fixture.correctedAlertID {
+			if item.CorrectionReason == nil || *item.CorrectionReason != "withdrawn" ||
+				item.CorrectedAt == nil || item.CorrectedAt.Location() != time.UTC ||
+				len(item.Deliveries) != 1 || item.Deliveries[0].State != "suppressed" ||
+				item.Deliveries[0].NextAttemptAt != nil {
+				t.Fatalf("corrected alert history = %+v", item)
+			}
+			correctionFound = true
 		} else if len(item.Deliveries) != 0 {
 			t.Fatalf("alert %s inherited another alert's deliveries", item.ID)
+		} else if item.CorrectionReason != nil || item.CorrectedAt != nil {
+			t.Fatalf("unmodified alert gained a correction: %+v", item)
 		}
 	}
-	if len(seen) != 25 || !deliveredFound {
-		t.Fatalf("history covered %d alerts, found delivery = %t", len(seen), deliveredFound)
+	if len(seen) != 25 || !deliveredFound || !correctionFound {
+		t.Fatalf("history covered %d alerts, found delivery = %t, correction = %t", len(seen), deliveredFound, correctionFound)
 	}
 	if seen[newAlertID] {
 		t.Fatal("newer alert was inserted into an older cursor page")
@@ -159,19 +170,35 @@ func TestAlertHistoryPaginatesOwnerAlertsAndDeliveryStates(t *testing.T) {
 	if _, err := store.AlertHistory(ctx, fixture.ownerID, "", 101); !errors.Is(err, intelligence.ErrInvalidAlertHistory) {
 		t.Fatalf("oversized limit error = %v", err)
 	}
+	recentID := fixture.insertAlert(t, ctx, fixture.ownerID, 26, time.Now().UTC().Truncate(time.Microsecond))
+	recent, count, err := store.recentCriticalAlerts(ctx, fixture.ownerID, time.Now().UTC())
+	if err != nil || count != 1 || len(recent) != 1 || recent[0].ID != recentID {
+		t.Fatalf("active Today alerts = %+v, count %d, error %v", recent, count, err)
+	}
+	if _, err := pool.Exec(ctx, `update app.critical_alerts
+		set correction_reason = 'severity_downgraded', correction_revision_id = $2::uuid,
+			corrected_at = $3
+		where id = $1::uuid`, recentID, fixture.revisionID, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	recent, count, err = store.recentCriticalAlerts(ctx, fixture.ownerID, time.Now().UTC())
+	if err != nil || count != 0 || len(recent) != 0 {
+		t.Fatalf("corrected alert remained on Today: %+v, count %d, error %v", recent, count, err)
+	}
 }
 
 type alertHistoryFixture struct {
-	pool            *pgxpool.Pool
-	sourceID        string
-	ownerID         string
-	otherOwnerID    string
-	emptyOwnerID    string
-	deliveryAlertID string
-	otherAlertID    string
-	itemID          string
-	rawID           string
-	revisionID      string
+	pool             *pgxpool.Pool
+	sourceID         string
+	ownerID          string
+	otherOwnerID     string
+	emptyOwnerID     string
+	deliveryAlertID  string
+	correctedAlertID string
+	otherAlertID     string
+	itemID           string
+	rawID            string
+	revisionID       string
 }
 
 func seedAlertHistory(t *testing.T, ctx context.Context, pool *pgxpool.Pool) alertHistoryFixture {
@@ -231,6 +258,8 @@ func seedAlertHistory(t *testing.T, ctx context.Context, pool *pgxpool.Pool) ale
 		alertID := fixture.insertAlert(t, ctx, fixture.ownerID, number, base)
 		if number == 0 {
 			fixture.deliveryAlertID = alertID
+		} else if number == 1 {
+			fixture.correctedAlertID = alertID
 		}
 	}
 	fixture.otherAlertID = fixture.insertAlert(t, ctx, fixture.otherOwnerID, 0, base)
@@ -245,6 +274,14 @@ func seedAlertHistory(t *testing.T, ctx context.Context, pool *pgxpool.Pool) ale
 		next_attempt_at, attempt_count)
 		values ($1::uuid, 'email', 'failed', $2, $3, $4, 2)`, fixture.deliveryAlertID,
 		"private-idempotency-key-email-"+suffix, digest, base.Add(time.Hour))
+	exec(`update app.critical_alerts
+		set correction_reason = 'withdrawn', correction_revision_id = $2::uuid,
+			corrected_at = $3
+		where id = $1::uuid`, fixture.correctedAlertID, fixture.revisionID, base.Add(time.Minute))
+	exec(`insert into app.critical_alert_deliveries
+		(alert_id, channel, state, idempotency_key, payload_sha256, next_attempt_at)
+		values ($1::uuid, 'discord', 'suppressed', $2, $3, $4)`, fixture.correctedAlertID,
+		"private-idempotency-key-suppressed-"+suffix, digest, base.Add(time.Minute))
 	return fixture
 }
 
